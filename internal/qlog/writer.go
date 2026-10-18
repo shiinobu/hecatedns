@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -50,6 +51,21 @@ type Options struct {
 	Location *time.Location
 	// Log receives operational messages; nil discards them.
 	Log *slog.Logger
+
+	// open creates or appends to a day file; tests replace it to simulate a
+	// full disk. Nil means the real file system.
+	open func(path string) (logFile, error)
+}
+
+// logFile is the part of *os.File the Writer uses.
+type logFile interface {
+	io.Writer
+	io.Closer
+	Stat() (os.FileInfo, error)
+}
+
+func openLogFile(path string) (logFile, error) {
+	return os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, fileMode)
 }
 
 // Writer appends engine.Entry records to the daily JSONL files. Record never
@@ -74,12 +90,14 @@ type Writer struct {
 	dropped atomic.Uint64
 
 	// Owned by the writing goroutine (or by Close once that has finished).
-	file          *os.File
+	file          logFile
 	out           *bufio.Writer
 	day           string
 	dayBytes      int64
 	capWarnedDay  string
 	encoded       bytes.Buffer
+	pending       uint64 // records in out that a flush has not yet confirmed
+	torn          bool   // a failed write may have left half a record at the end of the file
 	reported      uint64
 	lastWriteErr  string
 	lastWriteErrT time.Time
@@ -112,6 +130,9 @@ func newWriter(opts Options) (*Writer, error) {
 	}
 	if opts.Now == nil {
 		opts.Now = time.Now
+	}
+	if opts.open == nil {
+		opts.open = openLogFile
 	}
 	w := &Writer{
 		opts:  opts,
@@ -264,13 +285,34 @@ func (w *Writer) write(e engine.Entry) {
 	if w.overCap(rec.Time.Format(dayLayout)) {
 		return
 	}
+	if w.torn && w.out.WriteByte('\n') == nil {
+		w.torn = false
+	}
 	n, err := w.out.Write(w.encoded.Bytes())
 	w.dayBytes += int64(n)
 	if err != nil {
+		w.discardBuffered()
 		w.fail(fmt.Errorf("write query log: %w", err))
 		return
 	}
 	w.written.Add(1)
+	w.pending++
+}
+
+// discardBuffered gives up the records still in the buffer after a failed
+// write or flush and counts them as dropped, not written. bufio.Writer keeps
+// its first error and refuses everything after it, so without the reset one
+// full-disk moment would end the log for the rest of the day. The failed write
+// may have left half a record on disk, so the next record starts a new line.
+func (w *Writer) discardBuffered() {
+	w.out.Reset(w.file)
+	w.torn = true
+	if w.pending == 0 {
+		return
+	}
+	w.written.Add(^(w.pending - 1))
+	w.dropped.Add(w.pending)
+	w.pending = 0
 }
 
 func (w *Writer) encode(rec Record) error {
@@ -308,11 +350,12 @@ func (w *Writer) selectFile(day string) error {
 		w.log.Warn("closing the previous query log failed", "error", err)
 	}
 	path := filepath.Join(w.opts.Dir, filePrefix+day+fileSuffix)
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, fileMode)
+	file, err := w.opts.open(path)
 	if err != nil {
 		return fmt.Errorf("open query log: %w", err)
 	}
 	w.file, w.out, w.day = file, bufio.NewWriterSize(file, fileBufferBytes), day
+	w.pending, w.torn = 0, false
 	w.dayBytes = existingSize(file)
 	if rotating {
 		w.purge()
@@ -322,7 +365,7 @@ func (w *Writer) selectFile(day string) error {
 
 // existingSize returns the bytes already in an appended-to file, so a restart
 // does not forget what was written earlier the same day.
-func existingSize(file *os.File) int64 {
+func existingSize(file logFile) int64 {
 	if info, err := file.Stat(); err == nil {
 		return info.Size()
 	}
@@ -334,9 +377,11 @@ func (w *Writer) flush() error {
 		return nil
 	}
 	if err := w.out.Flush(); err != nil {
-		w.fail(fmt.Errorf("flush query log: %w", err))
+		w.discardBuffered()
+		w.reportFailure(fmt.Errorf("flush query log: %w", err))
 		return err
 	}
+	w.pending = 0
 	return nil
 }
 
@@ -356,6 +401,11 @@ func (w *Writer) closeFile() error {
 // than once a minute, so a full disk cannot flood the server log.
 func (w *Writer) fail(err error) {
 	w.dropped.Add(1)
+	w.reportFailure(err)
+}
+
+// reportFailure logs err, but not the same error more than once a minute.
+func (w *Writer) reportFailure(err error) {
 	now := w.opts.Now()
 	if msg := err.Error(); msg != w.lastWriteErr || now.Sub(w.lastWriteErrT) > time.Minute {
 		w.log.Error("query log write failed, the record was dropped", "error", err)
