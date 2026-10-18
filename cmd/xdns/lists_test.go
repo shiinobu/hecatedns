@@ -1,5 +1,6 @@
-// agy wrote this
 package main
+
+// agy wrote this
 
 import (
 	"bytes"

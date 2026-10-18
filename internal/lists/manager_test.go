@@ -155,16 +155,77 @@ func TestManager_ReloadCacheDetectsDiskChange(t *testing.T) {
 		t.Fatalf("ReloadCache unchanged = (%v, %v), want (false, nil)", changed, err)
 	}
 
-	// Simulate `xdns lists update` rewriting list1.txt with a new size/mtime.
-	if err := writeFileAtomic(p, []byte("v2.example.com\nextra.example.com\n")); err != nil {
+	// Simulate rewriting list1.txt with the exact same byte length (15 bytes) and a newer mtime.
+	if err := writeFileAtomic(p, []byte("v2.example.com\n")); err != nil {
 		t.Fatalf("writeFileAtomic v2: %v", err)
+	}
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(p, future, future); err != nil {
+		t.Fatalf("Chtimes: %v", err)
 	}
 	changed, err = mgr.ReloadCache()
 	if err != nil || !changed {
-		t.Fatalf("ReloadCache after disk update = (%v, %v), want (true, nil)", changed, err)
+		t.Fatalf("ReloadCache after same-size disk update = (%v, %v), want (true, nil)", changed, err)
 	}
 	if _, ok := mgr.Snapshot().LookupBlock("v2.example.com"); !ok {
 		t.Errorf("expected v2.example.com after ReloadCache")
+	}
+}
+
+func TestManager_Refresh304ReusesInMemorySetAndOfflineRefreshSkipsPublish(t *testing.T) {
+	var failAll atomic.Bool
+	srv, client := newTLSServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if failAll.Load() {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		if r.Header.Get("If-None-Match") == `"etag-1"` {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("ETag", `"etag-1"`)
+		_, _ = w.Write([]byte("cached.example.com\n"))
+	})
+
+	dir := t.TempDir()
+	target := &recordingSwapper{}
+	sources := []config.Source{
+		{Name: "list1", URL: srv.URL + "/list1.txt", Kind: config.KindBlock, Format: config.FormatDomains, Enabled: true},
+	}
+	mgr := NewManager(ManagerOptions{
+		Dir:     dir,
+		Sources: sources,
+		Target:  target,
+		Fetcher: &Fetcher{Dir: dir, Client: client},
+	})
+
+	// Initial Refresh populates disk cache with ETag "etag-1".
+	if err := mgr.Refresh(context.Background()); err != nil {
+		t.Fatalf("initial Refresh: %v", err)
+	}
+	mgr.mu.Lock()
+	setBefore := mgr.sets["list1"]
+	mgr.mu.Unlock()
+
+	// Second Refresh gets 304 Not Modified and must reuse the in-memory *engine.DomainSet without re-parsing disk.
+	if err := mgr.Refresh(context.Background()); err != nil {
+		t.Fatalf("304 Refresh: %v", err)
+	}
+	mgr.mu.Lock()
+	setAfter := mgr.sets["list1"]
+	mgr.mu.Unlock()
+	if setBefore == nil || setBefore != setAfter {
+		t.Errorf("expected 304 Refresh to reuse in-memory DomainSet pointer (%p vs %p)", setBefore, setAfter)
+	}
+
+	// Offline Refresh (all sources fail) must not re-publish an unchanged snapshot.
+	snapBefore := mgr.Snapshot()
+	failAll.Store(true)
+	if err := mgr.Refresh(context.Background()); err == nil {
+		t.Fatalf("expected error when all sources fail")
+	}
+	if snapAfter := mgr.Snapshot(); snapAfter != snapBefore {
+		t.Errorf("expected offline Refresh to keep Snapshot pointer unchanged (%p vs %p)", snapBefore, snapAfter)
 	}
 }
 

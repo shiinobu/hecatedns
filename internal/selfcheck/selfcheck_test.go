@@ -1,5 +1,6 @@
-// agy wrote this
 package selfcheck
+
+// agy wrote this
 
 import (
 	"context"
@@ -317,4 +318,3 @@ func TestRun_SkipsAllowedFirstEntryAndPicksListOwnSample(t *testing.T) {
 		t.Fatal("Run succeeded when cfg.Rules.File is a directory, want error")
 	}
 }
-

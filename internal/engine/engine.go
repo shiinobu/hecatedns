@@ -207,7 +207,7 @@ func (e *Engine) reject(ctx context.Context, q Query) Decision {
 
 // filter applies the custom rules and the lists to an allowed client's query.
 func (e *Engine) filter(ctx context.Context, q Query) (dec Decision) {
-	defer e.failOpen(ctx, &dec)
+	defer e.failOpen(ctx, "before", &dec)
 	name, ok := questionName(q.Req)
 	if !ok {
 		return e.reject(ctx, q)

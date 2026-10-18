@@ -78,10 +78,11 @@ func rcodeString(rcode int) string {
 	return "RCODE" + strconv.Itoa(rcode)
 }
 
+// agy wrote this
 // failOpen must be deferred directly: it turns a panic into a Pass decision.
-func (e *Engine) failOpen(ctx context.Context, dec *Decision) {
+func (e *Engine) failOpen(ctx context.Context, stage string, dec *Decision) {
 	if r := recover(); r != nil {
-		e.logPanic(ctx, "before", r)
+		e.logPanic(ctx, stage, r)
 		*dec = Decision{Verdict: Pass}
 	}
 }

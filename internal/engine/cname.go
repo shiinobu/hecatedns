@@ -12,7 +12,7 @@ import (
 // chain pointing to a blocked domain. It never mutates q.Req or resp, and
 // fails open (returns Pass) if an unexpected panic occurs.
 func (e *Engine) inspectAnswer(ctx context.Context, q Query, resp *dns.Msg) (dec Decision) {
-	defer e.failOpen(ctx, &dec)
+	defer e.failOpen(ctx, "after", &dec)
 	if _, ok := questionName(q.Req); !ok {
 		return Decision{Verdict: Pass}
 	}

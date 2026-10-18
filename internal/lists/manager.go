@@ -167,6 +167,7 @@ func (m *Manager) ReloadCache() (changed bool, err error) {
 		}
 		stamp, exists, statErr := statList(m.dir, src.Name)
 		if statErr != nil {
+			m.log.Error("cached list stat failed", "list", src.Name, "error", statErr)
 			errs = append(errs, statErr)
 			continue
 		}
@@ -212,7 +213,8 @@ func (m *Manager) Refresh(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		res, err := m.fetcher.Fetch(ctx, src)
+		cached := m.cachedSetIfStampMatches(src.Name)
+		res, err := m.fetcher.FetchWithCached(ctx, src, cached)
 		if err != nil {
 			m.log.Error("list refresh failed, keeping cached copy", "list", src.Name, "error", err)
 			errs = append(errs, err)
@@ -228,10 +230,25 @@ func (m *Manager) Refresh(ctx context.Context) error {
 		m.sets[u.src.Name] = u.res.Set
 		m.stamps[u.src.Name] = u.stamp
 	}
-	m.publishLocked()
+	if len(updates) > 0 || m.current.Load() == nil {
+		m.publishLocked()
+	}
 	m.mu.Unlock()
 
 	return errors.Join(errs...)
+}
+
+func (m *Manager) cachedSetIfStampMatches(name string) *engine.DomainSet {
+	stamp, exists, err := statList(m.dir, name)
+	if err != nil || !exists {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if prev, ok := m.stamps[name]; ok && prev == stamp {
+		return m.sets[name]
+	}
+	return nil
 }
 
 // Run refreshes lists in the background immediately, then periodically every

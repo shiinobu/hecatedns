@@ -107,7 +107,8 @@ func matchesAnyListen(listens []netip.AddrPort, target netip.AddrPort) bool {
 		if l.Addr() == target.Addr() {
 			return true
 		}
-		if l.Addr().IsUnspecified() && target.Addr().IsLoopback() && l.Addr().Is4() == target.Addr().Is4() {
+		if (l.Addr().IsUnspecified() || l.Addr().IsLoopback()) &&
+			(target.Addr().IsUnspecified() || target.Addr().IsLoopback()) {
 			return true
 		}
 	}
@@ -126,9 +127,15 @@ func upstreamAddrPort(u string) (netip.AddrPort, bool) {
 	if err != nil {
 		return netip.AddrPort{}, false
 	}
-	ip, err := netip.ParseAddr(parsed.Hostname())
-	if err != nil {
-		return netip.AddrPort{}, false
+	host := parsed.Hostname()
+	var ip netip.Addr
+	if strings.EqualFold(host, "localhost") {
+		ip = netip.AddrFrom4([4]byte{127, 0, 0, 1})
+	} else {
+		ip, err = netip.ParseAddr(host)
+		if err != nil {
+			return netip.AddrPort{}, false
+		}
 	}
 	var port uint16
 	switch parsed.Scheme {

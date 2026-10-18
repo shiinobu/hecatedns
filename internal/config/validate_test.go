@@ -356,6 +356,24 @@ func TestWarnings_DetectsLoopingUpstreamAndBootstrap(t *testing.T) {
 			bootstrap: []string{"127.0.0.1"},
 			wantLoop:  1,
 		},
+		{
+			name:      "upstream IPv4 loopback against IPv6 unspecified listen",
+			listen:    []string{"[::]:5300"},
+			upstreams: []string{"127.0.0.1:5300"},
+			wantLoop:  1,
+		},
+		{
+			name:      "upstream unspecified against loopback listen",
+			listen:    []string{"127.0.0.1:5300"},
+			upstreams: []string{"0.0.0.0:5300"},
+			wantLoop:  1,
+		},
+		{
+			name:      "upstream localhost URL against loopback listen",
+			listen:    []string{"127.0.0.1:5300"},
+			upstreams: []string{"udp://localhost:5300"},
+			wantLoop:  1,
+		},
 	}
 
 	for _, tt := range tests {

@@ -81,6 +81,12 @@ type Fetcher struct {
 // <name>.txt and <name>.meta.json atomically into f.Dir. On any error the
 // existing cached copy in f.Dir is left untouched.
 func (f *Fetcher) Fetch(ctx context.Context, src config.Source) (FetchResult, error) {
+	return f.FetchWithCached(ctx, src, nil)
+}
+
+// FetchWithCached behaves like Fetch, but on HTTP 304 Not Modified reuses
+// cached (when non-nil and non-empty) instead of re-parsing <name>.txt from disk.
+func (f *Fetcher) FetchWithCached(ctx context.Context, src config.Source, cached *engine.DomainSet) (FetchResult, error) {
 	if err := validateSource(src); err != nil {
 		return FetchResult{}, err
 	}
@@ -103,7 +109,7 @@ func (f *Fetcher) Fetch(ctx context.Context, src config.Source) (FetchResult, er
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotModified && prevETag != "" {
-		return f.handleNotModified(src)
+		return f.handleNotModified(src, cached)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return FetchResult{}, fmt.Errorf("fetch %s: unexpected HTTP status %d", src.Name, resp.StatusCode)
@@ -111,7 +117,18 @@ func (f *Fetcher) Fetch(ctx context.Context, src config.Source) (FetchResult, er
 	return f.saveResponse(src, resp)
 }
 
-func (f *Fetcher) handleNotModified(src config.Source) (FetchResult, error) {
+func (f *Fetcher) handleNotModified(src config.Source, cached *engine.DomainSet) (FetchResult, error) {
+	if cached != nil && cached.Len() > 0 {
+		meta, err := ReadMeta(f.Dir, src.Name)
+		if err == nil {
+			meta.Count = cached.Len()
+			meta.FetchedAt = f.now()
+			if err := writeMetaAtomic(f.Dir, src.Name, meta); err != nil {
+				return FetchResult{}, err
+			}
+			return FetchResult{Set: cached, Meta: meta, NotModified: true}, nil
+		}
+	}
 	set, meta, err := LoadCached(f.Dir, src)
 	if err != nil {
 		return FetchResult{}, fmt.Errorf("fetch %s (304 cache): %w", src.Name, err)
