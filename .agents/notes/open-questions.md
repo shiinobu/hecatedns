@@ -34,3 +34,7 @@ Add new questions at the bottom with a number. When one is answered, move it to 
 
 - 2026-10-18: Commit `.agents/`? Master said yes, and also asked for `.claude/` ("commit sekalian .claude"). Done in two commits; `.claude/settings.local.json` stays gitignored (local setting, turns the ECC guard off on this PC only). Master may ask to track it too.
 - Still open from Master: a root `AGENTS.md` pointer to `.agents/` (offered, not created).
+
+**Q4. TCP slot exhaustion (Phase 1 review I1, accepted until Phase 6).** dnsproxy gives every accepted TCP connection one slot of the shared request semaphore (`MaxGoroutines`, 256) for the life of the connection (idle timeout 10 s, extended by each request). The ACL runs per request inside our handler, so any host that can reach the port can open 256 idle TCP connections and stall UDP service too. Live measurement: a UDP query went from 1 ms to a 4 s timeout while 256 connections were held. Accepted for the home LAN (Phases 1-5). MUST be fixed before any public deployment (Phase 6): a second `proxy.Proxy` for TCP only with its own pool (a split cache is acceptable), or a connection-level ACL / per-IP connection limit in front of dnsproxy.
+
+**Q5. Concurrent `xdns rule` edits.** `rule add`/`remove` read-modify-write without a lock; two simultaneous invocations can lose an update (12 parallel adds kept all 12 in the review, so it is rare). Revisit only if it ever bites.

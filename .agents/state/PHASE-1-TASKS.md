@@ -26,9 +26,9 @@ Phase 1 is done when ALL of these hold (real binary, not only tests):
 - [x] **P1-09 `conformance` v1.** One table of backend constructors (only `dnsproxy` now; `native` joins in Phase 4). Fake upstream = miekg/dns server on `127.0.0.1:0`; backend under test on a random port. Cases: blocked A/AAAA/HTTPS, passed query, allow beats block, ACL REFUSED, log record written. Needs: P1-08.
 - [x] **P1-10 CLI.** `xdns run [-config f] [-backend dnsproxy|native]` (prints `Warnings()`, graceful shutdown on Ctrl+C via context), `xdns log [-since] [-grep] [-blocked] [-around] [-window]`, `xdns rule add block|allow <domain>` / `rule remove <domain>` / `rule list` (atomic write: temp file + rename). Indonesian messages, exit codes as in `main.go`. Keep `lists` as a stub (Phase 2). Needs: P1-06..P1-08.
 - [x] **P1-11 Config hardening** (roadmap task 10): a source without `enabled:` means true; `rules.file` must be non-empty; `log.dir` non-empty when logging is on; `listen` entries unique and port != 0; TTL values capped before the `uint32` conversion; `run` prints `Warnings()`; add `/xdns.yaml` to `.gitignore`. Each rule gets a failing test first.
-- [~] **P1-12 Phase gates.** Full gate set + `-race` + `govulncheck` (0 affected) + the "done when" checks above on the real binary. Evidence goes into `state/WORKLOG.md`. Then `/review-phase`, fix findings, `/close-phase`.
+- [x] **P1-12 Phase gates.** Full gate set + `-race` + `govulncheck` (0 affected) + the "done when" checks above on the real binary. Evidence goes into `state/WORKLOG.md`. Then `/review-phase`, fix findings, `/close-phase`.
 
 ## Review / close-out
 
-- [ ] Review done (report saved under `state/reviews/phase-1-review.md`), Critical and Important fixed with RED then GREEN, gates green again.
+- [x] Review done (report saved under `state/reviews/phase-1-review.md`), Critical and Important fixed with RED then GREEN, gates green again.
 - [ ] Docs pass done (list in `state/STATE.md`), `docs/phase-1-report.md` written, short report given to Master, `state/STATE.md` set to "Phase 1 done, waiting for lanjut", `state/PHASE-2-TASKS.md` created from `docs/roadmap.md` Phase 2.
