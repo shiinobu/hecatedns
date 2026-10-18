@@ -19,6 +19,10 @@ const (
 
 	dirMode  = 0o700
 	fileMode = 0o600
+
+	// overshootFactor is how far past the cap the current file may grow while
+	// rotation keeps failing, as a multiple of the cap.
+	overshootFactor = 2
 )
 
 // ErrClosed is returned by Write after Close.
@@ -31,6 +35,11 @@ var ErrClosed = errors.New("run log: closed")
 type File struct {
 	dir string
 	max int64
+
+	// rename and openFile are the file system calls rotation uses; tests
+	// replace them to make rotation fail.
+	rename   func(oldPath, newPath string) error
+	openFile func(name string, flag int, perm os.FileMode) (*os.File, error)
 
 	mu     sync.Mutex
 	file   *os.File
@@ -50,7 +59,7 @@ func Open(dir string, maxBytes int64) (*File, error) {
 	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return nil, fmt.Errorf("run log: create %s: %w", dir, err)
 	}
-	f := &File{dir: dir, max: maxBytes}
+	f := &File{dir: dir, max: maxBytes, rename: os.Rename, openFile: os.OpenFile}
 	if err := f.openCurrent(); err != nil {
 		return nil, err
 	}
@@ -60,7 +69,7 @@ func Open(dir string, maxBytes int64) (*File, error) {
 func (f *File) path() string { return filepath.Join(f.dir, FileName) }
 
 func (f *File) openCurrent() error {
-	file, err := os.OpenFile(f.path(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, fileMode)
+	file, err := f.openFile(f.path(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, fileMode)
 	if err != nil {
 		return fmt.Errorf("run log: open: %w", err)
 	}
@@ -72,15 +81,23 @@ func (f *File) openCurrent() error {
 }
 
 // Write appends p, rotating first when p would not fit. A single write larger
-// than the cap is kept whole.
+// than the cap is kept whole. When rotation fails (on Windows another program
+// holding the file, such as `Get-Content -Wait`, blocks the rename) the line is
+// appended to the current file anyway, up to twice the cap, so the log neither
+// loses lines nor grows without a bound; a later write tries to rotate again.
 func (f *File) Write(p []byte) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.closed {
 		return 0, ErrClosed
 	}
+	if f.file == nil {
+		if err := f.openCurrent(); err != nil {
+			return 0, err
+		}
+	}
 	if f.size > 0 && f.size+int64(len(p)) > f.max {
-		if err := f.rotate(); err != nil {
+		if err := f.rotate(); err != nil && (f.file == nil || f.size+int64(len(p)) > f.max*overshootFactor) {
 			return 0, err
 		}
 	}
@@ -89,16 +106,20 @@ func (f *File) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// rotate moves the current file over the backup and opens a fresh one.
+// rotate moves the current file over the backup and opens a fresh one. Whatever
+// the outcome, f.file is either an open file to append to or nil, and the next
+// Write opens it again; it is never left pointing at a closed file.
 func (f *File) rotate() error {
-	if err := f.file.Close(); err != nil {
-		return fmt.Errorf("run log: close for rotation: %w", err)
+	_ = f.file.Close()
+	f.file = nil
+	renameErr := f.rename(f.path(), f.path()+".1")
+	if err := f.openCurrent(); err != nil {
+		return err
 	}
-	if err := os.Rename(f.path(), f.path()+".1"); err != nil {
-		_ = f.openCurrent()
-		return fmt.Errorf("run log: rotate: %w", err)
+	if renameErr != nil {
+		return fmt.Errorf("run log: rotate: %w", renameErr)
 	}
-	return f.openCurrent()
+	return nil
 }
 
 // Close closes the file; later writes fail with ErrClosed. Closing twice is
@@ -110,6 +131,9 @@ func (f *File) Close() error {
 		return nil
 	}
 	f.closed = true
+	if f.file == nil {
+		return nil
+	}
 	return f.file.Close()
 }
 
