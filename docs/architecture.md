@@ -1,6 +1,6 @@
 # xdns — Arsitektur
 
-*Versi 1.3 | 2026-10-18 | Status: Fase 0, Fase 1, Fase 2, dan Fase 3 selesai (lihat `phase-1-report.md`, `phase-2-report.md`, `phase-3-report.md`, `test-report.md`); Fase 4 menunggu "lanjut" dari Master | Penulis: Claude & Gemini 4 Argon (keputusan desain didelegasikan penuh oleh Master)*
+*Versi 1.4 | 2026-10-19 | Status: Fase 0, Fase 1, Fase 2, dan Fase 3 selesai; Fase 4 (backend `native`) selesai di sisi kode dan tes, tinggal tes HP dengan `native` yang menunggu Master (lihat `phase-1-report.md`, `phase-2-report.md`, `phase-3-report.md`, `phase-4-report.md`, `test-report.md`) | Penulis: Claude & Gemini 4 Argon (keputusan desain didelegasikan penuh oleh Master)*
 
 Dokumen ini adalah spesifikasi desain xdns. Urutan kerja ada di `roadmap.md`. Dasar riset dan sumbernya ada di `research.md` (rujukan "riset §N" di bawah menunjuk ke sana).
 
@@ -199,15 +199,26 @@ Tipe pesan DNS yang dipakai dnsproxy sama dengan engine (`github.com/miekg/dns`)
 
 ### 5.4 Backend `native` (pendekatan 1)
 
+Dibangun di Fase 4 (paket `internal/backend/native`, cakupan tes 93,1%).
+
 | Berkas | Isi |
 |---|---|
-| `server.go` | Listener UDP dan TCP lewat `dns.Server`; DoT ditambahkan di Fase 6 (DoH hanya bila Master meminta) |
-| `upstream.go` | Klien DoH (`net/http`, HTTP/2, `application/dns-message`), DoT dan plain lewat `dns.Client`; failover berurutan dengan penanda gagal sementara |
-| `cache.go` | LRU berbatas ukuran; kunci (nama, tipe, kelas, bit DO); TTL dijepit `min_ttl`/`max_ttl`; cache negatif memakai SOA minimum |
-| `handler.go` | `Before` → cache → upstream → `After`; menulis `Failed` bila semua hulu gagal |
-| `ratelimit.go` | Pembatas per IP klien (token bucket) |
+| `native.go` | Pabrik `New` dan `Run` (satu kali pakai); mengikat soket lebih dulu sehingga galat bind kembali seketika; implementasi `backend.Bound` |
+| `server.go` | Listener UDP dan TCP lewat `dns.Server` pada setiap alamat `listen`; `acceptMsg` meneruskan opcode selain QUERY ke engine (supaya dijawab NOTIMP *dan* dicatat) dan mengabaikan paket berbit respons serta pesan dengan jumlah pertanyaan atau record yang tidak wajar (tanpa jawaban; dnsproxy menjawab FORMERR); batas koneksi TCP sendiri (`limitListener`: 64 total, 8 per alamat klien); `tolerantReader` agar kegagalan baca UDP (di Windows: datagram lebih besar dari buffer) tidak menghentikan server, kecuali soket memang ditutup; shutdown menutup soket juga supaya server yang dibatalkan sebelum sempat mulai tidak jalan terus |
+| `handler.go` | Batas laju → `Before` → cache → hulu → `After`; `Failed` bila semua hulu gagal; ANY dijawab NOTIMP; pemulihan panik per tahap (sebelum engine meloloskan: REFUSED; di cache atau hulu: SERVFAIL; sesudah jawaban ada: jawaban dipertahankan); hanya pertukaran ke hulu yang memakai slot (256 total, 64 per klien; di atas batas dijawab SERVFAIL dan dicatat lewat `Failed`), jadi cache hit dan jawaban blokir tetap jalan saat hulu lambat; tiap query punya batas waktu 11 detik dan dibatalkan saat shutdown; ukuran UDP mengikuti EDNS klien (512–1232) |
+| `upstream.go`, `upstream_plain.go`, `upstream_doh.go`, `upstream_parse.go`, `bootstrap.go` | Kolam hulu: pilihan acak berbobot 1/srtt dengan failover ke yang lain; plain UDP (diulang lewat TCP bila terpotong) dan TCP; DoH (POST RFC 8484, ID 0, HTTP/2, tanpa proksi lingkungan, tanpa redirect, badan ≤ 65535 byte, tipe `application/dns-message`); nama host DoH di-resolve lewat resolver bootstrap saat koneksi baru dibuat. Jawaban diterima hanya bila bit QR, ID, opcode, dan pertanyaan cocok. Hulu yang menjawab SERVFAIL atau REFUSED dianggap gagal dan hulu berikutnya ditanya; bila semua begitu, jawaban hulu itu yang diteruskan. **DoT sebagai hulu belum ada** (`tls://` ditolak dengan pesan jelas); `udp://` dan `tcp://` harus berupa IP |
+| `cache.go` | LRU berbatas byte (ukuran paket + biaya tetap per entri dan per record); kunci (nama huruf kecil, tipe, kelas, bit DO, bit CD); TTL dijepit `min_ttl`/`max_ttl`; cache negatif (NXDOMAIN, NODATA) memakai min(TTL SOA, minimum SOA); hanya NOERROR dan NXDOMAIN tanpa TC yang disimpan; TTL tersaji = sisa umur entri; OPT hulu dibuang |
+| `ratelimit.go` | Token bucket per IP klien (100/detik, burst 200), tabel dibatasi 4096 klien (tabel penuh disapu paling sering sekali per detik; klien baru yang tidak muat dilayani tanpa dilacak); klien yang kena batas dibuang tanpa jawaban (jawaban ke alamat palsu = amplifier). Query yang dibuang tidak masuk log query |
 
-Cache menyimpan jawaban hulu *sebelum* `After`, sama seperti dnsproxy, sehingga pemeriksaan CNAME tetap berjalan pada setiap cache hit.
+Cache menyimpan jawaban hulu *sebelum* `After`, sama seperti dnsproxy, sehingga pemeriksaan CNAME tetap berjalan pada setiap cache hit. Query ke hulu dibangun baru dari pertanyaan klien (RD, CD, EDNS 1232 dengan bit DO bila klien memintanya): cookie, client subnet, dan padding klien tidak ikut keluar.
+
+**Perbedaan yang diketahui dengan adapter `dnsproxy`** (semuanya tanpa dampak untuk klien privat di LAN):
+- dnsproxy menjawab ANY, jumlah pertanyaan ≠ 1, dan deteksi rekursi *sebelum* handler (tanpa ACL dan tanpa log). `native` menolak jumlah pertanyaan ≠ 1 di `acceptMsg` (FORMERR, tanpa log), tetapi menjawab ANY setelah `Before`, sehingga ACL berlaku dan query tercatat.
+- dnsproxy menjawab NXDOMAIN untuk reverse lookup alamat privat dari klien *non-privat*; `native` meneruskannya ke hulu. Baru relevan bila klien publik diizinkan (Fase 6).
+- `native` tidak mendeduplikasi query identik yang sedang berjalan (`PendingRequests` milik dnsproxy).
+- Slot TCP: `native` punya batas koneksi TCP sendiri (64 total, 8 per alamat klien) dan slot hulu sendiri, sehingga masalah Q4 tidak berlaku. Belum ada pemeriksaan ACL saat accept; satu host di luar ACL masih bisa memegang 8 koneksi selama batas baca (5 detik).
+- Pesan dengan jumlah pertanyaan ≠ 1 diabaikan oleh `native`, dijawab FORMERR oleh dnsproxy.
+- Kunci IPv6 pada pembatas laju memakai alamat penuh, bukan /64; perlu ditinjau bila IPv6 klien diizinkan (Fase 6).
 
 ### 5.5 Daftar blokir (`internal/lists`)
 
@@ -429,8 +440,9 @@ Ancaman utama: (1) resolver terbuka disalahgunakan (amplifikasi DDoS) setelah di
 |---|---|
 | Batasi klien | `allowed_clients` bawaan hanya loopback dan rentang privat; selain itu REFUSED |
 | Bind spesifik | Dengarkan IP tertentu, bukan `0.0.0.0`, kecuali ada alasan |
-| Batas laju | Per IP klien (native: `ratelimit.go`; dnsproxy: paket middleware `ratelimit` yang terpisah, bukan opsi `proxy.Config`); wajib aktif sebelum Fase 6 |
-| Habisnya slot TCP | Satu koneksi TCP menahan satu slot `MaxGoroutines` bersama UDP (§5.3); diterima di LAN rumah, wajib diperbaiki sebelum Fase 6 |
+| Batas laju | Per IP klien. `native`: `ratelimit.go`, aktif (100/detik, burst 200). `dnsproxy`: paket middleware `ratelimit` yang terpisah, bukan opsi `proxy.Config`, belum dipasang; wajib aktif sebelum Fase 6 |
+| Habisnya slot TCP | `dnsproxy`: satu koneksi TCP menahan satu slot `MaxGoroutines` bersama UDP (§5.3); diterima di LAN rumah, wajib diperbaiki sebelum Fase 6. `native`: batas koneksi TCP sendiri (64 total, 8 per alamat klien) dan batas query hulu sendiri (256 total, 64 per klien) |
+| Datagram UDP terlalu besar | Di Windows, satu datagram lebih besar dari buffer baca menghentikan loop server miekg (galat `WSAEMSGSIZE` dianggap fatal). `native` menanganinya (`tolerantReader`); kasusnya ada di suite kesesuaian dan lulus di kedua backend |
 | Pertumbuhan log | Batas ukuran harian `log.max_mb_per_day` (§9); penolakan ACL dicatat satu per query |
 | Berkas aturan | Maks 4 MiB dan 4096 byte per baris; kelebihan diabaikan dan dilaporkan sebagai masalah berkas, tidak pernah diam-diam |
 | Akses publik (Fase 6) | DoT di port 853 dengan sertifikat valid; identifikasi klien lewat nama host rahasia pada SNI. Desain rincinya ditinjau ulang di awal Fase 6 (Android Private DNS tidak mengirim header autentikasi) |
@@ -509,4 +521,6 @@ Belum dipastikan; dibuktikan lewat tes dan bukan diasumsikan:
 7. Apakah EDE (RFC 8914) "Filtered" pada jawaban blokir bermanfaat; ditambahkan hanya bila terbukti tidak mengganggu klien. Belum diuji (Fase 3 tidak mencakupnya).
 8. **Terverifikasi di Fase 3:** konflik ICS pada UDP 53 terselesaikan tanpa menyentuh ICS; bind khusus `192.168.1.99:53` UDP dan TCP berhasil (bagian 12).
 9. **Terverifikasi di Fase 3:** pada HP nyata, `adblock.turtlecute.org` 95% (126/132) lalu 97% (128/132) dengan dua aturan kustom; Chrome tidak melewati xdns (tidak ada pencarian host DoH). Redirect Shopee dilacak ke `s.shopee.co.id` dan diblokir; redirect Play Store belum pernah muncul. DNS IPv6 router sebagai jalur lolos belum diperiksa langsung (`test-report.md`).
+10. **Terverifikasi di Fase 4:** suite kesesuaian (15 kasus) hijau pada `dnsproxy` dan `native` dari satu tabel; 2.000 query (1.000 nama, A dan HTTPS) memberi keputusan engine yang sama pada kedua backend (1.732 diblokir di masing-masing, 0 beda keputusan, 1 beda bentuk jawaban akibat hulu). `native` melayani DoH nyata ke 1.1.1.1 (`phase-4-report.md`).
+11. **Temuan Fase 4:** satu datagram UDP lebih besar dari buffer menghentikan loop UDP miekg di Windows; diperbaiki di `native` dan dijadikan kasus suite. Belum diverifikasi: tes HP dengan `backend: native` (menunggu Master), beban nyata/lama, DoT sebagai hulu (ditunda).
 

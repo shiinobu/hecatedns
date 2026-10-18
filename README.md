@@ -2,7 +2,7 @@
 
 Server DNS pribadi yang memblokir iklan di browser (pop-up, redirect, click-redirect) tanpa memaksa Google SafeSearch dan tanpa aplikasi VPN. Dipakai sendiri, non-komersial.
 
-**Status:** Fase 0 (fondasi), Fase 1 (engine inti + backend dnsproxy), Fase 2 (daftar blokir, pemeriksaan rantai CNAME, nama khusus, uji mandiri), dan Fase 3 (tes di HP nyata lewat Wi-Fi rumah: `adblock.turtlecute.org` 95–97%, lihat `docs/test-report.md`) selesai. Server mengunduh dan memuat ketiga daftar bawaan (HaGeZi Multi PRO, HaGeZi Pop-Up Ads, ABPindo — ±250 ribu domain), memblokir domain iklan baik secara langsung maupun lewat rantai CNAME, menjawab nama khusus (`use-application-dns.net` NXDOMAIN, `_dns.resolver.arpa` NODATA), serta memverifikasi SafeSearch dan daftar blokir lewat `xdns check`. Lihat `docs/roadmap.md`, `docs/phase-1-report.md`, `docs/phase-2-report.md`, dan `docs/phase-3-report.md`.
+**Status:** Fase 0 (fondasi), Fase 1 (engine inti + backend dnsproxy), Fase 2 (daftar blokir, pemeriksaan rantai CNAME, nama khusus, uji mandiri), dan Fase 3 (tes di HP nyata lewat Wi-Fi rumah: `adblock.turtlecute.org` 95–97%, lihat `docs/test-report.md`) selesai. Fase 4 (backend kedua `native`, dipilih dengan `backend: native`; satu suite tes untuk kedua backend) selesai di sisi kode dan tes; tes HP dengan `native` menunggu. Server mengunduh dan memuat ketiga daftar bawaan (HaGeZi Multi PRO, HaGeZi Pop-Up Ads, ABPindo — ±250 ribu domain), memblokir domain iklan baik secara langsung maupun lewat rantai CNAME, menjawab nama khusus (`use-application-dns.net` NXDOMAIN, `_dns.resolver.arpa` NODATA), serta memverifikasi SafeSearch dan daftar blokir lewat `xdns check`. Lihat `docs/roadmap.md`, `docs/phase-1-report.md`, `docs/phase-2-report.md`, dan `docs/phase-3-report.md`.
 
 ## Perintah
 
@@ -18,6 +18,7 @@ go run ./cmd/xdns rule add allow baik.contoh.com -config xdns.yaml # kecualikan 
 go run ./cmd/xdns rule list   -config xdns.yaml             # tampilkan aturan
 go run ./cmd/xdns rule remove contoh.com -config xdns.yaml  # hapus aturan
 go run ./cmd/xdns log -since 10m -blocked -config xdns.yaml # baca log query
+go run ./scripts/compare -a 127.0.0.1:5301 -b 127.0.0.1:5302 -log-a LOG_A -log-b LOG_B  # bandingkan keputusan dua server (backend berbeda)
 ```
 
 Salin `configs/xdns.example.yaml` menjadi `xdns.yaml` lalu sesuaikan. Kunci yang tidak ditulis memakai nilai bawaan, sedangkan kunci yang salah ketik, kunci ganda, dan lebih dari satu dokumen YAML ditolak dengan pesan galat. Server membaca ulang berkas aturan sendiri (setiap `rules.poll_interval`, bawaan 2 detik) dan memantau pembaruan cache daftar di disk, jadi `xdns rule` dan `xdns lists update` berlaku tanpa restart.
@@ -33,7 +34,7 @@ powershell -File scripts/dnsquery.ps1 www.contoh.com -Type HTTPS -Port 5300
 
 - `docs/architecture.md`: desain, keputusan, dan kriteria sukses
 - `docs/roadmap.md`: fase kerja dan gerbang keputusan
-- `docs/phase-0-report.md`, `docs/phase-1-report.md`, `docs/phase-2-report.md`: laporan tiap fase
+- `docs/phase-0-report.md` sampai `docs/phase-4-report.md`, dan `docs/test-report.md`: laporan tiap fase dan tes HP
 - `docs/research.md`: riset pemblokiran iklan beserta sumbernya
 - `docs/superpowers/plans/`: rencana tugas Fase 0 (arsip)
 

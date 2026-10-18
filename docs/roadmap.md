@@ -1,6 +1,6 @@
 # xdns — Roadmap
 
-*Versi 1.3 | 2026-10-18 | Status: **Fase 0, Fase 1, Fase 2, dan Fase 3 selesai** (laporan: `phase-0-report.md`, `phase-1-report.md`, `phase-2-report.md`, `phase-3-report.md`, `test-report.md`); Fase 4 berikutnya, menunggu "lanjut" dari Master.*
+*Versi 1.4 | 2026-10-19 | Status: **Fase 0, Fase 1, Fase 2, dan Fase 3 selesai; Fase 4 selesai di sisi kode dan tes** (laporan: `phase-0-report.md`, `phase-1-report.md`, `phase-2-report.md`, `phase-3-report.md`, `phase-4-report.md`, `test-report.md`); tinggal tes HP dengan `backend: native` (menunggu Master), lalu Fase 5.*
 
 Roadmap ini adalah alur kerja bertahap. Desain teknisnya ada di `architecture.md`, dasar risetnya di `research.md`. Kode `D#`, `S#`, `R#` merujuk ke tabel keputusan, kriteria sukses, dan risiko di `architecture.md`.
 
@@ -121,9 +121,11 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 
 ---
 
-## Fase 4 — Backend native + suite kesesuaian
+## Fase 4 — Backend native + suite kesesuaian — selesai di sisi kode 2026-10-19
 
 **Tujuan.** Backend kedua (pendekatan 1) dengan perilaku keputusan yang sama, bisa ditukar lewat konfigurasi.
+
+**Hasil.** Suite kesesuaian (15 kasus) hijau pada kedua backend dari satu tabel; `backend: native` cukup satu baris; 2.000 query sampel memberi keputusan engine identik (0 beda). Diubah dari rencana atas keputusan Master: **DoT sebagai hulu ditunda** (DoH, UDP, dan TCP polos ada), dan **review fase dibuat singkat** (review penuh diwajibkan di Fase 5, dan paling lambat sebelum Fase 6). Tugas 7 (tes HP dengan `native`) menunggu Master. Lihat `phase-4-report.md`. Teks di bawah adalah rencana awal.
 
 **Tugas**
 1. `native/cache`, `native/upstream` (DoH, DoT, plain, failover); tes dengan hulu palsu.
@@ -207,4 +209,5 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 | 2026-10-18 | Fase 1 selesai (laporan: `phase-1-report.md`). Tinjauan oleh agent Opus berkonteks baru yang menjalankan binary dengan beban ala penyerang: 0 Critical, 4 Important (I2, I3, I4 diperbaiki dengan TDD; I1, kolam TCP bersama UDP, diterima untuk LAN dan menjadi prasyarat Fase 6), 12 Minor. Perubahan desain yang tercatat: prioritas aturan kustom di atas daftar; engine menjawab FORMERR/NOTIMP sendiri; batas harian log `log.max_mb_per_day`; `enabled:` yang dihilangkan berarti aktif; `nslookup -port` diganti `scripts/dnsquery.ps1` |
 | 2026-10-18 | Fase 3 selesai (laporan: `phase-3-report.md`, `test-report.md`). Tidak ada perubahan kode Go. G2 terjawab: ICS tidak perlu dihentikan (bind khusus `192.168.1.99:53` berhasil), dua aturan firewall sempit, PC dipesan di router pada `192.168.1.99`, HP memakai `192.168.1.150`. S1: 95% lalu 97% (126 lalu 128 dari 132) pada `adblock.turtlecute.org`; `canyoublockit.com` eXtreme terblokir semua menurut pengamatan Master. S2: pemicu redirect Shopee adalah `s.shopee.co.id` (diblokir); Play Store belum pernah muncul. Aturan kustom ditambah: `ad.doubleclick.net`, `adservice.google.com`, `s.shopee.co.id`. `AGENTS.md` ditambahkan di root |
 | 2026-10-18 | Fase 2 selesai (laporan: `phase-2-report.md`). Ketiga daftar bawaan diunduh dan termuat (`hagezi-pro` 202.297, `hagezi-popups` 47.668, `abpindo` 124 — total 250.089 entri); pemeriksaan rantai CNAME di `After` (termasuk pada cache hit); nama khusus (`use-application-dns.net` NXDOMAIN, `_dns.resolver.arpa` NODATA); `selfcheck` + `xdns check` (termasuk S3 SafeSearch dan deteksi loop Q3) + `xdns lists status|update`. Benchmark 250 ribu entri: rata-rata 215–250 ns/op (0 alokasi), p99 2,01 µs (< 50 µs), memori proses hidup WorkingSet 71,74–74,20 MiB (< 150 MB). Tinjauan berkonteks baru: 0 Critical, 2 Important (I1 failover bootstrap DNS pada pengunduh daftar, I2 pemilihan sampel per daftar di `selfcheck`), 8 Minor — seluruhnya diperbaiki dengan TDD |
+| 2026-10-19 | Fase 4 selesai di sisi kode dan tes (laporan: `phase-4-report.md`); versi 1.4. Backend `native` (cache, hulu DoH/UDP/TCP dengan failover, server UDP+TCP, handler, pembatas laju) lulus suite 15 kasus yang sama dengan `dnsproxy`; 2.000 query sampel: 0 beda keputusan. Atas keputusan Master: DoT sebagai hulu ditunda, review fase dibuat singkat (review penuh wajib di Fase 5 dan paling lambat sebelum Fase 6). Temuan: satu datagram UDP besar menghentikan loop UDP miekg di Windows (diperbaiki, jadi kasus suite). Tes HP dengan `native` menunggu Master |
 
