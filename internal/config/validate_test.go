@@ -220,3 +220,60 @@ func TestLoad_RejectsEmptyAllowedClients(t *testing.T) {
 		})
 	}
 }
+
+func TestValidate_RejectsHardenedCases(t *testing.T) {
+	const tooLongTTL = 100 * 365 * 24 * time.Hour
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+		want   string
+	}{
+		{"empty rules file", func(c *Config) { c.Rules.File = "" }, "rules.file"},
+		{"empty log dir while logging", func(c *Config) { c.Log.Dir = "" }, "log.dir"},
+		{"duplicate listen entry", func(c *Config) { c.Listen = []string{"127.0.0.1:5300", "127.0.0.1:5300"} }, "listen[1]"},
+		{"duplicate listen written differently", func(c *Config) { c.Listen = []string{"127.0.0.1:5300", "127.0.0.1:05300"} }, "listen[1]"},
+		{"duplicate ipv6 listen", func(c *Config) { c.Listen = []string{"[::1]:5300", "[0:0:0:0:0:0:0:1]:5300"} }, "listen[1]"},
+		{"listen port zero", func(c *Config) { c.Listen = []string{"127.0.0.1:0"} }, "listen[0]"},
+		{"block ttl beyond a DNS TTL", func(c *Config) { c.Block.TTL = tooLongTTL }, "block.ttl"},
+		{"cache max ttl beyond a DNS TTL", func(c *Config) { c.Cache.MaxTTL = tooLongTTL }, "cache.max_ttl"},
+		{"cache min ttl beyond a DNS TTL", func(c *Config) {
+			c.Cache.MinTTL = tooLongTTL
+			c.Cache.MaxTTL = tooLongTTL
+		}, "cache.min_ttl"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Default()
+			tt.mutate(&cfg)
+			err := cfg.Validate()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate() = %v, want an error mentioning %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidate_AcceptsHardenedBoundaries(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{"empty log dir is fine while logging is off", func(c *Config) {
+			c.Log.Enabled = false
+			c.Log.Dir = ""
+		}},
+		{"two different listen ports", func(c *Config) { c.Listen = []string{"127.0.0.1:5300", "127.0.0.1:5301"} }},
+		{"same port on different addresses", func(c *Config) { c.Listen = []string{"127.0.0.1:5300", "192.168.1.10:5300"} }},
+		{"largest allowed TTL", func(c *Config) { c.Block.TTL = time.Duration(maxTTLSeconds) * time.Second }},
+		{"zero block ttl", func(c *Config) { c.Block.TTL = 0 }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Default()
+			tt.mutate(&cfg)
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("Validate() = %v, want nil", err)
+			}
+		})
+	}
+}

@@ -101,6 +101,32 @@ type Source struct {
 	Enabled bool   `yaml:"enabled"`
 }
 
+// sourceKeys are the keys a list source may have; UnmarshalYAML rejects any
+// other, because its own decoding step is not strict.
+var sourceKeys = map[string]bool{"name": true, "url": true, "kind": true, "format": true, "enabled": true}
+
+// UnmarshalYAML decodes a source in which an omitted enabled key means true: a
+// list somebody wrote down is meant to be used, and a silent false would leave
+// the server without protection. A node.Decode call is not strict, so unknown
+// keys are rejected here by hand; duplicate keys are still caught by the decoder.
+func (s *Source) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			key := node.Content[i]
+			if !sourceKeys[key.Value] {
+				return fmt.Errorf("line %d: field %s not found in type config.Source", key.Line, key.Value)
+			}
+		}
+	}
+	type plain Source
+	decoded := plain{Enabled: true}
+	if err := node.Decode(&decoded); err != nil {
+		return err
+	}
+	*s = Source(decoded)
+	return nil
+}
+
 // Rules configures the custom allow/block rules file.
 type Rules struct {
 	File         string        `yaml:"file"`

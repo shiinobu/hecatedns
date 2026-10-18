@@ -220,3 +220,61 @@ func TestDefault_ReturnsFreshSlices(t *testing.T) {
 		t.Error("Default() shares slice storage between calls")
 	}
 }
+
+const sourceWithoutEnabled = `
+lists:
+  sources:
+    - { name: a, kind: block, format: domains, url: "https://example.com/a.txt" }
+    - { name: b, kind: block, format: domains, url: "https://example.com/b.txt", enabled: false }
+    - { name: c, kind: allow, format: domains, url: "https://example.com/c.txt", enabled: true }
+`
+
+func TestLoad_SourceWithoutEnabledIsEnabled(t *testing.T) {
+	cfg := mustLoad(t, sourceWithoutEnabled)
+
+	want := map[string]bool{"a": true, "b": false, "c": true}
+	if len(cfg.Lists.Sources) != len(want) {
+		t.Fatalf("len(Sources) = %d, want %d", len(cfg.Lists.Sources), len(want))
+	}
+	for _, s := range cfg.Lists.Sources {
+		if s.Enabled != want[s.Name] {
+			t.Errorf("source %s: Enabled = %v, want %v", s.Name, s.Enabled, want[s.Name])
+		}
+	}
+}
+
+func TestLoad_SourceBlockStyleWithoutEnabled(t *testing.T) {
+	cfg := mustLoad(t, "lists:\n  sources:\n    - name: a\n      kind: block\n      format: domains\n      url: https://example.com/a.txt\n")
+
+	if got := cfg.Lists.Sources[0]; !got.Enabled {
+		t.Errorf("source %+v should default to enabled", got)
+	}
+	if len(cfg.Warnings()) != 0 {
+		t.Errorf("Warnings() = %v, want none, a block list is active", cfg.Warnings())
+	}
+}
+
+func TestLoad_RejectsUnknownKeyInSource(t *testing.T) {
+	path, _ := writeConfig(t, "lists:\n  sources:\n    - { name: a, kind: block, format: domains, url: \"https://example.com/a.txt\", enabeld: false }\n")
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "enabeld") {
+		t.Fatalf("Load error = %v, want it to name the misspelled key enabeld", err)
+	}
+}
+
+func TestLoad_RejectsDuplicateKeyInSource(t *testing.T) {
+	path, _ := writeConfig(t, "lists:\n  sources:\n    - { name: a, kind: block, format: domains, url: \"https://example.com/a.txt\", enabled: true, enabled: false }\n")
+
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load accepted a source with the key enabled twice")
+	}
+}
+
+func TestLoad_RejectsASourceThatIsNotAMapping(t *testing.T) {
+	path, _ := writeConfig(t, "lists:\n  sources:\n    - just-a-string\n")
+
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load accepted a scalar as a source")
+	}
+}

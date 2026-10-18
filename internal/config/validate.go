@@ -3,10 +3,17 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/netip"
 	"net/url"
 	"strings"
+	"time"
 )
+
+// maxTTLSeconds is the largest TTL accepted in seconds (RFC 2181 section 8: a
+// TTL is an unsigned 31-bit number). It keeps every conversion to the uint32
+// that DNS libraries use safe.
+const maxTTLSeconds = math.MaxInt32
 
 // maxSourceNameLen bounds a list source name, which becomes a file name.
 const maxSourceNameLen = 64
@@ -51,10 +58,18 @@ func (c Config) validateListen() []error {
 		return []error{errors.New("listen: at least one address is required")}
 	}
 	var errs []error
+	seen := make(map[netip.AddrPort]bool, len(c.Listen))
 	for i, addr := range c.Listen {
-		if _, err := netip.ParseAddrPort(addr); err != nil {
+		parsed, err := netip.ParseAddrPort(addr)
+		switch {
+		case err != nil:
 			errs = append(errs, fmt.Errorf("listen[%d]: %q must be IP:port, hostnames are not allowed: %w", i, addr, err))
+		case parsed.Port() == 0:
+			errs = append(errs, fmt.Errorf("listen[%d]: %q must name a port, 0 is not allowed", i, addr))
+		case seen[parsed]:
+			errs = append(errs, fmt.Errorf("listen[%d]: %q is listed twice", i, addr))
 		}
+		seen[parsed] = true
 	}
 	return errs
 }
@@ -131,10 +146,19 @@ func (c Config) validateBlock() []error {
 		errs = append(errs, fmt.Errorf("block.mode: %q is not one of %s, %s, %s, %s",
 			c.Block.Mode, ModeNullIP, ModeNXDomain, ModeNoData, ModeRefused))
 	}
-	if c.Block.TTL < 0 {
-		errs = append(errs, errors.New("block.ttl: must not be negative"))
-	}
+	errs = append(errs, checkTTL("block.ttl", c.Block.TTL)...)
 	return errs
+}
+
+// checkTTL rejects a negative duration or one that does not fit a DNS TTL.
+func checkTTL(field string, ttl time.Duration) []error {
+	switch {
+	case ttl < 0:
+		return []error{fmt.Errorf("%s: must not be negative", field)}
+	case ttl > time.Duration(maxTTLSeconds)*time.Second:
+		return []error{fmt.Errorf("%s: %v is larger than the largest DNS TTL, %ds", field, ttl, maxTTLSeconds)}
+	}
+	return nil
 }
 
 func (c Config) validateCache() []error {
@@ -145,9 +169,8 @@ func (c Config) validateCache() []error {
 	if c.Cache.SizeMB < 1 {
 		errs = append(errs, errors.New("cache.size_mb: must be at least 1"))
 	}
-	if c.Cache.MinTTL < 0 {
-		errs = append(errs, errors.New("cache.min_ttl: must not be negative"))
-	}
+	errs = append(errs, checkTTL("cache.min_ttl", c.Cache.MinTTL)...)
+	errs = append(errs, checkTTL("cache.max_ttl", c.Cache.MaxTTL)...)
 	if c.Cache.MaxTTL < c.Cache.MinTTL {
 		errs = append(errs, errors.New("cache.min_ttl: must not exceed cache.max_ttl"))
 	}
@@ -193,17 +216,28 @@ func validateSource(i int, s Source, duplicate bool) []error {
 }
 
 func (c Config) validateRules() []error {
-	if c.Rules.PollInterval <= 0 {
-		return []error{errors.New("rules.poll_interval: must be positive")}
+	var errs []error
+	if c.Rules.File == "" {
+		errs = append(errs, errors.New("rules.file: must not be empty"))
 	}
-	return nil
+	if c.Rules.PollInterval <= 0 {
+		errs = append(errs, errors.New("rules.poll_interval: must be positive"))
+	}
+	return errs
 }
 
 func (c Config) validateLog() []error {
-	if c.Log.Enabled && c.Log.RetentionDays < 1 {
-		return []error{errors.New("log.retention_days: must be at least 1")}
+	if !c.Log.Enabled {
+		return nil
 	}
-	return nil
+	var errs []error
+	if c.Log.Dir == "" {
+		errs = append(errs, errors.New("log.dir: must not be empty while the log is enabled"))
+	}
+	if c.Log.RetentionDays < 1 {
+		errs = append(errs, errors.New("log.retention_days: must be at least 1"))
+	}
+	return errs
 }
 
 func (c Config) validateDataDir() []error {
