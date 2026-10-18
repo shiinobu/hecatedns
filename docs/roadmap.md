@@ -1,6 +1,6 @@
 # xdns — Roadmap
 
-*Versi 1.1 | 2026-10-18 | Status: **Fase 0 selesai dan ditinjau** (laporan: `phase-0-report.md`); Fase 1 berikutnya.*
+*Versi 1.1 | 2026-10-18 | Status: **Fase 0 dan Fase 1 selesai dan ditinjau** (laporan: `phase-0-report.md`, `phase-1-report.md`); Fase 2 berikutnya, menunggu "lanjut" dari Master.*
 
 Roadmap ini adalah alur kerja bertahap. Desain teknisnya ada di `architecture.md`, dasar risetnya di `research.md`. Kode `D#`, `S#`, `R#` merujuk ke tabel keputusan, kriteria sukses, dan risiko di `architecture.md`.
 
@@ -69,7 +69,7 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 11. Peninjauan fase (sekali, setelah semua tugas selesai): `code-reviewer` dan `security-reviewer` (ACL, penanganan masukan).
 
 **Selesai bila.**
-- `xdns run` mendengarkan di `127.0.0.1:5300` dan `nslookup -port=5300 example.com 127.0.0.1` menjawab lewat DoH;
+- `xdns run` mendengarkan di `127.0.0.1:5300` dan `scripts/dnsquery.ps1 example.com -Port 5300` menjawab lewat DoH (`nslookup` Windows menerima `-port` tetapi mengabaikannya);
 - `xdns rule add block contoh.test` membuat nama itu menjawab `0.0.0.0` dalam ≤ 10 detik tanpa restart (S5);
 - log memuat kedua query; klien di luar `allowed_clients` dijawab REFUSED; suite kesesuaian hijau; cakupan `engine` ≥ 80%.
 
@@ -167,6 +167,8 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 6. HP: Private DNS = nama host rahasia; uji di Wi-Fi lain dan data seluler (ulang S1–S2).
 7. Uji bahwa server bukan resolver terbuka (klien tanpa nama host benar ditolak).
 
+8. **Prasyarat dari tinjauan Fase 1 (I1)**: kolam slot TCP terpisah dari UDP (satu host di LAN dapat menahan 256 koneksi TCP menganggur dan menghentikan UDP; `proxy.Proxy` kedua khusus TCP atau batas koneksi per IP di depan dnsproxy); pembatas laju per IP klien; tinjau SO_REUSEPORT di Linux/Android (dnsproxy mengaktifkannya sehingga instance kedua dapat memakai port yang sama tanpa galat).
+
 **Selesai bila.** HP di data seluler memblokir iklan dengan kriteria yang sama dan server tidak menjawab klien yang tidak berwenang.
 
 ---
@@ -201,4 +203,5 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 |---|---|
 | 2026-10-18 | Versi 1.0 dibuat. Urutan fase menaruh tes di HP (Fase 3) sebelum backend `native` (Fase 4) |
 | 2026-10-18 | Fase 0 selesai. `yaml.v3` dipasang di Tugas 2 (bukan Tugas 1) karena baru dipakai di sana; nilai bawaan ada di `config.Default()`; `.gitattributes` memaksa akhir baris LF agar `gofmt` bersih di Windows |
+| 2026-10-18 | Fase 1 selesai (laporan: `phase-1-report.md`). Tinjauan oleh agent Opus berkonteks baru yang menjalankan binary dengan beban ala penyerang: 0 Critical, 4 Important (I2, I3, I4 diperbaiki dengan TDD; I1, kolam TCP bersama UDP, diterima untuk LAN dan menjadi prasyarat Fase 6), 12 Minor. Perubahan desain yang tercatat: prioritas aturan kustom di atas daftar; engine menjawab FORMERR/NOTIMP sendiri; batas harian log `log.max_mb_per_day`; `enabled:` yang dihilangkan berarti aktif; `nslookup -port` diganti `scripts/dnsquery.ps1` |
 | 2026-10-18 | Peninjauan Fase 0 oleh agent: 0 Critical, 4 Important, semuanya diperbaiki dengan TDD (dokumen YAML ganda ditolak; argumen tak terduga pada `check` ditolak; `allowed_clients` wajib terisi; nama sumber daftar harus aman sebagai nama berkas). `govulncheck` menemukan 6 kerentanan pustaka standar, diperbaiki dengan Go 1.26.9 dan x/net v0.60.0 (0 terdampak). ACL dipindah ke engine karena dnsproxy tidak punya ACL klien. Aturan baru dari Master: tugas dulu dan dokumen di akhir; peninjauan agent sekali per fase sebelum fase berikutnya. Master memindahkan dokumen ke `docs/` |

@@ -10,7 +10,7 @@ allowed_clients:                 # CIDR; di luar ini dijawab REFUSED
   - 172.16.0.0/12
   - 192.168.0.0/16
 
-upstreams:                       # dicoba berurutan
+upstreams:                       # satu dipilih acak berbobot, lainnya cadangan bila gagal
   - https://1.1.1.1/dns-query
   - https://8.8.8.8/dns-query
 bootstrap: [1.1.1.1, 8.8.8.8]    # untuk upstream berupa nama host
@@ -47,5 +47,6 @@ log:
   enabled: true
   dir: data/logs
   retention_days: 7
+  max_mb_per_day: 256            # batas ukuran berkas log per hari; sisanya dibuang dan dihitung
 
 data_dir: data

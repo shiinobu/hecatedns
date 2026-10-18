@@ -1,6 +1,6 @@
 # xdns — Arsitektur
 
-*Versi 1.1 | 2026-10-18 | Status: Fase 0 selesai dan sudah ditinjau; Fase 1 menunggu giliran | Penulis: Claude (keputusan desain didelegasikan penuh oleh Master, yang memulai Fase 0 dengan "oke mulai fase 0")*
+*Versi 1.1 | 2026-10-18 | Status: Fase 0 dan Fase 1 selesai dan sudah ditinjau (lihat `phase-1-report.md`); Fase 2 menunggu "lanjut" dari Master | Penulis: Claude (keputusan desain didelegasikan penuh oleh Master, yang memulai Fase 0 dengan "oke mulai fase 0")*
 
 Dokumen ini adalah spesifikasi desain xdns. Urutan kerja ada di `roadmap.md`. Dasar riset dan sumbernya ada di `research.md` (rujukan "riset §N" di bawah menunjuk ke sana).
 
@@ -141,7 +141,7 @@ const ( Pass Verdict = iota; Block )
 type Decision struct {
     Verdict Verdict
     Resp    *dns.Msg // terisi bila Block
-    Reason  string   // "rule" | "list" | "cname" | "special" | "acl"
+    Reason  string   // "rule" | "list" | "cname" | "special" | "acl" | "invalid"
     Source  string   // nama daftar atau baris aturan yang cocok
     Via     string   // target CNAME yang cocok (bila Reason == "cname")
 }
@@ -157,8 +157,9 @@ Jaminan:
 - aman dipakai bersamaan oleh banyak goroutine;
 - tidak melakukan I/O jaringan;
 - tidak mengubah `q.Req` maupun `resp` yang diterima (membuat salinan bila perlu);
-- selalu menulis tepat satu catatan log per query (di `Before` bila diblokir, di `After` atau `Failed` bila diteruskan);
-- bila belum ada daftar yang termuat, `Before` meloloskan query (fail-open) dan mencatat peringatan satu kali.
+- selalu menulis tepat satu catatan log per query yang sampai ke engine (di `Before` bila diblokir, di `After` atau `Failed` bila diteruskan). Beberapa jawaban diberikan dnsproxy sebelum handler dan tidak lewat engine (lihat §5.3);
+- bila belum ada daftar yang termuat, `Before` meloloskan query (fail-open) dan mencatat peringatan satu kali;
+- panic di dalam engine ditangkap: gagal-buka (`Pass`) untuk keputusan filter, gagal-tutup (REFUSED) untuk pemeriksaan ACL, dan hanya mengorbankan catatan log bila panic terjadi saat menulisnya.
 
 ### 5.2 Backend
 
@@ -173,16 +174,28 @@ type Backend interface {
 type Deps struct { Cfg config.Config; Engine *engine.Engine; Log *slog.Logger }
 type Factory func(Deps) (Backend, error)
 
-var registry = map[string]Factory{ "dnsproxy": dnsproxybe.New, "native": native.New }
+type Registry map[string]Factory   // dibuat oleh pemanggil; paket backend tidak mengimpor implementasinya
+
+// Opsional: backend yang dapat melaporkan alamat dengarnya (tes memakai port acak, `run` mencetak alamat).
+type Bound interface { Ready() <-chan struct{}; Addr(network string) net.Addr }
 ```
 
-`main.go` memilih backend dari `backend:` pada konfigurasi atau opsi `-backend`. Nama tak dikenal = galat saat start.
+`cmd/xdns` (`defaultRegistry`) dan suite kesesuaian membangun `Registry` berisi `dnsproxy` (dan `native` mulai Fase 4); dengan begitu tidak ada siklus impor. `main.go` memilih backend dari `backend:` pada konfigurasi. Nama tak dikenal = galat saat start yang menyebut nama yang dikenal. Sebuah backend hanya dijalankan sekali (`Run` kedua adalah galat).
 
 ### 5.3 Adapter `dnsproxy` (pendekatan 4)
 
-Alur satu query: handler kustom dnsproxy (`proxy.Config.RequestHandler`) memanggil `Before`. Bila `Block`, jawaban sintetis diisikan ke konteks respons. Bila `Pass`, dnsproxy melakukan resolusi bawaannya (upstream + cache), lalu `After` memeriksa jawaban dan boleh menggantinya dengan jawaban blokir. Pemetaan konfigurasi: `listen`, `upstreams`, `bootstrap`, `cache` → `proxy.Config`. `allowed_clients` tidak dipetakan: dnsproxy tidak punya ACL klien, jadi engine menegakkannya sendiri (§6 langkah 1) dan kedua backend berperilaku sama.
+Alur satu query: `proxy.Config.RequestHandler` adalah *interface* `Handler` (bukan fungsi); adapter adalah satu handler pembungkus yang memanggil `Before`; bila `Block`, jawaban sintetis diisikan ke `dctx.Res`. Bila `Pass`, ia memanggil `p.Resolve(dctx)` (upstream + cache), lalu `After` memeriksa `dctx.Res` dan boleh menggantinya dengan jawaban blokir. Pemetaan konfigurasi: `listen`, `upstreams`, `bootstrap`, `cache` → `proxy.Config`. `allowed_clients` tidak dipetakan: dnsproxy tidak punya ACL klien, jadi engine menegakkannya sendiri (§6 langkah 1) dan kedua backend berperilaku sama.
 
-Tipe pesan DNS yang dipakai dnsproxy sama dengan engine (`github.com/miekg/dns`), jadi tidak ada konversi. Tanda tangan persis handler dan perilaku cache terhadap jawaban yang diubah `After` diverifikasi dari pkg.go.dev v0.86.0 saat implementasi (dokumentasinya masih memuat TODO; hook `BeforeRequestHandler` tidak ditemukan).
+Tipe pesan DNS yang dipakai dnsproxy sama dengan engine (`github.com/miekg/dns`), jadi tidak ada konversi. Fakta yang diverifikasi dari kode v0.86.0 (dengan nomor baris) ada di `.agents/notes/dnsproxy-api-facts.md`; yang penting bagi desain:
+
+- **Cache menyimpan jawaban hulu (dalam bentuk terkemas) sebelum `After`**, jadi jawaban blokir hasil `After` tidak ikut tersimpan dan pemeriksaan CNAME berjalan pada setiap cache hit.
+- Upstream DoH berupa IP (`https://1.1.1.1/dns-query`) tidak perlu bootstrap.
+- Mode hulu `load_balance`: pilihan acak berbobot dengan fail-over (bukan "berurutan"); `MaxGoroutines` 256, batas waktu hulu 5 detik, `RefuseAny` dan deduplikasi request kembar diaktifkan eksplisit (bawaan kodenya mati).
+- Paket `proxy` tidak memakai `recover()`; adapter memasangnya sendiri per tahap (filter, `Resolve`, jawaban). Panic sebelum `Before` selesai → REFUSED (status ACL tidak diketahui); panic di `Resolve` → SERVFAIL; panic setelahnya → jawaban dipertahankan.
+- `p.Resolve` mengembalikan `upstream.ErrNoUpstreams` untuk PTR alamat privat (tidak ada hulu privat) dan dnsproxy sudah mengisi NXDOMAIN; adapter mencatatnya sebagai query yang terjawab, bukan kegagalan.
+- **dnsproxy menjawab sebagian query sebelum handler kita**, tanpa ACL dan tanpa catatan log: ANY → NOTIMP, jumlah pertanyaan ≠ 1 → FORMERR, ARPA privat dari klien non-privat dan deteksi rekursi → NXDOMAIN, paket yang ditandai respons dibuang. Jawabannya tidak pernah lebih besar dari request. Opcode selain QUERY *tidak* ditolak dnsproxy (diteruskan ke hulu), sehingga engine menjawabnya sendiri (§6 langkah 2).
+- **Setiap koneksi TCP memegang satu slot `MaxGoroutines` selama hidupnya** (menganggur 10 detik, diperpanjang tiap request), dan UDP memakai semaphore yang sama. Satu host di LAN dapat menahan 256 koneksi dan menghentikan layanan; diterima untuk jaringan rumah, **wajib diperbaiki sebelum Fase 6** (kolam TCP sendiri atau batas koneksi per IP; roadmap Fase 6 tugas 8).
+- Listener dnsproxy memakai `SO_REUSEPORT` di Linux/Android, sehingga instance kedua bisa mengikat port yang sama tanpa galat; di Windows bind kedua gagal.
 
 ### 5.4 Backend `native` (pendekatan 1)
 
@@ -210,11 +223,13 @@ Lihat §9.
 
 `Before`:
 1. **ACL.** Klien di luar `allowed_clients` → `Block` dengan jawaban REFUSED (alasan `acl`), tanpa mencocokkan daftar. `allowed_clients` wajib berisi minimal satu CIDR (validasi konfigurasi), jadi daftar kosong tidak pernah berarti "izinkan semua".
-2. **Validasi.** Harus satu pertanyaan dengan opcode QUERY; selain itu `Pass` (backend yang menjawab FORMERR/NOTIMP).
+2. **Validasi.** Harus satu pertanyaan dengan opcode QUERY. Selain itu engine sendiri menjawab FORMERR (bukan satu pertanyaan) atau NOTIMP (opcode lain) dengan alasan `invalid`, dan mencatatnya; dnsproxy meneruskan opcode ganjil ke hulu melewati semua aturan, jadi ini tidak boleh diserahkan ke backend. Langkah ACL tetap lebih dulu.
 3. **Normalisasi.** Huruf kecil, buang titik akhir. Nama IDN dianggap sudah dalam punycode (bentuk kawat DNS).
 4. **Nama khusus** (bila diaktifkan): `use-application-dns.net` → blokir NXDOMAIN; `_dns.resolver.arpa` → NODATA.
-5. **Izinkan?** Cocok aturan `allow` kustom, lalu daftar berjenis `allow` → `Pass` (alasan `allow`).
-6. **Blokir?** Cocok aturan `block` kustom, lalu daftar berjenis `block` → `Block` dengan `Source` terisi.
+5. **Aturan kustom** (milik pemilik, selalu menang atas daftar): cocok `allow` → `Pass` (alasan `allow`); lalu cocok `block` → `Block` (alasan `rule`). Satu nama dapat memuat keduanya; entri yang lebih spesifik menang di dalam satu himpunan.
+6. **Daftar:** cocok daftar berjenis `allow` → `Pass` (alasan `allow`); lalu daftar berjenis `block` → `Block` dengan `Source` terisi.
+
+Urutan prioritas: aturan kustom `allow` > aturan kustom `block` > daftar `allow` > daftar `block`. Pencocokan memakai sufiks pada batas label: `contoh.com` juga mencocokkan `a.b.contoh.com`, bukan `kontoh.com`.
 7. Selain itu `Pass`.
 
 Backend meneruskan query yang `Pass` ke cache/hulu. Lalu `After`:
@@ -222,7 +237,7 @@ Backend meneruskan query yang `Pass` ke cache/hulu. Lalu `After`:
 2. **Rantai CNAME:** untuk setiap CNAME di bagian jawaban, normalisasi targetnya. Bila target dikecualikan `allow`, lanjut. Bila cocok blokir, kembalikan `Block` untuk pertanyaan asli (alasan `cname`, `Via` = target).
 3. Selain itu catat sebagai lolos dengan hulu, rcode, dan latensi.
 
-**Jawaban blokir** (`response.go`), semuanya menyalin ID dan bagian pertanyaan, mengisi RA, dan menjaga bit RD:
+**Jawaban blokir** (`response.go`), semuanya menyalin ID dan bagian pertanyaan, mengisi RA, menjaga bit RD, meniru OPT bila request memilikinya, dan dikompresi (tanpa kompresi jawaban untuk nama panjang bisa dua kali ukuran request). Penolakan ACL (REFUSED) tidak mengisi RA karena klien itu tidak boleh memakai rekursi:
 
 | Mode | Perilaku |
 |---|---|
@@ -306,8 +321,10 @@ Alur pelacakan redirect: picu redirect di HP → catat jam → `xdns log -around
 {"ts":"...","qname":"smetrics.situs.com","action":"block","reason":"cname","source":"hagezi-pro","via":"x.pelacak.net"}
 ```
 
-- rotasi harian; retensi `log.retention_days` (bawaan 7); berkas lama dihapus saat start dan tiap tengah malam;
+- rotasi harian menurut tanggal lokal; retensi `log.retention_days` (bawaan 7, hari ini ikut dihitung); hanya berkas biasa `queries-YYYYMMDD.jsonl` yang pernah dihapus, saat start, saat rotasi, dan sesaat setelah tengah malam;
 - penulisan lewat saluran berpenyangga: bila penuh, catatan dibuang dan penghitung `dropped` dicatat; query tidak pernah menunggu disk;
+- **batas ukuran harian** `log.max_mb_per_day` (bawaan 256, minimal 1): catatan yang melewati batas dibuang dan dihitung, peringatan satu kali per hari, ukuran berkas yang sudah ada ikut dihitung setelah restart. Tanpa batas, satu pengirim UDP bisa menulis sekitar 14 MB/detik lewat penolakan ACL yang dicatat satu per query;
+- nama dan galat disanitasi (karakter kontrol dan bidi diganti `?`), baris di atas 64 KiB dilewati pembaca; `xdns log` membaca log yang sedang ditulis server (di Windows ukuran berkas yang terbuka dilaporkan 0, jangan jadikan patokan);
 - cincin memori 5.000 catatan terakhir disiapkan untuk UI di Fase 7;
 - log berisi riwayat domain yang dibuka; berada hanya di PC ini dan dapat dimatikan (`log.enabled: false`).
 
@@ -330,7 +347,7 @@ allowed_clients:                 # CIDR; di luar ini dijawab REFUSED
   - 172.16.0.0/12
   - 192.168.0.0/16
 
-upstreams:                       # dicoba berurutan
+upstreams:                       # satu dipilih acak berbobot, lainnya cadangan bila gagal
   - https://1.1.1.1/dns-query
   - https://8.8.8.8/dns-query
 bootstrap: [1.1.1.1, 8.8.8.8]    # untuk upstream berupa nama host
@@ -367,11 +384,12 @@ log:
   enabled: true
   dir: data/logs
   retention_days: 7
+  max_mb_per_day: 256            # batas ukuran berkas log per hari; sisanya dibuang dan dihitung
 
 data_dir: data
 ```
 
-Validasi saat start (kunci tak dikenal atau berulang, lebih dari satu dokumen YAML, `allowed_clients` kosong (untuk mengizinkan semua tulis `0.0.0.0/0` dan `::/0`), CIDR tak sah, `listen` berupa nama host, upstream bernama host tanpa `bootstrap`, URL daftar bukan `https`, nama sumber tak aman sebagai nama berkas atau ganda, `mode` tak dikenal, backend tak dikenal, TTL negatif → galat dengan pesan jelas dan keluar kode ≠ 0; semua masalah dilaporkan sekaligus). Jalur relatif dihitung dari lokasi berkas konfigurasi. Kunci yang tidak ditulis memakai nilai bawaan yang sama dengan contoh ini (`config.Default()`); daftar blokir tidak punya nilai bawaan, jadi tanpa sumber daftar yang aktif `xdns check` memberi peringatan.
+Validasi saat start (kunci tak dikenal atau berulang, lebih dari satu dokumen YAML, `allowed_clients` kosong (untuk mengizinkan semua tulis `0.0.0.0/0` dan `::/0`), CIDR tak sah, `listen` berupa nama host, upstream bernama host tanpa `bootstrap`, URL daftar bukan `https`, nama sumber tak aman sebagai nama berkas atau ganda, `mode` tak dikenal, backend tak dikenal, TTL negatif → galat dengan pesan jelas dan keluar kode ≠ 0; semua masalah dilaporkan sekaligus). Jalur relatif dihitung dari lokasi berkas konfigurasi. Aturan yang ditambahkan di Fase 1: `enabled:` yang dihilangkan atau kosong (YAML null) berarti aktif; `rules.file` dan `log.dir` (bila log aktif) wajib terisi; `listen` unik dan port ≠ 0; TTL dibatasi 2147483647 detik sebelum konversi ke `uint32`; `cache.max_ttl: 0` berarti tanpa batas atas; `log.max_mb_per_day` minimal 1; kunci gabung YAML `<<` ditolak di dalam sumber daftar. Kunci yang tidak ditulis memakai nilai bawaan yang sama dengan contoh ini (`config.Default()`); daftar blokir tidak punya nilai bawaan, jadi tanpa sumber daftar yang aktif `xdns check` memberi peringatan.
 
 ---
 
@@ -388,10 +406,13 @@ xdns **tidak pernah** menulis ulang `www.google.com`. Syarat agar hasilnya benar
 
 ## 12. Lingkungan PC ini (fakta terukur 2026-10-18)
 
-- Windows 11 Pro; Go 1.26.4 terpasang, modul memakai 1.26.9 lewat `GOTOOLCHAIN=auto`; git 2.54.0; **tidak ada gcc**, jadi `go test -race` tidak tersedia lokal.
+- Windows 11 Pro; Go 1.26.4 terpasang, modul memakai 1.26.9 lewat `GOTOOLCHAIN=auto`; git 2.54.0; gcc tersedia lewat w64devkit sehingga `go test -race` berjalan (set `CGO_ENABLED=1` per perintah, jangan global).
 - IP LAN PC `192.168.1.10`, gateway `192.168.1.1`; ada adapter virtual `172.25.144.1` (kemungkinan Hyper-V/WSL).
 - **UDP `0.0.0.0:53` sedang dipegang layanan Internet Connection Sharing (ICS / `SharedAccess`)**; TCP 53 bebas. Android tidak bisa menentukan port DNS di pengaturan Wi-Fi, jadi tes dari HP memerlukan UDP 53 di IP LAN PC.
 - UDP 5353 dipakai banyak proses (mDNS). Port 5300 dan 853 bebas.
+- **`nslookup` Windows menerima `-port` tetapi mengabaikannya** (selalu memakai port 53); pakai `scripts/dnsquery.ps1 <nama> -Port <port>` atau klien miekg/dns.
+- Rentang port yang dikecualikan Windows (Hyper-V/WinNAT, mis. UDP 49674-49973) membuat bind gagal dengan WSAEACCES; tes tidak boleh mengandaikan port TCP dan UDP yang sama selalu sama-sama bebas.
+- Mode berkas `0600`/`0700` tidak ditegakkan di Windows (berkas mewarisi ACL folder induk); mengganti nama berkas yang sedang dibuka gagal (Go membuka tanpa `FILE_SHARE_DELETE`), karena itu penulisan atomik `xdns rule` mencoba ulang sebentar.
 
 Konsekuensi: pengembangan di `127.0.0.1:5300`; keputusan soal ICS diambil di Fase 3 (opsi: hentikan ICS bila Master tidak memakai Mobile Hotspot/Hyper-V/WSL, pakai perangkat lain untuk server rumah, atau uji pengikatan alamat dengan reuse) [Inferensi: Windows kemungkinan menolak bind spesifik ke port 53 selama ada bind wildcard dari proses lain; diuji, bukan diasumsikan].
 
@@ -405,7 +426,10 @@ Ancaman utama: (1) resolver terbuka disalahgunakan (amplifikasi DDoS) setelah di
 |---|---|
 | Batasi klien | `allowed_clients` bawaan hanya loopback dan rentang privat; selain itu REFUSED |
 | Bind spesifik | Dengarkan IP tertentu, bukan `0.0.0.0`, kecuali ada alasan |
-| Batas laju | Per IP klien (native: `ratelimit.go`; dnsproxy: opsi rate limit bawaannya); wajib aktif sebelum Fase 6 |
+| Batas laju | Per IP klien (native: `ratelimit.go`; dnsproxy: paket middleware `ratelimit` yang terpisah, bukan opsi `proxy.Config`); wajib aktif sebelum Fase 6 |
+| Habisnya slot TCP | Satu koneksi TCP menahan satu slot `MaxGoroutines` bersama UDP (§5.3); diterima di LAN rumah, wajib diperbaiki sebelum Fase 6 |
+| Pertumbuhan log | Batas ukuran harian `log.max_mb_per_day` (§9); penolakan ACL dicatat satu per query |
+| Berkas aturan | Maks 4 MiB dan 4096 byte per baris; kelebihan diabaikan dan dilaporkan sebagai masalah berkas, tidak pernah diam-diam |
 | Akses publik (Fase 6) | DoT di port 853 dengan sertifikat valid; identifikasi klien lewat nama host rahasia pada SNI. Desain rincinya ditinjau ulang di awal Fase 6 (Android Private DNS tidak mengirim header autentikasi) |
 | Daftar tak tepercaya | HTTPS saja, batas ukuran dan waktu, validasi tiap baris, tidak pernah dieksekusi |
 | Rahasia | Kunci privat TLS di `data/tls/` (izin ketat, di-.gitignore); tidak ada rahasia di repo atau konfigurasi contoh |
@@ -413,17 +437,17 @@ Ancaman utama: (1) resolver terbuka disalahgunakan (amplifikasi DDoS) setelah di
 | Pesan galat | Log server boleh rinci; jawaban DNS ke klien tidak pernah memuat detail internal |
 | Hak akses | Berjalan sebagai pengguna biasa (di Linux: pengguna khusus, bukan root, dengan kapabilitas bind port rendah) |
 
-Sebelum setiap commit: periksa daftar keamanan di `.claude/rules/ecc/common/security.md`, dan jalankan agent `security-reviewer` untuk kode yang menghadap jaringan (Fase 1, 4, 6).
+Sebelum setiap commit: periksa daftar keamanan di `.claude/rules/ecc/common/security.md`, dan jalankan agent `security-reviewer` untuk kode yang menghadap jaringan (Fase 1, 4, 6). Tinjauan Fase 1 dilakukan oleh agent `xdns-reviewer` yang menjalankan binary dengan beban ala penyerang (`.agents/state/reviews/phase-1-review.md`).
 
 ---
 
 ## 14. Penanganan galat dan ketahanan
 
-- **Fail-open:** bila engine belum siap atau terjadi galat internal, query diteruskan (DNS tetap hidup) dan galat dicatat. Pengecualian: pelanggaran ACL tetap REFUSED.
+- **Fail-open:** bila engine belum siap atau terjadi galat internal, query diteruskan (DNS tetap hidup) dan galat dicatat. Pengecualian: pelanggaran ACL tetap REFUSED, juga bila yang panic adalah pemeriksaan ACL atau handler sebelum `Before` selesai.
 - **Hulu gagal:** coba hulu berikutnya; bila semua gagal, SERVFAIL ke klien dan `Failed` mencatatnya.
 - **Daftar:** unduhan gagal → pakai cache lama; cache rusak → abaikan berkas itu, pakai yang lain, catat galat.
 - **Aturan:** baris salah dilewati; berkas hilang = tanpa aturan, bukan galat fatal.
-- **Log:** disk penuh atau saluran penuh tidak boleh memblokir query.
+- **Log:** disk penuh, saluran penuh, atau batas ukuran harian tidak boleh memblokir query; catatan yang tidak tertulis dihitung.
 - **Shutdown:** `ctx` dibatalkan saat Ctrl+C; listener ditutup rapi dan log dikosongkan.
 - Tidak ada galat yang ditelan diam-diam: setiap galat dibungkus konteks (`fmt.Errorf("...: %w", err)`) dan dicatat sekali pada lapisan yang menanganinya.
 
@@ -439,9 +463,9 @@ Proyek ini memakai TDD: tes ditulis dulu (merah), implementasi minimal (hijau), 
 | Fuzz | Parser daftar dan parser aturan (`go test -fuzz`) | Tanpa panic |
 | Benchmark | Pencarian domain pada ±250 ribu entri; memori proses | p99 < 50 µs; < 150 MB |
 | Kesesuaian | `internal/backend/conformance`: hulu palsu (`miekg/dns` di loopback) + backend yang diuji di port acak. Kasus: A/AAAA/HTTPS terblokir, lolos, `allow` mengalahkan `block`, CNAME terblokir, ACL REFUSED, log tertulis. Dijalankan untuk **kedua** backend dari satu tabel konstruktor | Hasil identik |
-| Integrasi manual | `nslookup`/`dig` dari PC, lalu uji dari HP (Fase 3) | Kriteria S1–S3 |
+| Integrasi manual | `scripts/dnsquery.ps1` (atau `dig`) dari PC, lalu uji dari HP (Fase 3) | Kriteria S1–S3 |
 
-Perintah verifikasi tiap fase: `gofmt -l .` (kosong), `go vet ./...`, `go test ./... -cover`, dan pemindaian kerentanan `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` (yang terdampak harus 0). Detektor race (`-race`) memerlukan cgo/gcc yang belum ada di PC ini; dijalankan bila gcc terpasang atau di Linux (VPS/WSL). Tanpa itu, kode konkuren dijaga lewat snapshot tak berubah, tidak ada state global, dan tes beban sederhana.
+Perintah verifikasi tiap fase: `gofmt -l .` (kosong), `go vet ./...`, `go test ./... -cover`, dan pemindaian kerentanan `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` (yang terdampak harus 0). Detektor race (`CGO_ENABLED=1 go test -race ./...`) berjalan di PC ini lewat w64devkit. Kode konkuren dijaga lewat snapshot tak berubah, tanpa state global, dan tes beban. Mutasi sengaja pada salinan scratch dipakai untuk memastikan tes benar-benar menangkap perubahan perilaku.
 
 ---
 
@@ -473,8 +497,8 @@ Perintah verifikasi tiap fase: `gofmt -l .` (kosong), `go vet ./...`, `go test .
 ## 18. Hal yang diverifikasi saat implementasi
 
 Belum dipastikan; dibuktikan lewat tes dan bukan diasumsikan:
-1. Tanda tangan `proxy.Config.RequestHandler` dan perilaku cache dnsproxy pada jawaban yang diubah `After` (pkg.go.dev v0.86.0).
-2. Apakah dnsproxy menerima upstream DoH berupa IP (`https://1.1.1.1/dns-query`) tanpa bootstrap tambahan.
+1. **Terverifikasi di Fase 1:** tanda tangan `proxy.Config.RequestHandler` dan perilaku cache dnsproxy (§5.3, `.agents/notes/dnsproxy-api-facts.md`).
+2. **Terverifikasi di Fase 1:** upstream DoH berupa IP tanpa bootstrap (jawaban DoH nyata dari `https://1.1.1.1/dns-query` pada binary).
 3. Perilaku `use-application-dns.net` (NXDOMAIN) dan `_dns.resolver.arpa` (NODATA) pada Firefox dan Chrome di HP.
 4. Format baris pada pembaruan daftar di masa depan. Ketiga daftar saat ini sudah diperiksa (2026-10-18): semua baris data berupa domain polos huruf kecil, tanpa `*.` dan tanpa spasi.
 5. Memori dan latensi pencarian dengan daftar penuh (angka aktual dicatat).
