@@ -37,16 +37,18 @@ Default blocklists (about 249k entries): HaGeZi Multi PRO, HaGeZi Pop-Up Ads, AB
 ## Repository map
 
 ```
-cmd/xdns/                 main.go (dispatcher), check.go; run/log/rule/lists are stubs (exit 2)
-internal/config/          strict YAML loader, defaults, validation, Warnings()   [DONE, 96% cover]
-internal/engine/          filter engine                                            [doc.go only]
-internal/lists/           list download, parser, cache, scheduler                  [doc.go only]
-internal/qlog/            JSONL query log                                          [doc.go only]
-internal/selfcheck/       self-test (SafeSearch, upstream, sample domains)         [doc.go only]
-internal/backend/         Backend interface, registry                              [doc.go only]
-  dnsproxybe/ native/ conformance/                                                 [doc.go only]
+cmd/xdns/                 main.go, check.go, run.go, log.go, rule.go, lists.go    [DONE, 92% cover]
+internal/config/          strict YAML loader, defaults, validation, Warnings()    [DONE, 96% cover]
+internal/engine/          filter engine (ACL, matcher, rules, CNAME, special)     [DONE, 97% cover]
+internal/lists/           list download, parser, cache, scheduler                 [DONE, 87% cover]
+internal/qlog/            JSONL query log                                         [DONE, 89% cover]
+internal/selfcheck/       self-test (SafeSearch, upstream, sample domains)        [DONE, 93% cover]
+internal/backend/         Backend interface, registry                             [DONE, 100% cover]
+  dnsproxybe/             AdGuard dnsproxy v0.86.0 adapter                        [DONE, 95% cover]
+  conformance/            shared backend conformance suite                        [DONE, 81% cover]
+  native/                 native miekg/dns backend (Phase 4)                      [doc.go only]
 configs/xdns.example.yaml reference config (identical to docs/architecture.md section 10)
-docs/                     architecture.md roadmap.md research.md phase-0-report.md (Indonesian)
+docs/                     architecture.md roadmap.md research.md phase-{0,1,2}-report.md (Indonesian)
 .agents/                  this pack          .claude/  Claude Code only (tracked; settings.local.json ignored)
 ```
 

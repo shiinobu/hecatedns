@@ -4,37 +4,34 @@ Add new questions at the bottom with a number. When one is answered, move it to 
 
 ## For the implementing agent to resolve (technical)
 
-**Q1. Registry import cycle (found 2026-10-18 while writing the pack).** `docs/architecture.md` section 5.2 puts `Deps`, `Factory` and `var registry = map[string]Factory{"dnsproxy": dnsproxybe.New, "native": native.New}` in package `backend`. But `dnsproxybe.New` takes a `backend.Deps`, so `dnsproxybe` imports `backend` while `backend` imports `dnsproxybe`: a Go import cycle. Likely fix: keep `Backend`, `Deps`, `Factory` in `backend`, and build the name -> factory map in `cmd/xdns` (or a tiny package such as `internal/backend/registry` that imports all backends and `backend`). Decide in P1-08, record the ruling in `state/WORKLOG.md`, and update `docs/architecture.md` sections 4 and 5.2 in the docs pass.
-
-**Q2. dnsproxy integration points (docs section 18, items 1-2).** Exact signature of `proxy.Config.RequestHandler` (type `Handler`); how a handler supplies a response and stops dnsproxy from resolving; where `After` can hook in (the docs say a `BeforeRequestHandler` hook was not found - check `middleware.go`, `requesthandler.go`, `proxy.go`, `dnscontext.go`); whether a DoH upstream given as an IP (`https://1.1.1.1/dns-query`) needs a bootstrap; how the dnsproxy cache treats answers that `After` replaced. Answers go to `notes/dnsproxy-api-facts.md`. If `After` cannot replace a cached answer cleanly, record the consequence for the CNAME check (Phase 2) and for the design.
-
-**Q3. Run-time loop detection (decided in Phase 1 close-out: handle in Phase 2 task P2-07 as a warning plus a selfcheck failure, not a refusal in `run`).** An upstream/bootstrap equal to xdns's own listen address is accepted by config validation. Decide whether `run` should refuse it (Phase 1 task P1-10).
+*(No open technical blockers for Phase 3; see Q4 below for Phase 6.)*
 
 ## For Master (do not ask early; ask at the gate)
 
+- **G1, end of Phase 2 / during PC use:** Review block statistics in `xdns log -blocked` after real browsing and add `xdns rule add allow <domain>` if any false positive occurs.
 - **G2, start of Phase 3:** Is Mobile Hotspot, Hyper-V or WSL used on this PC (ICS holds UDP 53 for them)? Can Master open the router settings (DHCP address reservation)? Which browser is used on the phone?
 - **G3, start of Phase 6:** VPS provider and cost approval (check current prices first), subdomain name.
 - Whether to push the repo anywhere as a backup: needs Master's explicit yes.
 
 ## Unverified (never state as fact)
 
-- `docs/architecture.md` section 18 items 3-8: canary/DDR behavior in Firefox and Chrome on the phone, RedMagic reaction to `0.0.0.0` vs NODATA vs NXDOMAIN, whether EDE (RFC 8914) helps, real memory/latency with about 249k entries (targets: < 150 MB, p99 < 50 microseconds), the ICS / UDP 53 resolution.
+- `docs/architecture.md` section 18 items 3, 6, 7, 8: canary/DDR behavior in Firefox and Chrome on the phone, RedMagic reaction to `0.0.0.0` vs NODATA vs NXDOMAIN, whether EDE (RFC 8914) helps, the ICS / UDP 53 resolution (all scheduled for Phase 3 / Phase 7).
 - `docs/research.md` section 8 (research gaps and unverified claims).
-- Which domain triggers the Play Store redirect on Master's phone.
+- Which domain triggers the Play Store redirect on Master's phone (to be captured in Phase 3).
 - Real quota cost of Opus vs Sonnet in Claude (measured with `/usage`; Claude-side only).
-- Whether Antigravity loads `.agents/rules` etc. exactly as described in the pack README (third-party sources only).
-- One vulnerability in a required module that our code does not call: re-run `govulncheck` after Phase 1 uses dnsproxy for real.
-
-## Known stale documentation (fix in the docs pass, not before)
-
-- `docs/architecture.md` line ~391 (section 12) and ~444 (section 15): "no gcc / `go test -race` unavailable" is no longer true.
-- `README.md` status line says Phase 0 only.
 
 ## Answered
 
 - 2026-10-18: Commit `.agents/`? Master said yes, and also asked for `.claude/` ("commit sekalian .claude"). Done in two commits; `.claude/settings.local.json` stays gitignored (local setting, turns the ECC guard off on this PC only). Master may ask to track it too.
 - Still open from Master: a root `AGENTS.md` pointer to `.agents/` (offered, not created).
 
+**Q1. Registry import cycle (answered 2026-10-18, Phase 1).** `Backend`, `Deps`, `Factory`, and `type Registry map[string]Factory` live in `internal/backend`, while callers (`cmd/xdns` and `conformance`) construct the map so `backend` never imports `dnsproxybe` or `native`.
+
+**Q2. dnsproxy integration points (answered 2026-10-18, Phase 1).** Verified in `.agents/notes/dnsproxy-api-facts.md` and `docs/architecture.md` §5.3: `proxy.Config.RequestHandler` wraps `Before` -> `p.Resolve` -> `After`, and the dnsproxy cache stores upstream answers *before* `After` so CNAME inspection runs on every cache hit.
+
+**Q3. Run-time loop detection (answered 2026-10-18, Phase 2).** `Config.LoopWarnings()` (included in `Warnings()`) detects when an upstream or bootstrap address resolves to one of xdns's own `listen` addresses (including wildcard/loopback combinations and `localhost`), and `selfcheck.Run` (`xdns check`) fails when a loop is present (`af34c50`, `7fd1ac0`).
+
 **Q4. TCP slot exhaustion (Phase 1 review I1, accepted until Phase 6).** dnsproxy gives every accepted TCP connection one slot of the shared request semaphore (`MaxGoroutines`, 256) for the life of the connection (idle timeout 10 s, extended by each request). The ACL runs per request inside our handler, so any host that can reach the port can open 256 idle TCP connections and stall UDP service too. Live measurement: a UDP query went from 1 ms to a 4 s timeout while 256 connections were held. Accepted for the home LAN (Phases 1-5). MUST be fixed before any public deployment (Phase 6): a second `proxy.Proxy` for TCP only with its own pool (a split cache is acceptable), or a connection-level ACL / per-IP connection limit in front of dnsproxy.
 
 **Q5. Concurrent `xdns rule` edits.** `rule add`/`remove` read-modify-write without a lock; two simultaneous invocations can lose an update (12 parallel adds kept all 12 in the review, so it is rare). Revisit only if it ever bites.
+

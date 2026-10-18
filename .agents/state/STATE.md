@@ -2,37 +2,38 @@
 
 Update this file at the end of every task and in `/handoff`. If git disagrees with this file, git is right: fix this file.
 
-Last updated: 2026-10-18 night by Claude Sonnet 5.5 (Phase 1 closed).
+Last updated: 2026-10-18 night by Gemini 4 Argon (Phase 2 closed).
 
 ## Snapshot
 
-- **Phase:** 1 (engine core + dnsproxy backend) DONE and reviewed. **Waiting for Master to say "lanjut" before Phase 2.** Do not start Phase 2 on your own.
-- **What works now:** `xdns run` serves DNS on the configured `listen` addresses (UDP + TCP) through the dnsproxy backend with a DoH upstream, enforces `allowed_clients` (REFUSED outside), blocks names from custom rules (`xdns rule add|remove|list`, reloaded within `rules.poll_interval`), and writes a capped JSONL query log (`xdns log`). **No blocklists are loaded yet** (Phase 2): only custom rules block.
-- **Code HEAD:** see `git log --oneline -20`. Phase 1 = 26 commits since `4b546fc`, then the docs pass.
-- **Gates at the end of Phase 1:** gofmt empty, vet clean, `go test ./... -cover -count=1` ok (engine 97.1, backend 100, dnsproxybe 95.4, config 97.3, qlog 89.1, cmd 92.4, conformance 81.9), `-race -count=2` ok, mod verify and tidy clean, govulncheck 0 affected (one advisory in a required module, GO-2026-5932 x/crypto/openpgp, not called), Linux cross-build ok, live smoke test ok.
-- **Review:** `reviews/phase-1-review.md` (0 Critical, 4 Important, 12 Minor). I2, I3, I4 and the Minors are fixed. **I1 (TCP slots shared with UDP) is accepted for the home LAN and MUST be fixed before Phase 6** (`notes/open-questions.md` Q4, roadmap Phase 6 task 8).
+- **Phase:** 2 done, waiting for "lanjut" from Master (plus Gate G1 and Gate G2 before Phase 3).
+- **Done in Phase 2:** P2-01 `lists/parser` (`74a646f`), P2-02 `lists/fetch` (`8c31c85`), P2-03 `lists/manager` (`084b377`), P2-04 wire manager into `xdns run` (`a7701ab`), P2-05 `engine/cname` (`8c34703`), P2-06 HTTPS/SVCB and special names (`cb99a20`), P2-07 `selfcheck` + `xdns check` + `xdns lists` (`af34c50`), P2-08 benchmarks (`a264c54`), P2-09 phase gates & review fixes (`e5c18e5`, `d3483b7`, `7fd1ac0`), docs pass (`3112e50`).
+- **In progress:** none.
+- **Code HEAD:** `3112e50` (`docs: update documents after phase 2 review`, code at `7fd1ac0`).
+- **Gates at the end of Phase 2:** `gofmt -l .` empty, `go vet ./...` clean, `go build ./...` clean, `go test ./... -cover -count=1` all `ok` (`cmd/xdns` 92.2%, `backend` 100.0%, `conformance` 81.0%, `dnsproxybe` 95.4%, `config` 95.5%, `engine` 96.8%, `lists` 86.7%, `qlog` 89.1%, `selfcheck` 92.5%), `CGO_ENABLED=1 go test -race ./... -count=1` all `ok`, `go mod verify` and `go mod tidy -diff` clean, `govulncheck` 0 affected (1 uncalled module advisory GO-2026-5932), `xdns check -config configs/xdns.example.yaml` `uji mandiri: LULUS`, Linux cross-build `ok`, live binary check with all 3 real lists (250,089 entries; WorkingSet 71.74–74.20 MiB; lookup p99 2.01 µs) `ok`.
+- **Review:** `reviews/phase-2-review.md` (0 Critical, 2 Important, 8 Minor — all fixed with RED -> GREEN in `e5c18e5`, `d3483b7`, `7fd1ac0`). Phase 1 finding **I1 (TCP slots shared with UDP) remains accepted for the home LAN and MUST be fixed before Phase 6** (`notes/open-questions.md` Q4, roadmap Phase 6 task 8).
 
 ## Next
 
-1. Wait for Master ("lanjut"). Then start `state/PHASE-2-TASKS.md` (lists, CNAME, special names, `xdns check`).
-2. Phase 2 hand-off notes are at the top of `PHASE-2-TASKS.md`; read them first, then `notes/phase2-facts.md` (list URLs, ETag/304 and gzip facts, exact code seams, design recommendations). Prepared 2026-10-18 for Gemini 4 Argon because Claude's usage limit ran out; baseline at `0a505f2` was green (build, vet, gofmt, tests).
-3. Still to prepare if time allows (not done): paste-ready Phase 2 prompts 13-15 (like prompts 10-12), refresh `rules/00-project-brief.md` repo map (it still says run/log/rule are stubs) and move Q1/Q2 in `notes/open-questions.md` to "Answered".
+1. Wait for Master's "lanjut" (and Gate G2 answers) before starting Phase 3 (`state/PHASE-3-TASKS.md`).
 
 ## Blockers / waiting for Master
 
-- Phase 2 start: Master's "lanjut".
-- Gate G2 (start of Phase 3): Mobile Hotspot/Hyper-V/WSL in use? router access? phone browser? Gate G3 (Phase 6): VPS provider, cost, subdomain.
+- Phase 3 start: Master's "lanjut".
+- Gate G1 (optional PC use): inspect `xdns log -blocked` after real browsing and tune `allow` rules if needed.
+- Gate G2 (start of Phase 3): Is Mobile Hotspot, Hyper-V, or WSL in use on this PC (ICS holds UDP 53)? Does Master have router access for DHCP IP reservation? Which browser is used on the RedMagic 8S Pro phone?
+- Gate G3 (Phase 6): VPS provider, cost, subdomain.
 - Pushing to any remote: only with Master's explicit yes.
 - Master's `indirect` question in `go.mod` (one sentence when it comes up: it marks a module our dependencies need but our code does not import).
 - Root `AGENTS.md` pointer to `.agents/README.md` (Master's call, still open).
 
 ## Open items carried over
 
-- Q3 (an upstream equal to our own listen address loops): decided to handle in Phase 2 task P2-07 as a `Warnings()` entry plus a `selfcheck` failure, not a refusal in `run`.
 - Q4 (TCP slot exhaustion) and Q5 (concurrent `xdns rule` edits can lose an update): see `notes/open-questions.md`.
-- Not verified live: graceful Ctrl+C on a real Windows console, full-disk behavior.
+- Not verified live yet: real Firefox/Chrome reaction on the RedMagic 8S Pro phone to `use-application-dns.net` (NXDOMAIN), `_dns.resolver.arpa` (NODATA), and `0.0.0.0` (Phase 3); graceful Ctrl+C on a real Windows console; full-disk behavior.
 
 ## Environment changes
 
 - w64devkit v2.10.1 at `C:\Users\Administrator\tools\w64devkit`; `go env CC` set to its gcc. PATH untouched. `CGO_ENABLED` stays 0 by default (race: per command only).
 - Windows facts that bit us (also in `docs/architecture.md` section 12): `nslookup -port` is ignored (use `scripts/dnsquery.ps1`); excluded UDP port ranges make binds fail with WSAEACCES; renaming over an open file fails; file modes are not enforced.
+

@@ -79,3 +79,70 @@ Keep entries short (the full detail lives in code, tests and commits). Never rew
 - Did: docs pass after the review fixes: `docs/architecture.md` (header, 5.1, 5.2, 5.3, 6, 9, 10, 12, 13, 14, 15, 18), `docs/roadmap.md` (status, Phase 1 criterion, Phase 6 prerequisite task 8, history row), `README.md`, `configs/xdns.example.yaml` (`max_mb_per_day`, upstreams comment), `docs/phase-1-report.md`, `state/STATE.md`, `state/PHASE-2-TASKS.md`, `notes/decisions.md`, `notes/open-questions.md` (Q3 decided, Q4, Q5).
 - Evidence: `go test ./... -count=1` and `xdns check -config configs/xdns.example.yaml` after the doc edits (see the commit).
 - Next: wait for Master's "lanjut" before Phase 2.
+
+## 2026-10-18 20:43 - Gemini 4 Argon (Antigravity) - P2-01 lists/parser
+- Did: implemented `internal/lists/parser.go` and `parser_test.go` (`Parse`, `ParseLine`, `domains` and `hosts` formats, `#!;` comments, UTF-8 BOM, localhost preamble ignored in `hosts`, bounded line length 4096 bytes, bounded stream size 64 MiB, bounded distinct entries 1,000,000). Commit `74a646f`.
+- Evidence: RED (`undefined: MaxLineBytes`, `ParseLine`, `Parse`) -> GREEN (`ok xdns/internal/lists`, coverage 100.0%); `FuzzParseLine` 15 s (2,219,433 execs, 0 failures).
+- Decided: stream lines with a 32 KiB `bufio.Reader` (`> MaxLineBytes`) so overlong lines are drained and counted as rejected without heap allocation; hits on the 64 MiB byte cap or 1M entry cap fail the parse rather than accepting a truncated list.
+- Next: P2-02 `lists/fetch`.
+
+## 2026-10-18 20:48 - Gemini 4 Argon (Antigravity) - P2-02 lists/fetch
+- Did: implemented `internal/lists/fetch.go` and `fetch_test.go` (`Fetcher.Fetch`, `LoadCached`, `ReadMeta`, HTTPS-only enforcement including redirects, `If-None-Match` / `304 Not Modified`, decoded stream cap via `io.LimitReader`, bootstrap-backed `net.Resolver` so list downloads never loop through xdns, atomic temp+rename write with Windows retry, `<name>.meta.json`). Commit `8c31c85`.
+- Evidence: RED (`undefined: Fetcher`, `LoadCached`, `ErrHTTPSRequired`) -> GREEN (`ok xdns/internal/lists`, coverage 90.0%).
+- Decided: reject 0-entry parsed lists (`ErrEmptyList`) so an HTML error page or empty 200 response never overwrites a working cached list; only send `If-None-Match` when both `<name>.txt` and `<name>.meta.json` exist on disk; resolve list hostnames via `net.Resolver{PreferGo: true}` dialing `bootstrap` IPs on port 53 (falling back to the system resolver only when `bootstrap` is empty).
+- Next: P2-03 `lists/manager`.
+
+## 2026-10-18 20:51 - Gemini 4 Argon (Antigravity) - P2-03 lists/manager
+- Did: implemented `internal/lists/manager.go` and `manager_test.go` (`Manager.LoadCache`, `ReloadCache`, `Refresh`, `Run`, `Snapshot`; corrupt cache files logged and skipped while valid ones load; failed downloads preserve previous cached sets; 24 h scheduler with up to +10% jitter plus 5 s disk-stamp polling so `xdns lists update` is picked up by a running server). Commit `084b377`.
+- Evidence: RED (`undefined: NewManager`, `ManagerOptions`) -> GREEN (`ok xdns/internal/lists`, coverage 89.1%, `-race` clean).
+- Decided: poll `<name>.txt` size+mtime every 5 s (`ReloadCache`) alongside the 24 h HTTP refresh so external CLI updates (`xdns lists update`, decision D11) take effect without restarting the server.
+- Next: P2-04 wire the manager into `xdns run`.
+
+## 2026-10-18 20:54 - Gemini 4 Argon (Antigravity) - P2-04 wire manager into xdns run
+- Did: wired `lists.Manager` into `cmd/xdns/run.go` (`serve` loads cached lists before starting the backend, starts `go mgr.Run(ctx)` for background refresh and disk polling, and removes the Phase 1 stub note); added `lists.Dir(dataDir)` helper and tests in `cmd/xdns/run_test.go`. Commit `a7701ab`.
+- Evidence: RED (`TestRunServer_PrintsConfigWarningsWithoutPhase1StubNote` and `TestRunServer_LoadsCachedBlockAndAllowListsIntoEngine` failed) -> GREEN (`ok xdns/cmd/xdns`, coverage 92.2%, `-race` clean).
+- Next: P2-05 `engine/cname`.
+
+## 2026-10-18 20:59 - Gemini 4 Argon (Antigravity) - P2-05 engine/cname
+- Did: implemented `internal/engine/cname.go` (`inspectAnswer`, `checkCNAME`), wired into `Engine.After` (`internal/engine/engine.go`), added `internal/engine/cname_test.go`, and added conformance test `blockedCNAMEAndCacheHit` in `internal/backend/conformance`. Commit `8c34703`.
+- Evidence: RED (`TestAfter_CNAMEChain`, `TestAfter_MalformedInputsDoNotPanic`, and `TestConformance/dnsproxy/CNAME_to_a_blocked_domain_is_blocked_on_both_upstream_and_cache_hit` failed) -> GREEN (`internal/engine` coverage 97.5%, `conformance` 82.2%, `-race` clean).
+- Decided: `inspectAnswer` fails open via `defer e.failOpen(ctx, &dec)` and reuses `classify` on each normalized CNAME target in `resp.Answer`, so custom allow and list allow hops continue the walk while the first blocked hop returns `Block` with `ReasonCNAME` and `Via: target`.
+- Next: P2-06 HTTPS/SVCB and special names.
+
+## 2026-10-18 21:07 - Gemini 4 Argon (Antigravity) - P2-06 HTTPS/SVCB and special names
+- Did: implemented `internal/engine/special.go` and `special_test.go` (`use-application-dns.net` -> NXDOMAIN with `SourceFirefoxCanary`, `_dns.resolver.arpa` -> NODATA with `SourceDDR`, behind `config.SpecialNames`); added `Responder.NXDomain` and `Responder.NoData`; wired `Special: cfg.SpecialNames` in `cmd/xdns/run.go` and `internal/backend/conformance/harness.go`; extended `blockedHTTPS` to test HTTPS (65) and SVCB (64) on both direct blocks and CNAME chains, and added `specialNames` to `internal/backend/conformance/suite.go`. Commit `cb99a20`.
+- Evidence: RED (`TestBeforeSpecialNames`, `TestResponderNXDomainAndNoDataMalformed`, and `TestConformance/dnsproxy/special_names_answer_NXDOMAIN_for_canary_and_NODATA_for_DDR` failed) -> GREEN (`internal/engine` coverage 97.6%, `conformance` 81.0%, `cmd/xdns` 92.2%, all `-race` clean).
+- Decided: special names always return `NXDOMAIN` (`use-application-dns.net`) or `NODATA` (`_dns.resolver.arpa`) with a synthetic SOA regardless of `block.mode`, because Firefox DoH canary specifically checks for `NXDOMAIN` and DDR specifically expects `NODATA`.
+- Next: P2-07 `selfcheck` and `xdns check` + `xdns lists status|update`.
+
+## 2026-10-18 21:23 - Gemini 4 Argon (Antigravity) - P2-07 selfcheck, xdns check, and xdns lists CLI
+- Did: added `Config.LoopWarnings()` (and included in `Warnings()`) in `internal/config/validate.go` (Q3); implemented `internal/selfcheck/selfcheck.go` and `selfcheck_test.go` (Q3 loop failure, upstream reachability + S3 SafeSearch check on `www.google.com` via `upstream.AddressToUpstream`, cached list load + sample domain blocking check via `engine.Engine`); implemented `cmd/xdns/lists.go` (`xdns lists status|update`) and `lists_test.go`; updated `cmd/xdns/check.go` and `cmd/xdns/main.go`. Commit `af34c50`.
+- Evidence: RED (`cfg.LoopWarnings undefined`, `undefined: Run` in `selfcheck`, `undefined: runListsWith` in `cmd/xdns`) -> GREEN (`internal/config` 95.5%, `internal/selfcheck` 90.3%, `cmd/xdns` 92.2%, all `-race` clean).
+- Decided: missing cached list files (`os.ErrNotExist`) produce a warning in `selfcheck` rather than a hard failure so `xdns check -config configs/xdns.example.yaml` passes on a clean tree without untracked files in `configs/data`, while any present cached list file is parsed, verified non-empty, and tested end-to-end with a sample domain against the engine.
+- Next: P2-08 benchmarks (250k entries lookup p99 and process memory).
+
+## 2026-10-18 21:26 - Gemini 4 Argon (Antigravity) - P2-08 benchmarks (250k entries)
+- Did: added `BenchmarkListSet_Lookup250k` and `TestListSet_Budget250k` in `internal/engine/matcher_test.go` (3 lists totaling 250,000 entries: 202k + 47.5k + 500). Commit `a264c54`.
+- Evidence: `BenchmarkListSet_Lookup250k-12: 4,306,965 ops, 250.1 ns/op (~0.25 µs/op), 0 B/op, 0 allocs/op`; `TestListSet_Budget250k: heap_inuse_delta=16.15 MiB, sys=38.15 MiB, p95=1.069µs, p99=2.011µs` (targets: p99 < 50 µs, memory < 150 MB).
+- Decided: keep `map[string]struct{}` in `DomainSet`; at 16.15 MiB heap and 2.01 µs p99 (250 ns/op mean), no 64-bit hash-map replacement is needed.
+- Next: P2-09 phase gates, live binary verification with the three real blocklists, fresh-context review (`/review-phase`), and `/close-phase`.
+
+## 2026-10-18 21:35 - Gemini 4 Argon (Antigravity) - P2-09 phase gates and live binary verification
+- Did: ran live binary check in `$env:TEMP\xdns-phase2-live` (cleaned up afterwards) and ran all 10 quality gates (`/gates`).
+- Evidence:
+  - Live `xdns lists update`: downloaded `hagezi-pro` (202,297 domains, 0 rejected), `hagezi-popups` (47,668 domains, 0 rejected), `abpindo` (124 domains, 0 rejected) — total 250,089 entries before de-duplication; second `xdns lists update` returned `304 Not Modified` (`belum berubah`) for all three.
+  - Live `xdns check`: `daftar hagezi-pro: 202297 domain (contoh telemetry.001-studio.com -> 0.0.0.0)`, `daftar hagezi-popups: 47668 domain (contoh fd01ce9a02.0012e30263.com -> 0.0.0.0)`, `daftar abpindo: 124 domain (contoh accesstrade.co.id -> 0.0.0.0)`, `safe_search (S3): LULUS (www.google.com tidak diarahkan ke forcesafesearch.google.com)`, `uji mandiri: LULUS`.
+  - Live `xdns run` on `127.0.0.1:5300` queried via `scripts/dnsquery.ps1`: `telemetry.001-studio.com` -> `A 0.0.0.0 ttl 10` (`list:hagezi-pro`), `fd01ce9a02.0012e30263.com` -> `A 0.0.0.0 ttl 10`, `accesstrade.co.id` -> `A 0.0.0.0 ttl 10` (`list:abpindo`), `use-application-dns.net` -> `NXDOMAIN` (`special:firefox_canary`), `_dns.resolver.arpa` -> `NOERROR, 0 answer(s)` (`special:ddr`), `www.google.com` -> `NOERROR, 8 answer(s)` via `https://1.1.1.1:443/dns-query`. Process memory with all 250,089 entries loaded: `WorkingSet=74.20 MiB`, `Private=105.25 MiB` (< 150 MB target).
+  - `/gates`: 1) `gofmt -l .` empty; 2) `go vet ./...` exit 0; 3) `go build ./...` exit 0; 4) `go test ./... -cover -count=1` all `ok` (`cmd/xdns` 91.9%, `backend` 100.0%, `conformance` 81.0%, `dnsproxybe` 95.4%, `config` 95.5%, `engine` 97.6%, `lists` 88.9%, `qlog` 89.1%, `selfcheck` 90.3%); 5) `CGO_ENABLED=1 go test -race ./... -count=1` all `ok`; 6) `go mod verify` `all modules verified`; 7) `go mod tidy -diff` empty; 8) `govulncheck` 0 affected (1 uncalled module advisory); 9) `go run ./cmd/xdns check -config configs/xdns.example.yaml` exit 0 (`uji mandiri: LULUS`); 10) `GOOS=linux GOARCH=amd64 go build ./...` exit 0.
+- Next: `/review-phase 8c10920..HEAD` in a fresh-context subagent session.
+
+## 2026-10-18 22:07 - Gemini 4 Argon (Antigravity) - Phase 2 review triage and close-phase
+- Did:
+  - Ran `/review-phase 8c10920..HEAD` in a fresh-context subagent (`09dc5a2a-ebd9-4c96-85a3-4b03bd1245d2`); report written to `.agents/state/reviews/phase-2-review.md` (0 Critical, 2 Important, 8 Minor).
+  - Fixed all Important and Minor findings with RED -> GREEN tests in three commits:
+    - `e5c18e5`: resolve bootstrap hostnames sequentially via `miekg/dns` over UDP (with TCP fallback) so an unreachable/silent first bootstrap server fails over deterministically (I1), reuse default `*http.Transport` across `Fetch` calls (M2a), allow up to 5 HTTPS redirects (`len(via) > maxRedirects`, M3), and test orphaned `.meta.json` without `.txt` (M8-3).
+    - `d3483b7`: add `engine.DomainSetBuilder` (M1) and `DomainSet.Find` (I2), check `rules.Reload()` errors in `selfcheck`, pick each blocklist's own un-allowed sample domain with `dec.Source == src.Name` (I2), and test subdomain SafeSearch CNAME target (M8-2).
+    - `7fd1ac0`: add `Fetcher.FetchWithCached` so `304 Not Modified` reuses the in-memory `*engine.DomainSet` when the disk stamp matches (M2b), log `statList` errors in `ReloadCache` and skip `publishLocked` when 0 updates succeed (M4), expand `LoopWarnings` to cover wildcard/loopback combinations and `localhost` URLs (M5), pass `"before"`/`"after"` stage to `failOpen` (M6), move top-of-file `// agy wrote this` below `package` declarations (M7), and test same-size `modTime` reload (M8-1).
+  - Re-ran all 10 `/gates` on `7fd1ac0`: all green (`cmd/xdns` 92.2%, `backend` 100.0%, `conformance` 81.0%, `dnsproxybe` 95.4%, `config` 95.5%, `engine` 96.8%, `lists` 86.7%, `qlog` 89.1%, `selfcheck` 92.5%; `-race` ok; `govulncheck` 0 affected; `xdns check` LULUS; Linux cross-build ok).
+  - Completed single documentation pass (`docs/architecture.md`, `docs/roadmap.md`, `README.md`, `docs/phase-2-report.md`) in commit `3112e50`, created `.agents/state/PHASE-3-TASKS.md`, and updated `.agents/` state.
+- Next: STOP and wait for Master's "lanjut" (plus Gate G1 and Gate G2 answers) before starting Phase 3.
