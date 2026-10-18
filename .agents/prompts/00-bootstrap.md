@@ -7,7 +7,7 @@ Kamu melanjutkan proyek **xdns** milik Master: server DNS pribadi (Go) yang memb
 You are continuing the xdns project in the workspace `C:\Users\Administrator\Documents\Vscode\xdns` (open this folder as the workspace root). Do the following IN ORDER, and do not start any implementation work yet:
 
 1. Read EVERY file in `.agents/rules/` (00 to 06). They are binding. If your tool also loads them automatically, read them anyway to be sure.
-2. Read `.agents/state/STATE.md`, then the last 40 lines of `.agents/state/WORKLOG.md`, then `.agents/state/PHASE-5-TASKS.md` (Phase 4 is closed in code; P4-09 is still open, see `STATE.md`; use the newest `PHASE-N-TASKS.md`).
+2. Read `.agents/state/STATE.md`, then the last 40 lines of `.agents/state/WORKLOG.md`, then `.agents/state/PHASE-6-TASKS.md` (Phase 5 is closed; Phase 6 starts only after Master says "lanjut"; use the newest `PHASE-N-TASKS.md`).
 3. Read `.agents/notes/do-not-retry.md` and `.agents/notes/open-questions.md`.
 4. Run the procedure in `.agents/workflows/resume.md`: compare `git log --oneline -8` and `git status --short` with the state file, then `go build ./...` and `go test ./... -count=1`.
 5. Reply to Master in INDONESIAN, at most 15 lines: fase dan status, HEAD vs catatan, hasil build/test, tugas berikutnya, hambatan/pertanyaan, penyimpangan yang ditemukan. End with "Lanjut, Master?" and WAIT.

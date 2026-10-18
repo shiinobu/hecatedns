@@ -61,7 +61,7 @@ Planned engine files (`docs/architecture.md` section 4): `engine.go acl.go match
 | S1 | Ad domains on the lists answer `0.0.0.0`; adblock.turtlecute.org and canyoublockit.com before/after; first target 90% of test hosts blocked | Phase 3 |
 | S2 | Play Store redirect trigger found via the query log and stopped (10 retries without that redirect) | Phase 3 |
 | S3 | SafeSearch not forced: `www.google.com` never chains to `forcesafesearch.google.com` | Phase 2 and 3 |
-| S4 | 7 days running without crash or manual restart, stable memory, cache-miss p95 < 150 ms | Phase 5 |
+| S4 | 7 days running without crash or manual restart, stable memory, cache-miss p95 < 150 ms | Phase 6, on the VPS (moved from Phase 5: the home PC is switched off at night) |
 | S5 | `xdns rule add allow <domain>` takes effect within 10 s without restart | Phase 1 |
 
 Not goals of version 1: web UI, HTTPS content inspection, APK, DNS-over-QUIC, DNSSEC validation, per-client profiles, parental control, ECS.

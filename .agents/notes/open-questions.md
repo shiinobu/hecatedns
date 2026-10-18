@@ -35,3 +35,9 @@ Add new questions at the bottom with a number. When one is answered, move it to 
 
 **Q5. Concurrent `xdns rule` edits.** `rule add`/`remove` read-modify-write without a lock; two simultaneous invocations can lose an update (12 parallel adds kept all 12 in the review, so it is rare). Revisit only if it ever bites.
 
+
+**Q6. Upstream-failure warning when the link flaps (Phase 5 review M3, open).** `internal/engine/health.go` resets the one-minute throttle on recovery, a rule `TestAfter_SaysWhenTheUpstreamsAreBackAfterAWarning` pins on purpose ("a new outage a second later is announced at once"). A link that fails 5 times, answers once, and repeats produces a WARN and an INFO per cycle with no throttle (bounded by the 5 MB `xdns.log` cap). Decide which behaviour is wanted before changing it. Related: `errBusy` ("too many upstream queries in flight", a local limit in `native`) counts as an upstream failure, and an upstream that answers SERVFAIL never warns.
+
+**Q7. Which backend runs on the VPS (Phase 6, open).** The debt in `PHASE-6-TASKS.md` section B differs per backend (`dnsproxy` needs a TCP slot pool or per-IP limit and a rate limiter; `native` needs de-duplication and the limiter overflow fix). Deciding first can let one backend's debt stay documented instead of paid. Decide at the start of Phase 6, with Master.
+
+**Q8. First real boot of the Task Scheduler task (Phase 5, open).** Verified with throwaway tasks and a manual start, never through a PC boot. After the next start of the PC check `powershell -File scripts/autostart.ps1 status` and `data\logs\xdns.log`; if xdns is not running about a minute after boot, read the log (a bind failure is now written there) and the task's last result before changing anything.
