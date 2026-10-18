@@ -125,6 +125,49 @@ func TestLoad_RejectsDuplicateKey(t *testing.T) {
 	}
 }
 
+func TestLoad_RejectsMultipleDocuments(t *testing.T) {
+	tests := []struct{ name, content string }{
+		{"document separator", "backend: native\n---\nlisten: [\"0.0.0.0:53\"]\n"},
+		{"end marker then new document", "backend: native\n...\n---\nlisten: [\"0.0.0.0:53\"]\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path, _ := writeConfig(t, tc.content)
+
+			_, err := Load(path)
+			if err == nil || !strings.Contains(err.Error(), "document") {
+				t.Fatalf("Load error = %v, want it to mention multiple documents", err)
+			}
+		})
+	}
+}
+
+func TestLoad_AcceptsEffectivelyEmptyFiles(t *testing.T) {
+	tests := []struct{ name, content string }{
+		{"empty", ""},
+		{"BOM only", "\xef\xbb\xbf"},
+		{"comment only", "# nothing here\n"},
+		{"document start marker only", "---\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := mustLoad(t, tc.content)
+
+			if cfg.Backend != BackendDNSProxy {
+				t.Errorf("Backend = %q, want defaults (dnsproxy)", cfg.Backend)
+			}
+		})
+	}
+}
+
+func TestLoad_AcceptsExplicitDocumentStart(t *testing.T) {
+	cfg := mustLoad(t, "---\nbackend: native\n")
+
+	if cfg.Backend != BackendNative {
+		t.Errorf("Backend = %q, want native", cfg.Backend)
+	}
+}
+
 func TestLoad_ResolvesRelativePaths(t *testing.T) {
 	path, dir := writeConfig(t, "backend: dnsproxy\n")
 

@@ -156,15 +156,27 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
-// decodeStrict decodes data into cfg, tolerating a UTF-8 BOM and treating an
-// empty document as "no overrides".
+// decodeStrict decodes the single YAML document in data into cfg, tolerating
+// a UTF-8 BOM and treating an empty document as "no overrides". A second
+// document is an error, because its settings would be silently ignored.
 func decodeStrict(data []byte, cfg *Config) error {
 	dec := yaml.NewDecoder(bytes.NewReader(bytes.TrimPrefix(data, []byte(utf8BOM))))
 	dec.KnownFields(true)
-	if err := dec.Decode(cfg); err != nil && !errors.Is(err, io.EOF) {
+	if err := dec.Decode(cfg); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
 		return err
 	}
-	return nil
+	var extra yaml.Node
+	switch err := dec.Decode(&extra); {
+	case err == nil:
+		return errors.New("multiple YAML documents are not supported, remove the extra '---' section")
+	case errors.Is(err, io.EOF):
+		return nil
+	default:
+		return err
+	}
 }
 
 // resolvePaths makes the relative path settings absolute against baseDir.
