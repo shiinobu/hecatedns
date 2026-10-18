@@ -1,6 +1,6 @@
 /data/
 /bin/
-/.claude/
+/.claude/settings.local.json
 /.superpowers/
 *.exe
 *.test
