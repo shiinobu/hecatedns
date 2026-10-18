@@ -1,0 +1,9 @@
+/data/
+/bin/
+/.claude/
+/.superpowers/
+*.exe
+*.test
+*.out
+*.pem
+*.key
