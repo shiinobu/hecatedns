@@ -465,3 +465,54 @@ func queryMsgWithID(name string, qtype uint16, id uint16) *dns.Msg {
 	q.Id = id
 	return q
 }
+
+func TestDoH_HostnameStillWorksWhenTheFirstBootstrapServerIsDead(t *testing.T) {
+	f := startFakeDoH(t, func(w http.ResponseWriter, _ *http.Request, req *dns.Msg) { writeDNS(w, aReply(req)) })
+	dead := startFakeDNS(t, func(*dns.Msg, string) *dns.Msg { return nil })
+	good := startFakeDNS(t, func(req *dns.Msg, _ string) *dns.Msg {
+		resp := new(dns.Msg).SetReply(req)
+		if req.Question[0].Qtype == dns.TypeA {
+			resp.Answer = []dns.RR{&dns.A{
+				Hdr: dns.RR_Header{Name: req.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+				A:   []byte{127, 0, 0, 1},
+			}}
+		}
+		return resp
+	})
+	// Production gives the bootstrap lookup the same deadline as the whole DoH
+	// request; a dead first server must not use all of it.
+	u := newTestDoH(t, f, "https://example.com:"+f.port()+"/dns-query", newBootstrap([]string{dead.addr, good.addr}, testTimeout))
+
+	if _, err := exchange(t, u, queryMsg("fine.example", dns.TypeA)); err != nil {
+		t.Fatalf("Exchange with a dead first bootstrap server: %v", err)
+	}
+	if asked := good.asked(); len(asked) == 0 {
+		t.Error("the second bootstrap server was never asked")
+	}
+}
+
+func TestShareOfDeadline(t *testing.T) {
+	const second = time.Second
+	near := func(got, want time.Duration) bool { return got <= want && got > want-200*time.Millisecond }
+
+	parent, cancel := context.WithTimeout(context.Background(), 2*second)
+	defer cancel()
+	for _, tc := range []struct {
+		name  string
+		parts int
+		want  time.Duration
+	}{{"the only part gets everything left", 1, 2 * second}, {"one of two gets half", 2, second}, {"one of four gets a quarter", 4, second / 2}} {
+		ctx, cancelShare := shareOfDeadline(parent, tc.parts)
+		deadline, ok := ctx.Deadline()
+		cancelShare()
+		if !ok || !near(time.Until(deadline), tc.want) {
+			t.Errorf("%s: deadline in %v, want about %v", tc.name, time.Until(deadline), tc.want)
+		}
+	}
+
+	ctx, cancelNone := shareOfDeadline(context.Background(), 3)
+	defer cancelNone()
+	if _, ok := ctx.Deadline(); ok {
+		t.Error("a context without a deadline got one")
+	}
+}

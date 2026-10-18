@@ -16,6 +16,11 @@ import (
 
 const testTimeout = 2 * time.Second
 
+// maxPortAttempts is how many UDP ports startFakeDNS tries for one whose TCP
+// twin is also free. Windows excludes blocks of 100 TCP ports (Hyper-V, WinNAT)
+// that are not excluded for UDP, and neighbouring blocks can make 200 in a row.
+const maxPortAttempts = 1000
+
 // fakeDNS is a plain DNS server on one loopback port, reachable over UDP and
 // TCP. Its handler decides every answer; it also keeps what it was asked.
 type fakeDNS struct {
@@ -50,7 +55,7 @@ func startFakeDNS(t *testing.T, handler func(req *dns.Msg, network string) *dns.
 			_ = pc.Close()
 		}
 	})
-	for attempt := 0; attempt < 100; attempt++ {
+	for attempt := 0; attempt < maxPortAttempts; attempt++ {
 		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("fake DNS: listen udp: %v", err)

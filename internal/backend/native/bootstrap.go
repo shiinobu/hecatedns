@@ -27,15 +27,30 @@ func newBootstrap(servers []string, timeout time.Duration) *bootstrap {
 	return b
 }
 
+// shareOfDeadline returns a context that may use 1/parts of the time left before
+// ctx's deadline, so that a dead first server or address cannot use up the whole
+// deadline and leave nothing for the ones after it. The last part gets all that
+// is left. A context without a deadline is returned as it is.
+func shareOfDeadline(ctx context.Context, parts int) (context.Context, context.CancelFunc) {
+	deadline, ok := ctx.Deadline()
+	if !ok || parts <= 1 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, time.Until(deadline)/time.Duration(parts))
+}
+
 // lookup returns the A and AAAA addresses of host, from the first server that
-// gives any. The servers are tried in order.
+// gives any. The servers are tried in order, each within its share of the time
+// left.
 func (b *bootstrap) lookup(ctx context.Context, host string) ([]netip.Addr, error) {
 	if b == nil || len(b.servers) == 0 {
 		return nil, fmt.Errorf("cannot resolve %s: no bootstrap resolver configured", host)
 	}
 	var errs []error
-	for _, server := range b.servers {
-		ips, err := lookupVia(ctx, server, host)
+	for i, server := range b.servers {
+		serverCtx, cancel := shareOfDeadline(ctx, len(b.servers)-i)
+		ips, err := lookupVia(serverCtx, server, host)
+		cancel()
 		if len(ips) > 0 {
 			return ips, nil
 		}
@@ -88,13 +103,19 @@ func (b *bootstrap) dialContext(timeout time.Duration) func(ctx context.Context,
 		if _, err := netip.ParseAddr(host); err == nil {
 			return dialer.DialContext(ctx, network, addr)
 		}
+		// net/http gives the dial a context without the request's deadline, so
+		// the lookup and the dial need a budget of their own to share out.
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
 		ips, err := b.lookup(ctx, host)
 		if err != nil {
 			return nil, err
 		}
 		var errs []error
-		for _, ip := range ips {
-			conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		for i, ip := range ips {
+			dialCtx, cancel := shareOfDeadline(ctx, len(ips)-i)
+			conn, err := dialer.DialContext(dialCtx, network, net.JoinHostPort(ip.String(), port))
+			cancel()
 			if err == nil {
 				return conn, nil
 			}
