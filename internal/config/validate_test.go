@@ -308,3 +308,72 @@ func TestValidate_MaxTTLZeroMeansNoCap(t *testing.T) {
 		t.Errorf("Validate() = %v, want min_ttl above a real max_ttl to stay an error", err)
 	}
 }
+
+// agy wrote this
+func TestWarnings_DetectsLoopingUpstreamAndBootstrap(t *testing.T) {
+	tests := []struct {
+		name      string
+		listen    []string
+		upstreams []string
+		bootstrap []string
+		wantLoop  int
+	}{
+		{
+			name:      "no loop",
+			listen:    []string{"127.0.0.1:5300"},
+			upstreams: []string{"https://1.1.1.1/dns-query"},
+			bootstrap: []string{"1.1.1.1"},
+			wantLoop:  0,
+		},
+		{
+			name:      "upstream ip:port equals listen",
+			listen:    []string{"127.0.0.1:5300"},
+			upstreams: []string{"127.0.0.1:5300"},
+			wantLoop:  1,
+		},
+		{
+			name:      "upstream udp URL equals listen",
+			listen:    []string{"127.0.0.1:5300"},
+			upstreams: []string{"udp://127.0.0.1:5300"},
+			wantLoop:  1,
+		},
+		{
+			name:      "upstream bare IP equals listen on port 53",
+			listen:    []string{"127.0.0.1:53"},
+			upstreams: []string{"127.0.0.1"},
+			wantLoop:  1,
+		},
+		{
+			name:      "upstream loopback against unspecified listen",
+			listen:    []string{"0.0.0.0:5300"},
+			upstreams: []string{"tcp://127.0.0.1:5300"},
+			wantLoop:  1,
+		},
+		{
+			name:      "bootstrap IP equals listen on port 53",
+			listen:    []string{"127.0.0.1:53"},
+			upstreams: []string{"https://dns.google/dns-query"},
+			bootstrap: []string{"127.0.0.1"},
+			wantLoop:  1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Default()
+			cfg.Listen = tt.listen
+			cfg.Upstreams = tt.upstreams
+			cfg.Bootstrap = tt.bootstrap
+			cfg.Lists.Sources = withSource(func(s *Source) { s.Enabled = true })
+
+			loops := cfg.LoopWarnings()
+			if len(loops) != tt.wantLoop {
+				t.Fatalf("LoopWarnings() = %v (len %d), want len %d", loops, len(loops), tt.wantLoop)
+			}
+			warnings := cfg.Warnings()
+			if len(warnings) != tt.wantLoop {
+				t.Fatalf("Warnings() = %v (len %d), want len %d", warnings, len(warnings), tt.wantLoop)
+			}
+		})
+	}
+}

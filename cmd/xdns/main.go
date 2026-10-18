@@ -21,7 +21,7 @@ perintah:
   run     jalankan server           (xdns run -config xdns.yaml)
   log     baca log query            (xdns log -since 10m -blocked)
   rule    kelola aturan kustom      (xdns rule add block contoh.com)
-  lists   kelola daftar blokir      (belum diimplementasi)
+  lists   kelola daftar blokir      (xdns lists status | update)
 `
 
 func main() {
@@ -45,8 +45,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "run":
 		return runServer(rest, stdout, stderr)
 	case "lists":
-		fmt.Fprintf(stderr, "xdns %s: belum diimplementasi\n", command)
-		return exitUsage
+		// agy wrote this
+		return runLists(rest, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "xdns: perintah tidak dikenal %q\n\n%s", command, usage)
 		return exitUsage

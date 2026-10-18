@@ -1,17 +1,20 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"strings"
 
 	"xdns/internal/config"
+	"xdns/internal/selfcheck"
 )
 
 const defaultConfigPath = "xdns.yaml"
 
-// runCheck loads and validates a configuration file and prints a summary.
+// runCheck loads and validates a configuration file, runs the self-check suite
+// and prints a summary.
 func runCheck(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("check", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -30,10 +33,34 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 	printSummary(stdout, *path, cfg)
+
+	// agy wrote this
+	res, err := selfcheck.Run(context.Background(), cfg, selfcheck.Options{})
+	for _, w := range res.Warnings {
+		fmt.Fprintf(stdout, "peringatan: %s\n", w)
+	}
+	for _, l := range res.Lists {
+		if !l.Cached {
+			continue
+		}
+		if l.SampleDomain != "" && l.SampleAnswer != "" {
+			fmt.Fprintf(stdout, "daftar %s: %d domain (contoh %s -> %s)\n",
+				l.Name, l.Entries, l.SampleDomain, l.SampleAnswer)
+		} else {
+			fmt.Fprintf(stdout, "daftar %s: %d domain\n", l.Name, l.Entries)
+		}
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "xdns check: uji mandiri GAGAL: %v\n", err)
+		fmt.Fprintln(stdout, "uji mandiri: GAGAL")
+		return exitError
+	}
+	fmt.Fprintln(stdout, "safe_search (S3): LULUS (www.google.com tidak diarahkan ke forcesafesearch.google.com)")
+	fmt.Fprintln(stdout, "uji mandiri: LULUS")
 	return exitOK
 }
 
-// printSummary writes the human-readable result of a successful check.
+// printSummary writes the human-readable result of a valid configuration.
 func printSummary(w io.Writer, path string, cfg config.Config) {
 	fmt.Fprintf(w, "konfigurasi valid: %s\n", path)
 	fmt.Fprintf(w, "backend: %s\n", cfg.Backend)

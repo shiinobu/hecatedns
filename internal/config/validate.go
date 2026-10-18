@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,6 +18,13 @@ const maxTTLSeconds = math.MaxInt32
 
 // maxSourceNameLen bounds a list source name, which becomes a file name.
 const maxSourceNameLen = 64
+
+// Default upstream ports per scheme when none is written.
+const (
+	defaultPortDNS = 53
+	defaultPortDoT = 853
+	defaultPortDoH = 443
+)
 
 // Validate checks the whole configuration and reports every problem found,
 // joined into one error. Each message starts with the offending field path.
@@ -36,14 +44,111 @@ func (c Config) Validate() error {
 }
 
 // Warnings lists conditions that are valid but probably not what the user
-// intends. The messages are shown by `xdns check`.
+// intends. The messages are shown by `xdns check` and `xdns run`.
 func (c Config) Warnings() []string {
+	// agy wrote this
+	var out []string
+	hasBlockSource := false
 	for _, s := range c.Lists.Sources {
 		if s.Enabled && s.Kind == KindBlock {
-			return nil
+			hasBlockSource = true
+			break
 		}
 	}
-	return []string{"tidak ada sumber daftar blokir yang aktif: hanya aturan kustom yang akan memblokir"}
+	if !hasBlockSource {
+		out = append(out, "tidak ada sumber daftar blokir yang aktif: hanya aturan kustom yang akan memblokir")
+	}
+	out = append(out, c.LoopWarnings()...)
+	return out
+}
+
+// agy wrote this
+// LoopWarnings reports any upstream or bootstrap address that resolves to one
+// of the server's own listen addresses, which would cause DNS queries to loop.
+func (c Config) LoopWarnings() []string {
+	var listens []netip.AddrPort
+	for _, l := range c.Listen {
+		if ap, err := netip.ParseAddrPort(l); err == nil {
+			listens = append(listens, netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()))
+		}
+	}
+	if len(listens) == 0 {
+		return nil
+	}
+	var out []string
+	for _, u := range c.Upstreams {
+		target, ok := upstreamAddrPort(u)
+		if !ok {
+			continue
+		}
+		if matchesAnyListen(listens, target) {
+			out = append(out, fmt.Sprintf("upstream %q sama dengan alamat listen: query akan berputar kembali ke server ini sendiri", u))
+		}
+	}
+	for _, b := range c.Bootstrap {
+		ip, err := netip.ParseAddr(b)
+		if err != nil {
+			continue
+		}
+		target := netip.AddrPortFrom(ip.Unmap(), defaultPortDNS)
+		if matchesAnyListen(listens, target) {
+			out = append(out, fmt.Sprintf("bootstrap %q (port 53) sama dengan alamat listen: resolusi bootstrap akan berputar kembali ke server ini sendiri", b))
+		}
+	}
+	return out
+}
+
+// agy wrote this
+func matchesAnyListen(listens []netip.AddrPort, target netip.AddrPort) bool {
+	for _, l := range listens {
+		if l.Port() != target.Port() {
+			continue
+		}
+		if l.Addr() == target.Addr() {
+			return true
+		}
+		if l.Addr().IsUnspecified() && target.Addr().IsLoopback() && l.Addr().Is4() == target.Addr().Is4() {
+			return true
+		}
+	}
+	return false
+}
+
+// agy wrote this
+func upstreamAddrPort(u string) (netip.AddrPort, bool) {
+	if ip, err := netip.ParseAddr(u); err == nil {
+		return netip.AddrPortFrom(ip.Unmap(), defaultPortDNS), true
+	}
+	if ap, err := netip.ParseAddrPort(u); err == nil {
+		return netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()), true
+	}
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return netip.AddrPort{}, false
+	}
+	ip, err := netip.ParseAddr(parsed.Hostname())
+	if err != nil {
+		return netip.AddrPort{}, false
+	}
+	var port uint16
+	switch parsed.Scheme {
+	case "udp", "tcp":
+		port = defaultPortDNS
+	case "tls":
+		port = defaultPortDoT
+	case "https":
+		port = defaultPortDoH
+	default:
+		return netip.AddrPort{}, false
+	}
+	if p := parsed.Port(); p != "" {
+		n, err := strconv.ParseUint(p, 10, 16)
+		if err != nil || n == 0 {
+			return netip.AddrPort{}, false
+		}
+		port = uint16(n)
+	}
+	return netip.AddrPortFrom(ip.Unmap(), port), true
 }
 
 func (c Config) validateBackend() []error {
