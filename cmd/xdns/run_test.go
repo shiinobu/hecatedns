@@ -286,6 +286,26 @@ func TestRunServer_ABackendThatCannotStartEndsWithAnError(t *testing.T) {
 	}
 }
 
+func TestRunServer_AFailedStartLeavesItsReasonInTheOperationalLog(t *testing.T) {
+	f := newRunFixture(t, "")
+	const reason = "listen 192.168.1.99:53: address not available"
+	registry := backend.Registry{"dnsproxy": fakeFactory("dnsproxy", func(backend.Deps) error { return errors.New(reason) })}
+
+	h := f.start(t, registry)
+	code, _, _ := h.stop()
+
+	if code != exitError {
+		t.Fatalf("exit = %d, want %d", code, exitError)
+	}
+	data, err := os.ReadFile(filepath.Join(f.logDir, "xdns.log"))
+	if err != nil {
+		t.Fatalf("no operational log file: %v", err)
+	}
+	if !strings.Contains(string(data), reason) {
+		t.Errorf("xdns.log = %q, want the reason the server stopped (a hidden task has no console to show it)", data)
+	}
+}
+
 // agy wrote this
 func TestRunServer_PrintsConfigWarningsWithoutPhase1StubNote(t *testing.T) {
 	f := newRunFixture(t, "lists:\n  sources: []\n")

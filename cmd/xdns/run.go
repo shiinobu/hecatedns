@@ -75,11 +75,18 @@ func runServerCtx(ctx context.Context, args []string, stdout, stderr io.Writer, 
 
 // serve builds the engine and the backend from cfg and runs the backend until
 // ctx ends. Everything it opens is closed on return, the query log last so it
-// is flushed.
-func serve(ctx context.Context, cfg config.Config, stdout, stderr io.Writer, registry backend.Registry) error {
+// is flushed. An error that ends the server is written to the operational log
+// before that log closes, because a hidden scheduled task has no console to
+// show it.
+func serve(ctx context.Context, cfg config.Config, stdout, stderr io.Writer, registry backend.Registry) (err error) {
 	logOut, closeRunLog := openRunLog(cfg, stderr, stdout)
 	defer closeRunLog()
 	log := slog.New(slog.NewTextHandler(logOut, nil))
+	defer func() {
+		if err != nil {
+			log.Error("xdns stopped because of an error", "error", err)
+		}
+	}()
 	for _, warning := range cfg.Warnings() {
 		fmt.Fprintf(stdout, "peringatan: %s\n", warning)
 	}
