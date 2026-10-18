@@ -276,10 +276,38 @@ func TestRefuse_IsRefusedWhateverTheBlockMode(t *testing.T) {
 	if resp.Rcode != dns.RcodeRefused || len(resp.Answer) != 0 || len(resp.Ns) != 0 {
 		t.Errorf("Refuse() = %v, want an empty REFUSED", resp)
 	}
-	if resp.Id != req.Id || !resp.Response || !resp.RecursionAvailable {
+	if resp.Id != req.Id || !resp.Response {
 		t.Errorf("Refuse() header = %+v", resp.MsgHdr)
 	}
 	if got := Refuse(nil); got == nil || got.Rcode != dns.RcodeFormatError {
 		t.Errorf("Refuse(nil) = %v, want FORMERR", got)
+	}
+}
+
+func TestNotImplemented(t *testing.T) {
+	req := newRequest("example.com", dns.TypeA)
+	req.Opcode = dns.OpcodeUpdate
+	resp := notImplemented(req)
+	if resp.Rcode != dns.RcodeNotImplemented || len(resp.Answer) != 0 || len(resp.Ns) != 0 {
+		t.Errorf("notImplemented = %v, want an empty NOTIMP", resp)
+	}
+	if resp.Id != req.Id || !resp.Response || resp.Opcode != dns.OpcodeUpdate {
+		t.Errorf("header = %+v, want ID copied, QR set and the opcode echoed", resp.MsgHdr)
+	}
+}
+
+func TestAnswersAreCompressed(t *testing.T) {
+	req := newRequest("a.very.long.name.of.a.blocked.example.com", dns.TypeHTTPS)
+	for _, mode := range []string{config.ModeNullIP, config.ModeNXDomain, config.ModeNoData, config.ModeRefused} {
+		resp := mustResponder(t, mode, testBlockTTL).Block(req)
+		if !resp.Compress {
+			t.Errorf("mode %s: the answer is not marked for compression, it would be 2x the size of the request", mode)
+		}
+	}
+}
+
+func TestRefuseDoesNotAdvertiseRecursion(t *testing.T) {
+	if Refuse(newRequest("example.com", dns.TypeA)).RecursionAvailable {
+		t.Error("an ACL refusal sets RA, telling a client that may not use the server that recursion is available")
 	}
 }

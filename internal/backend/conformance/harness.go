@@ -243,3 +243,17 @@ func (h *harness) entries(n int) []engine.Entry {
 		time.Sleep(waitStep)
 	}
 }
+
+// askOpcode sends a query whose opcode is not QUERY over UDP.
+func (h *harness) askOpcode(opcode int, name string, qtype uint16) *dns.Msg {
+	h.t.Helper()
+	req := new(dns.Msg)
+	req.SetQuestion(dns.Fqdn(name), qtype)
+	req.Opcode = opcode
+	client := &dns.Client{Net: "udp", Timeout: clientTimeout}
+	resp, _, err := client.Exchange(req, h.bound.Addr(backend.NetworkUDP).String())
+	if err != nil {
+		h.t.Fatalf("opcode %d query for %s: %v", opcode, name, err)
+	}
+	return resp
+}

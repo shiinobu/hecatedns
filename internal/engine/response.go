@@ -60,19 +60,36 @@ func (r Responder) Block(req *dns.Msg) *dns.Msg {
 	case config.ModeNoData:
 		return negative(req, dns.RcodeSuccess, r.ttl)
 	case config.ModeRefused:
-		return Refuse(req)
+		return refused(req)
 	}
 	return nullIP(req, r.ttl)
 }
 
 // Refuse returns an empty REFUSED answer. It is used for clients outside
-// allowed_clients, whatever the block mode is.
+// allowed_clients, whatever the block mode is, and it does not set RA: such a
+// client may not use recursion.
 func Refuse(req *dns.Msg) *dns.Msg {
 	if req == nil {
 		return formErr(nil)
 	}
+	resp := refused(req)
+	resp.RecursionAvailable = false
+	return resp
+}
+
+// refused is an empty REFUSED answer for a client that is allowed to use the
+// server (the refused block mode), so it still advertises recursion.
+func refused(req *dns.Msg) *dns.Msg {
 	resp := reply(req)
 	resp.Rcode = dns.RcodeRefused
+	return resp
+}
+
+// notImplemented returns an empty NOTIMP answer, for opcodes other than QUERY.
+// req must not be nil.
+func notImplemented(req *dns.Msg) *dns.Msg {
+	resp := reply(req)
+	resp.Rcode = dns.RcodeNotImplemented
 	return resp
 }
 
@@ -81,6 +98,9 @@ func Refuse(req *dns.Msg) *dns.Msg {
 func reply(req *dns.Msg) *dns.Msg {
 	resp := new(dns.Msg).SetReply(req)
 	resp.RecursionAvailable = true
+	// Without compression a blocked answer repeats the name and is up to twice as
+	// large as the query, which is what an amplification attack looks for.
+	resp.Compress = true
 	if opt := req.IsEdns0(); opt != nil {
 		resp.SetEdns0(ednsUDPSize, opt.Do())
 	}

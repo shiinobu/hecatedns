@@ -20,6 +20,7 @@ const (
 	ReasonSpecial = "special"
 	ReasonACL     = "acl"
 	ReasonAllow   = "allow"
+	ReasonInvalid = "invalid"
 )
 
 // Entry is one query-log record. The engine writes exactly one per query. The

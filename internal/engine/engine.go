@@ -139,7 +139,7 @@ func (e *Engine) SwapLists(l *ListSet) {
 // Before decides a query before it is resolved. A Block decision carries the
 // answer and has already been recorded; a Pass decision is recorded later by
 // After or Failed. A request that is not exactly one question with opcode
-// QUERY passes unrecorded here, so the backend can answer FORMERR or NOTIMP.
+// QUERY is answered here with FORMERR or NOTIMP and recorded.
 func (e *Engine) Before(ctx context.Context, q Query) Decision {
 	if !e.clientAllowed(ctx, q.Client) {
 		return e.refuse(ctx, q)
@@ -179,12 +179,26 @@ func (e *Engine) refuse(ctx context.Context, q Query) Decision {
 	return dec
 }
 
+// reject answers a request that is not exactly one question with opcode QUERY.
+// dnsproxy only checks the question count before it calls the handler and would
+// forward a STATUS, NOTIFY or UPDATE message upstream, past every rule, so the
+// engine answers FORMERR or NOTIMP itself and records it.
+func (e *Engine) reject(ctx context.Context, q Query) Decision {
+	resp := formErr(q.Req)
+	if q.Req != nil && len(q.Req.Question) == 1 {
+		resp = notImplemented(q.Req)
+	}
+	dec := Decision{Verdict: Block, Resp: resp, Reason: ReasonInvalid}
+	e.recordBlocked(ctx, q, dec)
+	return dec
+}
+
 // filter applies the custom rules and the lists to an allowed client's query.
 func (e *Engine) filter(ctx context.Context, q Query) (dec Decision) {
 	defer e.failOpen(ctx, &dec)
 	name, ok := questionName(q.Req)
 	if !ok {
-		return Decision{Verdict: Pass}
+		return e.reject(ctx, q)
 	}
 	e.warnIfNoBlockLists(ctx)
 	dec = classify(e.ruleSnapshot(), e.lists.Load(), name)

@@ -50,6 +50,7 @@ var cases = []testCase{
 	{"list allow beats list block", listAllowBeatsListBlock},
 	{"client outside allowed_clients is refused", aclRefuses},
 	{"one log record per query, cache hits included", logRecordPerQuery},
+	{"opcode other than QUERY is answered NOTIMP, never forwarded", nonQueryOpcode},
 }
 
 var blockSetup = setup{blockList: []string{"ads.test"}}
@@ -184,6 +185,29 @@ func logRecordPerQuery(t *testing.T, factory backend.Factory) {
 	}
 	if n := h.upstream.queries("fine.example"); n != 1 {
 		t.Errorf("upstream saw %d queries for a name asked twice, want 1 (the second is cached)", n)
+	}
+}
+
+func nonQueryOpcode(t *testing.T, factory backend.Factory) {
+	h := start(t, factory, setup{rules: "block redirect.test\n"})
+
+	for _, opcode := range []int{dns.OpcodeStatus, dns.OpcodeNotify, dns.OpcodeUpdate} {
+		for _, name := range []string{"redirect.test", "fine.example"} {
+			resp := h.askOpcode(opcode, name, dns.TypeA)
+			if resp.Rcode != dns.RcodeNotImplemented || len(resp.Answer) != 0 {
+				t.Errorf("opcode %d for %s: rcode %s with %d answers, want an empty NOTIMP", opcode, name, dns.RcodeToString[resp.Rcode], len(resp.Answer))
+			}
+		}
+	}
+	for _, name := range []string{"redirect.test", "fine.example"} {
+		if got := h.upstream.queries(name); got != 0 {
+			t.Errorf("a non-QUERY message for %s reached the upstream %d times, skipping every rule", name, got)
+		}
+	}
+	for _, e := range h.entries(6) {
+		if e.Action != engine.ActionBlock || e.Reason != engine.ReasonInvalid || e.RCode != "NOTIMP" {
+			t.Errorf("record = %+v, want a block record with reason invalid and rcode NOTIMP", e)
+		}
 	}
 }
 

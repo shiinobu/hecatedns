@@ -182,22 +182,29 @@ func checkBlockAnswer(t *testing.T, q Query, dec Decision, wantRcode int) {
 	}
 }
 
-func TestBeforeInvalidRequestsPassWithoutRecord(t *testing.T) {
+func TestBeforeInvalidRequestsAreAnsweredAndRecorded(t *testing.T) {
 	twoQuestions := newRequest("bad.example", dns.TypeA)
 	twoQuestions.Question = append(twoQuestions.Question, dns.Question{Name: "ads.example.", Qtype: dns.TypeA, Qclass: dns.ClassINET})
 	noQuestion := newRequest("bad.example", dns.TypeA)
 	noQuestion.Question = nil
-	notify := newRequest("bad.example", dns.TypeSOA)
+	notify := newRequest("good.example", dns.TypeSOA)
 	notify.Opcode = dns.OpcodeNotify
+	status := newRequest("ads.example", dns.TypeA)
+	status.Opcode = dns.OpcodeStatus
+	update := newRequest("nothing.example", dns.TypeA)
+	update.Opcode = dns.OpcodeUpdate
 
 	tests := []struct {
-		name string
-		req  *dns.Msg
+		name      string
+		req       *dns.Msg
+		wantRcode int
 	}{
-		{"two questions", twoQuestions},
-		{"no question", noQuestion},
-		{"opcode NOTIFY", notify},
-		{"nil request", nil},
+		{"two questions", twoQuestions, dns.RcodeFormatError},
+		{"no question", noQuestion, dns.RcodeFormatError},
+		{"nil request", nil, dns.RcodeFormatError},
+		{"opcode NOTIFY on an allowed name", notify, dns.RcodeNotImplemented},
+		{"opcode STATUS on a blocked name", status, dns.RcodeNotImplemented},
+		{"opcode UPDATE on an unknown name", update, dns.RcodeNotImplemented},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -207,10 +214,26 @@ func TestBeforeInvalidRequestsPassWithoutRecord(t *testing.T) {
 
 			dec := e.Before(context.Background(), q)
 
-			if dec.Verdict != Pass || dec.Resp != nil || len(rec.all()) != 0 {
-				t.Fatalf("Before = %+v with %d records, want Pass and no record", dec, len(rec.all()))
+			if dec.Verdict != Block || dec.Reason != ReasonInvalid || dec.Resp == nil || dec.Resp.Rcode != tt.wantRcode {
+				t.Fatalf("Before = %+v, want a Block with reason invalid and rcode %s", dec, dns.RcodeToString[tt.wantRcode])
+			}
+			records := rec.all()
+			if len(records) != 1 || records[0].Action != ActionBlock || records[0].Reason != ReasonInvalid || records[0].RCode != dns.RcodeToString[tt.wantRcode] {
+				t.Fatalf("records = %+v, want exactly one block record with reason invalid", records)
 			}
 		})
+	}
+}
+
+func TestBeforeChecksTheACLBeforeAnsweringMalformedRequests(t *testing.T) {
+	notify := newRequest("good.example", dns.TypeSOA)
+	notify.Opcode = dns.OpcodeNotify
+	e := newFixtureEngine(t, &memRecorder{}, nil)
+
+	dec := e.Before(context.Background(), Query{Req: notify, Client: netip.MustParseAddr("8.8.8.8"), Proto: "udp"})
+
+	if dec.Reason != ReasonACL || dec.Resp == nil || dec.Resp.Rcode != dns.RcodeRefused {
+		t.Fatalf("Before = %+v, want the ACL refusal to come first", dec)
 	}
 }
 
