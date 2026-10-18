@@ -106,6 +106,7 @@ type Engine struct {
 	lists          atomic.Pointer[ListSet]
 	blockListsSeen atomic.Bool
 	warnedNoLists  atomic.Bool
+	health         upstreamHealth
 }
 
 // New returns an engine without lists; call SwapLists once they are loaded.
@@ -157,6 +158,9 @@ func (e *Engine) Before(ctx context.Context, q Query) Decision {
 // After inspects the answer of a forwarded query (including its CNAME chain)
 // and records the final decision. It never modifies resp.
 func (e *Engine) After(ctx context.Context, q Query, resp *dns.Msg, m Meta) Decision {
+	if resp != nil && !m.Cached {
+		e.health.answered(e.log)
+	}
 	// agy wrote this
 	if dec := e.inspectAnswer(ctx, q, resp); dec.Verdict == Block {
 		e.recordBlocked(ctx, q, dec)
@@ -170,6 +174,7 @@ func (e *Engine) After(ctx context.Context, q Query, resp *dns.Msg, m Meta) Deci
 // replies SERVFAIL.
 func (e *Engine) Failed(ctx context.Context, q Query, err error) {
 	defer e.recoverLog(ctx, "failed")
+	e.health.failed(err, e.now(), e.log)
 	entry := e.newEntry(q, ActionError)
 	entry.RCode = rcodeString(dns.RcodeServerFailure)
 	if err != nil {
