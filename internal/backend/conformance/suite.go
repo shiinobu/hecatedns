@@ -51,6 +51,7 @@ var cases = []testCase{
 	{"client outside allowed_clients is refused", aclRefuses},
 	{"one log record per query, cache hits included", logRecordPerQuery},
 	{"opcode other than QUERY is answered NOTIMP, never forwarded", nonQueryOpcode},
+	{"CNAME to a blocked domain is blocked on both upstream and cache hit", blockedCNAMEAndCacheHit},
 }
 
 var blockSetup = setup{blockList: []string{"ads.test"}}
@@ -211,6 +212,41 @@ func nonQueryOpcode(t *testing.T, factory backend.Factory) {
 	}
 }
 
+// agy wrote this
+func blockedCNAMEAndCacheHit(t *testing.T, factory backend.Factory) {
+	h := start(t, factory, setup{
+		blockList: []string{"ads.test"},
+		allowList: []string{"allowed.ads.test"},
+		cnames: map[string][]string{
+			"cloaked.example": {"hop.example", "tracker.ads.test"},
+			"allowed.example": {"allowed.ads.test"},
+		},
+	})
+
+	// First lookup: resolved upstream, blocked in After via CNAME.
+	assertNullAnswer(t, h.ask("udp", "cloaked.example", dns.TypeA), dns.TypeA, net.IPv4zero)
+	// Second lookup: served from backend cache (upstream still queried only once), still blocked in After.
+	assertNullAnswer(t, h.ask("udp", "cloaked.example", dns.TypeA), dns.TypeA, net.IPv4zero)
+
+	if got := h.upstream.queries("cloaked.example"); got != 1 {
+		t.Errorf("upstream queries for cloaked.example = %d, want 1 (second should come from cache)", got)
+	}
+
+	// Allowed CNAME target passes.
+	assertPassed(t, h.ask("udp", "allowed.example", dns.TypeA), dns.TypeA, upstreamA)
+
+	entries := h.entries(3)
+	for i := 0; i < 2; i++ {
+		e := entries[i]
+		if e.Action != engine.ActionBlock || e.Reason != engine.ReasonCNAME || e.Source != "test-block" || e.Via != "tracker.ads.test" {
+			t.Errorf("entry[%d] = %+v, want block/cname/test-block via tracker.ads.test", i, e)
+		}
+	}
+	if entries[2].Action != engine.ActionPass {
+		t.Errorf("entry[2] = %+v, want pass for allowed CNAME target", entries[2])
+	}
+}
+
 func assertNullAnswer(t *testing.T, resp *dns.Msg, qtype uint16, want net.IP) {
 	t.Helper()
 	if resp.Rcode != dns.RcodeSuccess || len(resp.Answer) != 1 {
@@ -223,10 +259,10 @@ func assertNullAnswer(t *testing.T, resp *dns.Msg, qtype uint16, want net.IP) {
 
 func assertPassed(t *testing.T, resp *dns.Msg, qtype uint16, want net.IP) {
 	t.Helper()
-	if resp.Rcode != dns.RcodeSuccess || len(resp.Answer) != 1 {
+	if resp.Rcode != dns.RcodeSuccess || len(resp.Answer) == 0 {
 		t.Fatalf("%s for an unblocked name: rcode %s with %d answers, want NOERROR and the upstream address", dns.TypeToString[qtype], dns.RcodeToString[resp.Rcode], len(resp.Answer))
 	}
-	if got := answerIP(resp.Answer[0]); !got.Equal(want) {
+	if got := answerIP(resp.Answer[len(resp.Answer)-1]); !got.Equal(want) {
 		t.Errorf("%s answer = %v, want the upstream's %v", dns.TypeToString[qtype], got, want)
 	}
 }

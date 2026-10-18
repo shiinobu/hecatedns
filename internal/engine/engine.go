@@ -147,9 +147,14 @@ func (e *Engine) Before(ctx context.Context, q Query) Decision {
 	return e.filter(ctx, q)
 }
 
-// After inspects the answer of a forwarded query and records it. It never
-// modifies resp. In this phase it always returns Pass.
+// After inspects the answer of a forwarded query (including its CNAME chain)
+// and records the final decision. It never modifies resp.
 func (e *Engine) After(ctx context.Context, q Query, resp *dns.Msg, m Meta) Decision {
+	// agy wrote this
+	if dec := e.inspectAnswer(ctx, q, resp); dec.Verdict == Block {
+		e.recordBlocked(ctx, q, dec)
+		return dec
+	}
 	e.recordForwarded(ctx, q, resp, m)
 	return Decision{Verdict: Pass}
 }

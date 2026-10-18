@@ -36,17 +36,18 @@ var (
 type fakeUpstream struct {
 	addr string
 
-	mu   sync.Mutex
-	seen map[string]int
+	mu     sync.Mutex
+	seen   map[string]int
+	cnames map[string][]string
 }
 
-func startUpstream(t *testing.T) *fakeUpstream {
+func startUpstream(t *testing.T, cnames map[string][]string) *fakeUpstream {
 	t.Helper()
 	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("fake upstream: listen: %v", err)
 	}
-	u := &fakeUpstream{addr: conn.LocalAddr().String(), seen: map[string]int{}}
+	u := &fakeUpstream{addr: conn.LocalAddr().String(), seen: map[string]int{}, cnames: cnames}
 	started := make(chan struct{})
 	srv := &dns.Server{PacketConn: conn, Handler: dns.HandlerFunc(u.serve), NotifyStartedFunc: func() { close(started) }}
 	go func() { _ = srv.ActivateAndServe() }()
@@ -59,15 +60,28 @@ func (u *fakeUpstream) serve(w dns.ResponseWriter, req *dns.Msg) {
 	resp := new(dns.Msg).SetReply(req)
 	if len(req.Question) == 1 {
 		q := req.Question[0]
+		lower := strings.ToLower(strings.TrimSuffix(q.Name, "."))
 		u.mu.Lock()
-		u.seen[strings.ToLower(strings.TrimSuffix(q.Name, "."))]++
+		u.seen[lower]++
+		chain := u.cnames[lower]
 		u.mu.Unlock()
-		hdr := dns.RR_Header{Name: q.Name, Rrtype: q.Qtype, Class: dns.ClassINET, Ttl: upstreamTTL}
+
+		// agy wrote this
+		owner := q.Name
+		for _, target := range chain {
+			fqdn := dns.Fqdn(target)
+			resp.Answer = append(resp.Answer, &dns.CNAME{
+				Hdr:    dns.RR_Header{Name: owner, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: upstreamTTL},
+				Target: fqdn,
+			})
+			owner = fqdn
+		}
+		hdr := dns.RR_Header{Name: owner, Rrtype: q.Qtype, Class: dns.ClassINET, Ttl: upstreamTTL}
 		switch q.Qtype {
 		case dns.TypeA:
-			resp.Answer = []dns.RR{&dns.A{Hdr: hdr, A: upstreamA}}
+			resp.Answer = append(resp.Answer, &dns.A{Hdr: hdr, A: upstreamA})
 		case dns.TypeAAAA:
-			resp.Answer = []dns.RR{&dns.AAAA{Hdr: hdr, AAAA: upstreamAAAA}}
+			resp.Answer = append(resp.Answer, &dns.AAAA{Hdr: hdr, AAAA: upstreamAAAA})
 		}
 	}
 	_ = w.WriteMsg(resp)
@@ -105,6 +119,7 @@ type setup struct {
 	rules          string
 	blockList      []string
 	allowList      []string
+	cnames         map[string][]string
 }
 
 // harness is one running backend with a fake upstream and a recording engine.
@@ -119,7 +134,7 @@ type harness struct {
 // test ends.
 func start(t *testing.T, factory backend.Factory, s setup) *harness {
 	t.Helper()
-	h := &harness{t: t, upstream: startUpstream(t), log: &recorder{}}
+	h := &harness{t: t, upstream: startUpstream(t, s.cnames), log: &recorder{}}
 
 	cfg := config.Default()
 	cfg.Listen = []string{"127.0.0.1:0"}
