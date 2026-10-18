@@ -2,7 +2,12 @@
 
 Derived from `docs/roadmap.md` Phase 4 and `docs/phase-3-report.md` ("Serah terima ke Fase 4"). Tick a box only when the task is verified and recorded.
 
-**Do not start until Master says "lanjut".** Phase 3 is closed; `STATE.md` says so.
+**Status (2026-10-19): started on Master's "lanjut"; code and tests done, only P4-09 (phone test with `native`) is left and it needs Master.** Results: `docs/phase-4-report.md`.
+
+**Decisions by Master on 2026-10-19 (they change the plan below):**
+- DoT as an upstream is DEFERRED (P4-02 ships DoH, UDP and TCP; `tls://` is rejected with a clear error). DoT as a listener stays in Phase 6.
+- The phase review is a CHEAP review (one short fresh-context pass, narrow scope). The full `xdns-reviewer` review is owed: first task of Phase 5, and at the latest before Phase 6 (server open to the internet).
+- Work ran until about 01:00; P4-09 was not attempted because Master was asleep.
 
 **Boundaries (unchanged):** never push, never change system settings (PATH, `go env`, firewall, services), never bind `0.0.0.0:53` or stop ICS. The only allowed port-53 bind is `192.168.1.99:53` (Master's permission, 2026-10-18); development port is `127.0.0.1:5300`. TDD (RED then GREEN), docs only at phase end, one fresh-context review (`/review-phase`, include `security-reviewer`-style checks because `native` faces the network) before the next phase, `CGO_ENABLED=1` only per race command, do not edit `.claude/`.
 
@@ -23,16 +28,16 @@ Phase 4 is done when ALL of these hold (from the roadmap):
 
 ## Tasks
 
-- [ ] **P4-01 `native/cache`.** TTL-aware cache keyed by (name, type, class), min/max TTL from config, size cap in MB, negative caching. Tests first: expiry, TTL clamping, size eviction, concurrent access (`-race`). The cache must hold the UPSTREAM answer, so the engine's `After` (CNAME check) runs on every cache hit, same as the dnsproxy backend.
-- [ ] **P4-02 `native/upstream`.** DoH (the default upstreams are `https://1.1.1.1/dns-query` and `https://8.8.8.8/dns-query`), DoT, plain UDP/TCP, with failover and weighted random choice. Accept an upstream answer only when its ID and question match the request. Bootstrap IPs for hostname upstreams. Tests with a fake upstream (never the real internet in unit tests).
-- [ ] **P4-03 `native/server`.** UDP and TCP listeners on every `listen` address using `miekg/dns`; per-request goroutine limit; TCP idle timeout and a separate TCP connection limit (Q4). Tests: bind failure, UDP truncation to TCP, oversized messages, graceful shutdown.
-- [ ] **P4-04 `native/handler` and `native/ratelimit`.** Handler: `Before` -> cache -> upstream -> `After`, `Failed` on upstream errors (fail-open rules from the engine contract). Per-client rate limit. Panic in `Before` answers REFUSED, as in the dnsproxy adapter.
-- [ ] **P4-05 Register `native`.** Add the factory to the registry in `cmd/xdns`; `backend: native` works with `xdns run` and `xdns check`.
-- [ ] **P4-06 Conformance on both backends.** Run the same table against `dnsproxy` and `native`; fix every behavior difference (do not special-case a backend in the table unless the difference is documented and accepted).
-- [ ] **P4-07 Comparison script.** About 1,000 domains (sample from `data/logs/queries-*.jsonl` and the three lists): run through both backends, compare block/pass decisions, report differences with the reason.
-- [ ] **P4-08 Security pass.** Bind addresses, ACL, rate limit, answer validation (ID and question), resource limits, message size limits; fuzz the handler input where cheap.
+- [x] **P4-01 `native/cache`.** TTL-aware cache keyed by (name, type, class), min/max TTL from config, size cap in MB, negative caching. Tests first: expiry, TTL clamping, size eviction, concurrent access (`-race`). The cache must hold the UPSTREAM answer, so the engine's `After` (CNAME check) runs on every cache hit, same as the dnsproxy backend.
+- [x] **P4-02 `native/upstream`.** DoH (the default upstreams are `https://1.1.1.1/dns-query` and `https://8.8.8.8/dns-query`), DoT, plain UDP/TCP, with failover and weighted random choice. Accept an upstream answer only when its ID and question match the request. Bootstrap IPs for hostname upstreams. Tests with a fake upstream (never the real internet in unit tests).
+- [x] **P4-03 `native/server`.** UDP and TCP listeners on every `listen` address using `miekg/dns`; per-request goroutine limit; TCP idle timeout and a separate TCP connection limit (Q4). Tests: bind failure, UDP truncation to TCP, oversized messages, graceful shutdown.
+- [x] **P4-04 `native/handler` and `native/ratelimit`.** Handler: `Before` -> cache -> upstream -> `After`, `Failed` on upstream errors (fail-open rules from the engine contract). Per-client rate limit. Panic in `Before` answers REFUSED, as in the dnsproxy adapter.
+- [x] **P4-05 Register `native`.** Add the factory to the registry in `cmd/xdns`; `backend: native` works with `xdns run` and `xdns check`.
+- [x] **P4-06 Conformance on both backends.** Run the same table against `dnsproxy` and `native`; fix every behavior difference (do not special-case a backend in the table unless the difference is documented and accepted).
+- [x] **P4-07 Comparison script.** About 1,000 domains (sample from `data/logs/queries-*.jsonl` and the three lists): run through both backends, compare block/pass decisions, report differences with the reason.
+- [x] **P4-08 Security pass.** Bind addresses, ACL, rate limit, answer validation (ID and question), resource limits, message size limits; fuzz the handler input where cheap.
 - [ ] **P4-09 Phone test with `native`.** Repeat S1 (`adblock.turtlecute.org`, `canyoublockit.com` eXtreme) and the Shopee check (`s.shopee.co.id` still blocked) with `backend: native` on the same setup. Ask Master to switch nothing on the phone; only the server config changes.
-- [ ] **P4-10 Phase gates and review.** `/gates` (gofmt, vet, build, test with coverage, `-race`, `go mod verify`/`tidy -diff`, `govulncheck` at `GOPATH\bin\govulncheck.exe`, `xdns check`), then `/review-phase` with a fresh-context reviewer, fix Critical and Important findings with RED -> GREEN.
+- [x] **P4-10 Phase gates and review.** `/gates` (gofmt, vet, build, test with coverage, `-race`, `go mod verify`/`tidy -diff`, `govulncheck` at `GOPATH\bin\govulncheck.exe`, `xdns check`), then `/review-phase` with a fresh-context reviewer, fix Critical and Important findings with RED -> GREEN.
 
 ## Phone test (P4-09) notes
 
@@ -42,6 +47,6 @@ Phase 4 is done when ALL of these hold (from the roadmap):
 
 ## Review / close-out
 
-- [ ] `/gates` green, `/review-phase` done, findings fixed.
-- [ ] Docs pass (`/close-phase`): `docs/phase-4-report.md`, `docs/architecture.md` (native backend facts), `docs/roadmap.md`, `README.md`.
-- [ ] `state/STATE.md` set to "Phase 4 done, waiting for lanjut", `state/PHASE-5-TASKS.md` created.
+- [x] `/gates` green, cheap review done (Master's choice), findings fixed. The full review is owed (PHASE-5-TASKS P5-00).
+- [x] Docs pass (`/close-phase`): `docs/phase-4-report.md`, `docs/architecture.md` (native backend facts), `docs/roadmap.md`, `README.md`.
+- [x] `state/STATE.md` set to "Phase 4 done, waiting for lanjut", `state/PHASE-5-TASKS.md` created.

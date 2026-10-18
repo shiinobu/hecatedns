@@ -44,7 +44,7 @@ Backup hand-off pack for the xdns project. If Claude's usage limit runs out, any
 ## Read order for an agent
 
 1. Every file in `rules/`.
-2. `state/STATE.md`, then the current phase's task file (now `state/PHASE-4-TASKS.md`; Phase 3 is closed).
+2. `state/STATE.md`, then the current phase's task file (now `state/PHASE-5-TASKS.md`; Phase 4 is closed in code, its open task P4-09 is listed in `STATE.md` and `PHASE-4-TASKS.md`).
 3. `notes/do-not-retry.md` and `notes/open-questions.md`.
 4. Only the sections of `docs/architecture.md` and `docs/roadmap.md` that the current task names.
 

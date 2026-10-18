@@ -180,3 +180,13 @@ Keep entries short (the full detail lives in code, tests and commits). Never rew
 - Docs pass done in one commit: `docs/test-report.md` (new), `docs/phase-3-report.md` (new), `docs/architecture.md` (v1.3, section 12 and 18), `docs/roadmap.md` (v1.3), `README.md`, `configs/xdns.example.yaml` and `scripts/dnsquery.ps1` comments (IP `.10` -> `.99`). Created `state/PHASE-4-TASKS.md`, updated `STATE.md`, bootstrap prompt and `.agents/README.md`.
 - Gates run today with no Go changes since Phase 2: all green (numbers in `STATE.md`); `govulncheck` 0 affected. No `/review-phase` because no Go files changed.
 - Next: STOP and wait for Master's "lanjut" before Phase 4.
+
+## 2026-10-19 00:25 - Claude (Sonnet 5.5) - Phase 4 (native backend), code done
+- Master said "lanjut" with limits: DoT upstream deferred, cheap review instead of the full one (full review owed in Phase 5 P5-00), work until about 01:00.
+- Built `internal/backend/native` test-first: cache (P4-01), upstream pool with plain UDP/TCP and DoH + bootstrap (P4-02), server + handler + rate limiter (P4-03/04), registered in `cmd/xdns` (P4-05). Conformance suite now runs both backends from one table (15 cases, one new: oversized/malformed UDP datagram). Comparison tool `scripts/compare` (P4-07): 1,000 names x A,HTTPS = 2,000 queries per backend, 1,732 blocked on both, 0 decision differences, 1 wire difference caused by the upstream (api.x.com HTTPS flapped; repeated 3x the same on both).
+- Real bug found by my own test: one UDP datagram bigger than the read buffer stops miekg's UDP loop on Windows (WSAEMSGSIZE is treated as fatal). Fixed with `tolerantReader`; dnsproxy survives the same datagram.
+- Cheap review (one Sonnet agent, read-only): 0 Critical, 5 Important, 6 Minor; all valid ones fixed with tests first (CD bit in cache key, limiter sweep throttle, upstream-only in-flight gate + per-client cap + deadline, per-IP TCP cap, shutdown race, tolerant UDP reads, ignore malformed messages, SERVFAIL/REFUSED failover, nil Resp after Block). Details in `docs/phase-4-report.md`.
+- Gates all green (numbers in `STATE.md`). Docs pass done: `docs/phase-4-report.md` (new), `docs/architecture.md` (v1.4, 5.4/13/18), `docs/roadmap.md` (v1.4), `README.md`. Created `state/PHASE-5-TASKS.md`; bootstrap prompt and `.agents/README.md` repointed.
+- NOT done: P4-09 phone test with `native` (Master asleep). The live server on 192.168.1.99:53 still runs the dnsproxy backend (PID 5832) and was not touched.
+- Mistake worth remembering: I started a `python -` heredoc in the shell by reflex; it waits for stdin and hung the tool until I stopped it. Use Edit or sed instead.
+- Next: STOP; Master decides P4-09 and "lanjut" for Phase 5.
