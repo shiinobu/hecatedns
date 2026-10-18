@@ -1,0 +1,408 @@
+package lists
+
+// agy wrote this
+
+import (
+	"bytes"
+	"context"
+	"crypto/tls"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/netip"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"xdns/internal/config"
+	"xdns/internal/engine"
+)
+
+const (
+	// DefaultFetchTimeout is the per-list HTTP download timeout.
+	DefaultFetchTimeout = 30 * time.Second
+
+	maxRedirects         = 5
+	maxNameBytes         = 64
+	listDirMode          = 0o700
+	renameAttempts       = 5
+	renameWait           = 40 * time.Millisecond
+	bootstrapDialTimeout = 5 * time.Second
+	dnsDefaultPort       = "53"
+)
+
+// Errors returned by Fetch, LoadCached and ReadMeta.
+var (
+	ErrHTTPSRequired    = errors.New("list URL must use https://")
+	ErrTooManyRedirects = errors.New("list download exceeded 5 redirects")
+	ErrEmptyList        = errors.New("list has no valid domain entries")
+	ErrBadListName      = errors.New("list name is not a safe file name")
+)
+
+// Meta holds the on-disk metadata of a cached blocklist (<name>.meta.json).
+type Meta struct {
+	ETag      string    `json:"etag,omitempty"`
+	FetchedAt time.Time `json:"fetched_at"`
+	Count     int       `json:"count"`
+	Rejected  int       `json:"rejected"`
+}
+
+// FetchResult is the outcome of one Fetch call.
+type FetchResult struct {
+	Set         *engine.DomainSet
+	Meta        Meta
+	NotModified bool
+}
+
+// Fetcher downloads, validates and atomically caches blocklist files.
+type Fetcher struct {
+	Dir       string
+	Bootstrap []string
+	Client    *http.Client
+	TLSConfig *tls.Config
+	Timeout   time.Duration
+	MaxBytes  int64
+	Now       func() time.Time
+}
+
+// Fetch downloads src over HTTPS, validates and parses the body, and writes
+// <name>.txt and <name>.meta.json atomically into f.Dir. On any error the
+// existing cached copy in f.Dir is left untouched.
+func (f *Fetcher) Fetch(ctx context.Context, src config.Source) (FetchResult, error) {
+	if err := validateSource(src); err != nil {
+		return FetchResult{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, f.timeout())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src.URL, nil)
+	if err != nil {
+		return FetchResult{}, fmt.Errorf("fetch %s: %w", src.Name, err)
+	}
+	prevETag := f.cachedETag(src.Name)
+	if prevETag != "" {
+		req.Header.Set("If-None-Match", prevETag)
+	}
+
+	resp, err := f.httpClient().Do(req)
+	if err != nil {
+		return FetchResult{}, unwrapRedirectErr(src.Name, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotModified && prevETag != "" {
+		return f.handleNotModified(src)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return FetchResult{}, fmt.Errorf("fetch %s: unexpected HTTP status %d", src.Name, resp.StatusCode)
+	}
+	return f.saveResponse(src, resp)
+}
+
+func (f *Fetcher) handleNotModified(src config.Source) (FetchResult, error) {
+	set, meta, err := LoadCached(f.Dir, src)
+	if err != nil {
+		return FetchResult{}, fmt.Errorf("fetch %s (304 cache): %w", src.Name, err)
+	}
+	meta.FetchedAt = f.now()
+	if err := writeMetaAtomic(f.Dir, src.Name, meta); err != nil {
+		return FetchResult{}, err
+	}
+	return FetchResult{Set: set, Meta: meta, NotModified: true}, nil
+}
+
+func (f *Fetcher) saveResponse(src config.Source, resp *http.Response) (FetchResult, error) {
+	maxB := f.maxBytes()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxB+1))
+	if err != nil {
+		return FetchResult{}, fmt.Errorf("read %s body: %w", src.Name, err)
+	}
+	if int64(len(data)) > maxB {
+		return FetchResult{}, fmt.Errorf("fetch %s: %w", src.Name, ErrListTooLarge)
+	}
+	set, rejected, err := parseWithLimits(bytes.NewReader(data), src.Format, maxB, MaxEntries)
+	if err != nil {
+		return FetchResult{}, fmt.Errorf("parse %s: %w", src.Name, err)
+	}
+	if set.Len() == 0 {
+		return FetchResult{}, fmt.Errorf("parse %s: %w", src.Name, ErrEmptyList)
+	}
+	if err := writeFileAtomic(listPath(f.Dir, src.Name), data); err != nil {
+		return FetchResult{}, err
+	}
+	meta := Meta{
+		ETag:      strings.TrimSpace(resp.Header.Get("ETag")),
+		FetchedAt: f.now(),
+		Count:     set.Len(),
+		Rejected:  rejected,
+	}
+	if err := writeMetaAtomic(f.Dir, src.Name, meta); err != nil {
+		return FetchResult{}, err
+	}
+	return FetchResult{Set: set, Meta: meta}, nil
+}
+
+func (f *Fetcher) cachedETag(name string) string {
+	if _, err := os.Stat(listPath(f.Dir, name)); err != nil {
+		return ""
+	}
+	meta, err := ReadMeta(f.Dir, name)
+	if err != nil {
+		return ""
+	}
+	return meta.ETag
+}
+
+func (f *Fetcher) httpClient() *http.Client {
+	var base http.Client
+	if f.Client != nil {
+		base = *f.Client
+	} else {
+		base.Transport = f.newTransport()
+	}
+	base.Timeout = f.timeout()
+	base.CheckRedirect = checkHTTPSRedirect
+	return &base
+}
+
+func (f *Fetcher) newTransport() *http.Transport {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	if f.TLSConfig != nil {
+		tr.TLSClientConfig = f.TLSConfig.Clone()
+	}
+	dialer := &net.Dialer{Timeout: bootstrapDialTimeout}
+	if addrs := normalizeBootstrap(f.Bootstrap); len(addrs) > 0 {
+		dialer.Resolver = newBootstrapResolver(addrs)
+	}
+	tr.DialContext = dialer.DialContext
+	return tr
+}
+
+func newBootstrapResolver(addrs []string) *net.Resolver {
+	return &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			d := net.Dialer{Timeout: bootstrapDialTimeout}
+			var lastErr error
+			for _, addr := range addrs {
+				conn, err := d.DialContext(ctx, network, addr)
+				if err == nil {
+					return conn, nil
+				}
+				lastErr = err
+			}
+			return nil, lastErr
+		},
+	}
+}
+
+func normalizeBootstrap(raw []string) []string {
+	var out []string
+	for _, s := range raw {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, err := netip.ParseAddrPort(s); err == nil {
+			out = append(out, s)
+			continue
+		}
+		if ip, err := netip.ParseAddr(s); err == nil {
+			out = append(out, net.JoinHostPort(ip.String(), dnsDefaultPort))
+		}
+	}
+	return out
+}
+
+func checkHTTPSRedirect(req *http.Request, via []*http.Request) error {
+	if !strings.EqualFold(req.URL.Scheme, "https") {
+		return ErrHTTPSRequired
+	}
+	if len(via) >= maxRedirects {
+		return ErrTooManyRedirects
+	}
+	return nil
+}
+
+func unwrapRedirectErr(name string, err error) error {
+	if errors.Is(err, ErrHTTPSRequired) {
+		return fmt.Errorf("fetch %s: %w", name, ErrHTTPSRequired)
+	}
+	if errors.Is(err, ErrTooManyRedirects) {
+		return fmt.Errorf("fetch %s: %w", name, ErrTooManyRedirects)
+	}
+	return fmt.Errorf("fetch %s: %w", name, err)
+}
+
+func (f *Fetcher) timeout() time.Duration {
+	if f != nil && f.Timeout > 0 {
+		return f.Timeout
+	}
+	return DefaultFetchTimeout
+}
+
+func (f *Fetcher) maxBytes() int64 {
+	if f != nil && f.MaxBytes > 0 {
+		return f.MaxBytes
+	}
+	return MaxListBytes
+}
+
+func (f *Fetcher) now() time.Time {
+	if f != nil && f.Now != nil {
+		return f.Now()
+	}
+	return time.Now().Round(time.Second)
+}
+
+// LoadCached reads and parses the cached <name>.txt file from dir, together
+// with <name>.meta.json if present.
+func LoadCached(dir string, src config.Source) (*engine.DomainSet, Meta, error) {
+	if !validListName(src.Name) {
+		return nil, Meta{}, ErrBadListName
+	}
+	if !validFormat(src.Format) {
+		return nil, Meta{}, ErrUnknownFormat
+	}
+	p := listPath(dir, src.Name)
+	file, err := os.Open(p)
+	if err != nil {
+		return nil, Meta{}, fmt.Errorf("open cached list %s: %w", src.Name, err)
+	}
+	defer func() { _ = file.Close() }()
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil, Meta{}, fmt.Errorf("stat cached list %s: %w", src.Name, err)
+	}
+	set, rejected, err := Parse(file, src.Format)
+	if err != nil {
+		return nil, Meta{}, fmt.Errorf("parse cached list %s: %w", src.Name, err)
+	}
+	if set.Len() == 0 {
+		return nil, Meta{}, fmt.Errorf("cached list %s: %w", src.Name, ErrEmptyList)
+	}
+	meta, _ := ReadMeta(dir, src.Name)
+	meta.Count = set.Len()
+	meta.Rejected = rejected
+	if meta.FetchedAt.IsZero() {
+		meta.FetchedAt = info.ModTime()
+	}
+	return set, meta, nil
+}
+
+// ReadMeta reads <name>.meta.json from dir.
+func ReadMeta(dir, name string) (Meta, error) {
+	if !validListName(name) {
+		return Meta{}, ErrBadListName
+	}
+	raw, err := os.ReadFile(metaPath(dir, name))
+	if err != nil {
+		return Meta{}, err
+	}
+	var m Meta
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return Meta{}, fmt.Errorf("decode meta %s: %w", name, err)
+	}
+	return m, nil
+}
+
+func writeMetaAtomic(dir, name string, m Meta) error {
+	raw, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode meta %s: %w", name, err)
+	}
+	raw = append(raw, '\n')
+	return writeFileAtomic(metaPath(dir, name), raw)
+}
+
+func listPath(dir, name string) string {
+	return filepath.Join(dir, name+".txt")
+}
+
+func metaPath(dir, name string) string {
+	return filepath.Join(dir, name+".meta.json")
+}
+
+func validateSource(src config.Source) error {
+	if !validListName(src.Name) {
+		return ErrBadListName
+	}
+	if !validFormat(src.Format) {
+		return ErrUnknownFormat
+	}
+	u, err := url.Parse(src.URL)
+	if err != nil || !strings.EqualFold(u.Scheme, "https") || u.Host == "" {
+		return fmt.Errorf("fetch %s: %w", src.Name, ErrHTTPSRequired)
+	}
+	return nil
+}
+
+func validListName(name string) bool {
+	if len(name) == 0 || len(name) > maxNameBytes {
+		return false
+	}
+	if !isAlphaNum(name[0]) {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if !isAlphaNum(c) && c != '-' && c != '_' {
+			return false
+		}
+	}
+	return !isWindowsDeviceName(name)
+}
+
+func isAlphaNum(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+}
+
+func isWindowsDeviceName(name string) bool {
+	switch strings.ToLower(name) {
+	case "con", "prn", "aux", "nul",
+		"com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
+		"lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9":
+		return true
+	}
+	return false
+}
+
+// writeFileAtomic writes data to a temporary file in path's directory, syncs
+// it, and renames it over path with a short Windows retry loop.
+func writeFileAtomic(path string, data []byte) (err error) {
+	dir := filepath.Dir(path)
+	if err = os.MkdirAll(dir, listDirMode); err != nil {
+		return fmt.Errorf("create list dir %s: %w", dir, err)
+	}
+	tmp, err := os.CreateTemp(dir, ".list-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp file in %s: %w", dir, err)
+	}
+	defer func() {
+		if err != nil {
+			_ = os.Remove(tmp.Name())
+		}
+	}()
+	if _, err = tmp.Write(data); err == nil {
+		err = tmp.Sync()
+	}
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return fmt.Errorf("write temp file %s: %w", tmp.Name(), err)
+	}
+	for attempt := 0; attempt < renameAttempts; attempt++ {
+		if err = os.Rename(tmp.Name(), path); err == nil {
+			return nil
+		}
+		time.Sleep(renameWait)
+	}
+	return fmt.Errorf("replace %s: %w", path, err)
+}
