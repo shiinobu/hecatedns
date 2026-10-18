@@ -285,8 +285,10 @@ func (w *Writer) write(e engine.Entry) {
 	if w.overCap(rec.Time.Format(dayLayout)) {
 		return
 	}
+	buffered, added := w.out.Buffered(), 0
 	if w.torn && w.out.WriteByte('\n') == nil {
 		w.torn = false
+		added = 1
 	}
 	n, err := w.out.Write(w.encoded.Bytes())
 	w.dayBytes += int64(n)
@@ -294,6 +296,11 @@ func (w *Writer) write(e engine.Entry) {
 		w.discardBuffered()
 		w.fail(fmt.Errorf("write query log: %w", err))
 		return
+	}
+	if w.out.Buffered() < buffered+added+n {
+		// The buffer filled and bufio flushed it by itself: every record before
+		// this one is on disk.
+		w.pending = 0
 	}
 	w.written.Add(1)
 	w.pending++

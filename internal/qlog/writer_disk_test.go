@@ -110,6 +110,37 @@ func TestWriter_RecoversWhenTheDiskHasRoomAgain(t *testing.T) {
 	}
 }
 
+func TestWriter_RecordsThatBufioAlreadyFlushedAreNotCountedAsDroppedWhenALaterFlushFails(t *testing.T) {
+	at := time.Date(2026, 10, 19, 9, 0, 0, 0, testZone)
+	disk := &fakeDisk{capacity: 1 << 20}
+	opts := testOptions(t, newFakeClock(at))
+	opts.open = disk.open
+	w, err := newWriter(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const records = 500
+	for i := 0; i < records; i++ {
+		w.write(namedEntry(at, "busy.contoh.com"))
+	}
+	if disk.used() == 0 {
+		t.Fatalf("nothing reached the disk after %d records: the test must outgrow the %d-byte buffer", records, fileBufferBytes)
+	}
+	disk.setCapacity(disk.used())
+
+	if err := w.flush(); err == nil {
+		t.Fatal("flush onto a full disk succeeded")
+	}
+
+	onDisk := uint64(strings.Count(disk.contents(), "\n"))
+	if got := w.Written(); got != onDisk {
+		t.Errorf("Written() = %d, but %d whole records are on the disk: the ones bufio flushed by itself were persisted", got, onDisk)
+	}
+	if got := w.Written() + w.Dropped(); got != records {
+		t.Errorf("Written()+Dropped() = %d, want %d: every record is one or the other", got, records)
+	}
+}
+
 func TestWriter_FirstRecordAfterAPartialWriteStartsOnItsOwnLine(t *testing.T) {
 	at := time.Date(2026, 10, 19, 9, 0, 0, 0, testZone)
 	disk := &fakeDisk{capacity: 20}
