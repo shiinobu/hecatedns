@@ -41,6 +41,7 @@ function New-Query([string]$qname, [int]$qtype) {
 # Returns the offset just after a (possibly compressed) name that starts at $pos.
 function Skip-Name([byte[]]$msg, [int]$pos) {
     while ($true) {
+        if ($pos -ge $msg.Length) { throw 'malformed reply: a name runs past the end of the message' }
         $len = $msg[$pos]
         if ($len -eq 0) { return $pos + 1 }
         if (($len -band 0xC0) -eq 0xC0) { return $pos + 2 }
@@ -51,6 +52,7 @@ function Skip-Name([byte[]]$msg, [int]$pos) {
 function Read-Name([byte[]]$msg, [int]$pos) {
     $labels = @()
     for ($hops = 0; $hops -lt 20; $hops++) {
+        if ($pos -ge $msg.Length) { throw 'malformed reply: a name runs past the end of the message' }
         $len = $msg[$pos]
         if ($len -eq 0) { break }
         if (($len -band 0xC0) -eq 0xC0) { $pos = (($len -band 0x3F) -shl 8) + $msg[$pos + 1]; continue }
@@ -75,6 +77,7 @@ catch {
 }
 finally { $udp.Close() }
 
+if ($reply.Length -lt 12) { Write-Error 'malformed reply: shorter than a DNS header'; exit 1 }
 $rcode = $reply[3] -band 15
 $rcodeText = if ($rcode -lt $rcodeNames.Count) { $rcodeNames[$rcode] } else { "RCODE$rcode" }
 $answers = ($reply[6] -shl 8) + $reply[7]
@@ -83,7 +86,9 @@ $pos += 4
 "{0} {1} -> {2}, {3} answer(s), {4} bytes" -f $Name, $Type, $rcodeText, $answers, $reply.Length
 $other = 0
 for ($i = 0; $i -lt $answers; $i++) {
+    if ($pos -ge $reply.Length) { Write-Warning 'reply is cut short, remaining answers not shown'; break }
     $pos = Skip-Name $reply $pos
+    if ($pos + 10 -gt $reply.Length) { Write-Warning 'reply is cut short, remaining answers not shown'; break }
     $rtype = ($reply[$pos] -shl 8) + $reply[$pos + 1]
     $ttl = ([uint32]$reply[$pos + 4] -shl 24) + ($reply[$pos + 5] -shl 16) + ($reply[$pos + 6] -shl 8) + $reply[$pos + 7]
     $rdlen = ($reply[$pos + 8] -shl 8) + $reply[$pos + 9]

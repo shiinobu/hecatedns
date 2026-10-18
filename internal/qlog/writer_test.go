@@ -517,3 +517,27 @@ func TestWriter_NoCapMeansUnlimited(t *testing.T) {
 		t.Errorf("written %d, dropped %d, want 50 and 0 without a cap", w.Written(), w.Dropped())
 	}
 }
+
+func TestWriter_RecordsAfterCloseAreCounted(t *testing.T) {
+	at := time.Date(2026, 10, 18, 9, 0, 0, 0, testZone)
+	w := openWriter(t, testOptions(t, newFakeClock(at)))
+	_ = w.Close()
+
+	for i := 0; i < 3; i++ {
+		w.Record(blockEntry(at))
+	}
+	if w.Dropped() != 3 {
+		t.Errorf("Dropped() = %d, want 3: a record that arrives after Close is lost and must be counted", w.Dropped())
+	}
+}
+
+func TestOpen_ArmsTheMidnightTimerBeforeItReturns(t *testing.T) {
+	// Regression for the flaky midnight purge: the first delay must be measured
+	// from the clock at Open, not from whenever the writer goroutine is
+	// scheduled, so the timer has to exist as soon as Open returns.
+	at := time.Date(2026, 10, 18, 23, 59, 59, 0, testZone)
+	w := openWriter(t, testOptions(t, newFakeClock(at)))
+	if w.midnight == nil {
+		t.Fatal("Open returned without arming the midnight timer")
+	}
+}
