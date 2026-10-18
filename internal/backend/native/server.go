@@ -272,8 +272,17 @@ func serve(ctx context.Context, srvs []*dns.Server, socks []socket, started *syn
 	allUp := make(chan struct{})
 	go func() { started.Wait(); close(allUp) }()
 
+	pending, runErr := awaitStop(ctx, failed, allUp, ready, len(srvs))
+	stopQueries()
+	return errors.Join(runErr, shutdownServers(ctx, srvs, socks, failed, pending))
+}
+
+// awaitStop blocks until ctx ends or one of the servers stops by itself. It
+// calls ready once every server listens. It returns how many servers have not
+// reported yet and the error of a server that stopped.
+func awaitStop(ctx context.Context, failed <-chan error, allUp <-chan struct{}, ready func(), servers int) (int, error) {
 	var runErr error
-	pending := len(srvs)
+	pending := servers
 	stopped := func(err error) {
 		pending--
 		if err != nil {
@@ -292,11 +301,15 @@ func serve(ctx context.Context, srvs []*dns.Server, socks []socket, started *syn
 	case err := <-failed:
 		stopped(err)
 	}
+	return pending, runErr
+}
 
-	stopQueries()
+// shutdownServers stops every server and closes the sockets, then waits for the
+// pending servers to report, for at most shutdownTimeout.
+func shutdownServers(ctx context.Context, srvs []*dns.Server, socks []socket, failed <-chan error, pending int) error {
 	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
-	errs := []error{runErr}
+	var errs []error
 	for _, srv := range srvs {
 		if err := srv.ShutdownContext(stopCtx); err != nil && !isNotStarted(err) {
 			errs = append(errs, fmt.Errorf("native backend: shutdown: %w", err))

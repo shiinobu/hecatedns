@@ -2,6 +2,7 @@ package native
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -47,8 +48,21 @@ func (u *plainUpstream) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, err
 
 func (u *plainUpstream) send(ctx context.Context, network string, sent *dns.Msg) (*dns.Msg, error) {
 	client := &dns.Client{Net: network, UDPSize: ednsBufferSize, Timeout: u.timeout}
-	resp, _, err := client.ExchangeContext(ctx, sent, u.addr)
+	conn, err := client.DialContext(ctx, u.addr)
 	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", network, u.addr, err)
+	}
+	defer conn.Close()
+	// miekg obeys the deadline of ctx but not its cancellation, so a query stuck
+	// at a silent server would outlive the shutdown. Closing the connection wakes
+	// the blocked read.
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	resp, _, err := client.ExchangeWithConnContext(ctx, sent, conn)
+	if err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			err = fmt.Errorf("%w: %v", context.Canceled, err)
+		}
 		return nil, fmt.Errorf("%s %s: %w", network, u.addr, err)
 	}
 	return resp, nil

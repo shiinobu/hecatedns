@@ -413,3 +413,105 @@ func TestServer_StopsWhenCancelledBeforeItHasStarted(t *testing.T) {
 	}
 	_ = ln.Close()
 }
+
+func TestLimitListener_EveryRejectedConnectionGivesItsSlotBack(t *testing.T) {
+	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := newLimitListener(raw, 2, 1)
+	defer l.Close()
+	accepted := make(chan net.Conn, 8)
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			accepted <- c
+		}
+	}()
+	dial := func() net.Conn {
+		c, err := net.Dial("tcp", raw.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { c.Close() })
+		return c
+	}
+
+	dial()
+	var first net.Conn
+	select {
+	case first = <-accepted:
+	case <-time.After(time.Second):
+		t.Fatal("the first connection was not accepted")
+	}
+	// Each of these is over the per-address limit. If a rejection kept its slot,
+	// two of them would fill the listener and the rest would never be looked at.
+	for i := 0; i < 5; i++ {
+		c := dial()
+		_ = c.SetReadDeadline(time.Now().Add(time.Second))
+		if _, err := c.Read(make([]byte, 1)); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("rejected connection %d: read = %v, want it closed by the server at once", i+1, err)
+		}
+	}
+
+	_ = first.Close()
+	dial()
+	select {
+	case <-accepted:
+	case <-time.After(time.Second):
+		t.Error("no connection was accepted after the address was back under its limit")
+	}
+}
+
+func TestServer_ShutdownDoesNotWaitForAQueryStuckAtTheUpstream(t *testing.T) {
+	stuck := startFakeDNS(t, func(*dns.Msg, string) *dns.Msg { return nil })
+	cfg := config.Default()
+	cfg.Listen = []string{"127.0.0.1:0"}
+	cfg.Upstreams = []string{stuck.addr}
+	cfg.Bootstrap = nil
+	s, err := newServer(cfg, &fakeFilter{}, nil, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- s.Run(ctx) }()
+	select {
+	case <-s.Ready():
+	case err := <-done:
+		t.Fatalf("Run failed: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("server never became ready")
+	}
+
+	req := new(dns.Msg).SetQuestion("fine.example.", dns.TypeA)
+	go func() {
+		client := &dns.Client{Net: "udp", Timeout: 3 * time.Second}
+		_, _, _ = client.Exchange(req, s.Addr(backend.NetworkUDP).String())
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for len(stuck.asked()) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the query never reached the upstream")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	start := time.Now()
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Run returned %v", err)
+		}
+		if took := time.Since(start); took > 4*time.Second {
+			t.Errorf("shutdown took %v with one query stuck at the upstream; it must cancel queries in flight", took)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return after cancel while a query was stuck at the upstream")
+	}
+}
