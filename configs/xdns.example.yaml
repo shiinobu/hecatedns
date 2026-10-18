@@ -1,0 +1,51 @@
+backend: dnsproxy                # dnsproxy | native
+
+listen:
+  - 127.0.0.1:5300               # pengembangan; ganti ke 192.168.1.10:53 di Fase 3
+
+allowed_clients:                 # CIDR; di luar ini dijawab REFUSED
+  - 127.0.0.0/8
+  - "::1/128"
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+
+upstreams:                       # dicoba berurutan
+  - https://1.1.1.1/dns-query
+  - https://8.8.8.8/dns-query
+bootstrap: [1.1.1.1, 8.8.8.8]    # untuk upstream berupa nama host
+
+cache:
+  enabled: true
+  size_mb: 16
+  min_ttl: 0s
+  max_ttl: 1h
+
+block:
+  mode: null_ip                  # null_ip | nxdomain | nodata | refused
+  ttl: 10s
+
+special_names:
+  firefox_canary: true           # use-application-dns.net -> NXDOMAIN
+  ddr: true                      # _dns.resolver.arpa -> NODATA
+
+lists:
+  update_interval: 24h
+  sources:
+    - { name: hagezi-pro,    kind: block, format: domains, enabled: true,
+        url: "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro-onlydomains.txt" }
+    - { name: hagezi-popups, kind: block, format: domains, enabled: true,
+        url: "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/popupads-onlydomains.txt" }
+    - { name: abpindo,       kind: block, format: domains, enabled: true,
+        url: "https://raw.githubusercontent.com/ABPindo/indonesianadblockrules/master/subscriptions/domain.txt" }
+
+rules:
+  file: data/rules.txt
+  poll_interval: 2s
+
+log:
+  enabled: true
+  dir: data/logs
+  retention_days: 7
+
+data_dir: data
