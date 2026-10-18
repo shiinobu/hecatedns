@@ -8,8 +8,8 @@ description: Master's PC - Windows 11, shells, Go toolchain, quality-gate comman
 ## Machine
 
 - Windows 11 Pro. Two shells: **PowerShell** (Windows PowerShell 5.1 - no `&&`/`||`, no ternary; chain with `;` and `if ($?) { ... }`) and **Git Bash** (POSIX syntax, `/c/Users/...` paths). Use each shell's own syntax.
-- Project root: `C:\Users\Administrator\Documents\Vscode\xdns`. LAN IP of this PC `192.168.1.10`, gateway `192.168.1.1`. A virtual adapter `172.25.144.1` exists (probably Hyper-V/WSL).
-- Ports: **UDP 0.0.0.0:53 is held by Internet Connection Sharing** (service `SharedAccess`); UDP 5353 by mDNS. `5300` and `853` are free. Development port: `127.0.0.1:5300`. Android cannot set a DNS port, so the phone test (Phase 3) needs UDP 53 on `192.168.1.10` - that is decision gate G2; do not stop ICS or touch the firewall without Master.
+- Project root: `C:\Users\Administrator\Documents\Vscode\xdns`. LAN IP of this PC `192.168.1.99`, gateway `192.168.1.1`. A virtual adapter `172.25.144.1` exists (probably Hyper-V/WSL).
+- Ports: **UDP 0.0.0.0:53 is held by Internet Connection Sharing** (service `SharedAccess`); UDP 5353 by mDNS. `5300` and `853` are free. Development port: `127.0.0.1:5300`. Android cannot set a DNS port, so the phone test (Phase 3) needs UDP 53 on `192.168.1.99` - that is decision gate G2; do not stop ICS or touch the firewall without Master.
 - Tools present: Go 1.26.4 (the module needs 1.26.9, fetched automatically through `GOTOOLCHAIN=auto`, needs internet the first time), git 2.54.0, 7-Zip, curl, Python, Node. **No `gh` CLI** (use the GitHub REST API with curl if ever needed). The Exa MCP free limit is used up; use normal web search/fetch.
 - Source of dnsproxy for reading: `C:\Users\Administrator\go\pkg\mod\github.com\!adguard!team\dnsproxy@v0.86.0\` (uppercase letters in module paths are stored as `!` + lowercase). miekg/dns: `...\pkg\mod\github.com\miekg\dns@v1.1.73\`. `go doc github.com/AdguardTeam/dnsproxy/proxy.Config` also works from inside the repo.
 

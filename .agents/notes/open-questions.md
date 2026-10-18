@@ -9,7 +9,7 @@ Add new questions at the bottom with a number. When one is answered, move it to 
 ## For Master (do not ask early; ask at the gate)
 
 - **G1, end of Phase 2 / during PC use:** Review block statistics in `xdns log -blocked` after real browsing and add `xdns rule add allow <domain>` if any false positive occurs.
-- **G2, start of Phase 3:** Is Mobile Hotspot, Hyper-V or WSL used on this PC (ICS holds UDP 53 for them)? Can Master open the router settings (DHCP address reservation)? Which browser is used on the phone?
+- **G2, start of Phase 3 (partly answered 2026-10-18):** Hyper-V + WSL2 are present and ICS (`SharedAccess`) holds `0.0.0.0:53` UDP, so wildcard port 53 is taken (details in `state/STATE.md`). Browser for the first test: Chrome. Answered the same day: Master can open the router at `192.168.1.1` and reserved the PC at `192.168.1.99` (was DHCP `.10`; verified 2026-10-18); PC and phone share the same Wi-Fi; Master allowed binding port 53 on `192.168.1.99` only (not wildcard) for Phase 3 tests. G2 is closed.
 - **G3, start of Phase 6:** VPS provider and cost approval (check current prices first), subdomain name.
 - Whether to push the repo anywhere as a backup: needs Master's explicit yes.
 
