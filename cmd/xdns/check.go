@@ -19,6 +19,10 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	if err := flags.Parse(args); err != nil {
 		return exitUsage
 	}
+	if flags.NArg() > 0 {
+		fmt.Fprintf(stderr, "xdns check: argumen tak terduga %q, gunakan -config <berkas>\n", flags.Args())
+		return exitUsage
+	}
 
 	cfg, err := config.Load(*path)
 	if err != nil {

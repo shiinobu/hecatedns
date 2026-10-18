@@ -46,6 +46,8 @@ func TestRun(t *testing.T) {
 		{"check a directory", []string{"check", "-config", dir}, exitError, nil, []string{"xdns check"}},
 		{"check default path is xdns.yaml", []string{"check"}, exitError, nil, []string{"xdns.yaml"}},
 		{"check unknown flag", []string{"check", "-nope"}, exitUsage, nil, []string{"nope"}},
+		{"check positional argument", []string{"check", "other.yaml"}, exitUsage, nil, []string{"other.yaml"}},
+		{"check extra argument after flag", []string{"check", "-config", exampleConfig, "extra"}, exitUsage, nil, []string{"extra"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
