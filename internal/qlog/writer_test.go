@@ -3,6 +3,7 @@ package qlog
 import (
 	"bufio"
 	"encoding/json"
+	"log/slog"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -418,4 +419,101 @@ func FuzzSanitize(f *testing.F) {
 			}
 		}
 	})
+}
+
+func fileSize(t *testing.T, path string) int64 {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	return info.Size()
+}
+
+func TestWriter_DailyByteCapDropsAndCounts(t *testing.T) {
+	at := time.Date(2026, 10, 18, 9, 0, 0, 0, testZone)
+	opts := testOptions(t, newFakeClock(at))
+	opts.MaxBytesPerDay = 1000
+	opts.BufferSize = 64
+	var logs strings.Builder
+	opts.Log = slog.New(slog.NewTextHandler(&logs, nil))
+	w := openWriter(t, opts)
+
+	const sent = 20
+	for i := 0; i < sent; i++ {
+		w.Record(blockEntry(at))
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(opts.Dir, "queries-20261018.jsonl")
+	if size := fileSize(t, path); size > opts.MaxBytesPerDay {
+		t.Errorf("file is %d bytes, over the %d byte cap", size, opts.MaxBytesPerDay)
+	}
+	lines := readLines(t, path)
+	for i, line := range lines {
+		if !json.Valid([]byte(line)) {
+			t.Errorf("line %d is cut or damaged: %q", i, line)
+		}
+	}
+	if w.Written() != uint64(len(lines)) || w.Dropped() == 0 || w.Written()+w.Dropped() != sent {
+		t.Errorf("written %d, dropped %d, lines %d; want every record accounted for and some dropped", w.Written(), w.Dropped(), len(lines))
+	}
+	if n := strings.Count(logs.String(), "daily size cap"); n != 1 {
+		t.Errorf("the cap was announced %d times, want once per day:\n%s", n, logs.String())
+	}
+}
+
+func TestWriter_ByteCapStartsAgainOnTheNextDay(t *testing.T) {
+	day1 := time.Date(2026, 10, 18, 23, 59, 0, 0, testZone)
+	day2 := time.Date(2026, 10, 19, 0, 0, 5, 0, testZone)
+	opts := testOptions(t, newFakeClock(day1))
+	opts.MaxBytesPerDay = 500
+	w := openWriter(t, opts)
+
+	for i := 0; i < 10; i++ {
+		w.Record(blockEntry(day1))
+	}
+	for i := 0; i < 2; i++ {
+		w.Record(blockEntry(day2))
+	}
+	_ = w.Close()
+
+	if got := len(readLines(t, filepath.Join(opts.Dir, "queries-20261019.jsonl"))); got != 2 {
+		t.Errorf("the new day has %d lines, want its 2 records: yesterday's cap must not carry over", got)
+	}
+}
+
+func TestWriter_ByteCapCountsWhatIsAlreadyInTheFile(t *testing.T) {
+	at := time.Date(2026, 10, 18, 9, 0, 0, 0, testZone)
+	opts := testOptions(t, newFakeClock(at))
+	opts.MaxBytesPerDay = 1000
+	if err := os.MkdirAll(opts.Dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(opts.Dir, "queries-20261018.jsonl")
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", 950)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w := openWriter(t, opts)
+
+	w.Record(blockEntry(at))
+	_ = w.Close()
+
+	if w.Written() != 0 || w.Dropped() != 1 {
+		t.Errorf("written %d, dropped %d; a restart must not forget the bytes already written today", w.Written(), w.Dropped())
+	}
+}
+
+func TestWriter_NoCapMeansUnlimited(t *testing.T) {
+	at := time.Date(2026, 10, 18, 9, 0, 0, 0, testZone)
+	w := openWriter(t, testOptions(t, newFakeClock(at)))
+	for i := 0; i < 50; i++ {
+		w.Record(blockEntry(at))
+	}
+	_ = w.Close()
+	if w.Dropped() != 0 || w.Written() != 50 {
+		t.Errorf("written %d, dropped %d, want 50 and 0 without a cap", w.Written(), w.Dropped())
+	}
 }

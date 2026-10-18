@@ -17,6 +17,9 @@ import (
 	"xdns/internal/qlog"
 )
 
+// bytesPerMBShift converts megabytes to bytes with a shift (1 MB = 1 << 20).
+const bytesPerMBShift = 20
+
 // defaultRegistry lists the backends this binary contains. The native backend
 // joins in Phase 4.
 func defaultRegistry() backend.Registry {
@@ -99,7 +102,12 @@ func openQueryLog(cfg config.Config, log *slog.Logger) (engine.Recorder, func(),
 	if !cfg.Log.Enabled {
 		return nil, func() {}, nil
 	}
-	w, err := qlog.Open(qlog.Options{Dir: cfg.Log.Dir, RetentionDays: cfg.Log.RetentionDays, Log: log})
+	w, err := qlog.Open(qlog.Options{
+		Dir:            cfg.Log.Dir,
+		RetentionDays:  cfg.Log.RetentionDays,
+		MaxBytesPerDay: int64(cfg.Log.MaxMBPerDay) << bytesPerMBShift,
+		Log:            log,
+	})
 	if err != nil {
 		return nil, nil, err
 	}

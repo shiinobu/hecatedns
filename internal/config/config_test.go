@@ -278,3 +278,12 @@ func TestLoad_RejectsASourceThatIsNotAMapping(t *testing.T) {
 		t.Fatal("Load accepted a scalar as a source")
 	}
 }
+
+func TestLoad_LogDailyCapDefaultsAndOverrides(t *testing.T) {
+	if got := mustLoad(t, "").Log.MaxMBPerDay; got != 256 {
+		t.Errorf("default log.max_mb_per_day = %d, want 256", got)
+	}
+	if got := mustLoad(t, "log:\n  max_mb_per_day: 32\n").Log.MaxMBPerDay; got != 32 {
+		t.Errorf("log.max_mb_per_day = %d, want 32", got)
+	}
+}

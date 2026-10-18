@@ -42,6 +42,7 @@ const (
 	defaultUpdateInterval = 24 * time.Hour
 	defaultPollInterval   = 2 * time.Second
 	defaultRetentionDays  = 7
+	defaultLogMaxMBPerDay = 256
 	defaultDataDir        = "data"
 	defaultRulesFile      = "data/rules.txt"
 	defaultLogDir         = "data/logs"
@@ -138,6 +139,7 @@ type Log struct {
 	Enabled       bool   `yaml:"enabled"`
 	Dir           string `yaml:"dir"`
 	RetentionDays int    `yaml:"retention_days"`
+	MaxMBPerDay   int    `yaml:"max_mb_per_day"`
 }
 
 // Default returns the built-in configuration. Every call returns fresh
@@ -154,7 +156,7 @@ func Default() Config {
 		SpecialNames:   SpecialNames{FirefoxCanary: true, DDR: true},
 		Lists:          Lists{UpdateInterval: defaultUpdateInterval},
 		Rules:          Rules{File: defaultRulesFile, PollInterval: defaultPollInterval},
-		Log:            Log{Enabled: true, Dir: defaultLogDir, RetentionDays: defaultRetentionDays},
+		Log:            Log{Enabled: true, Dir: defaultLogDir, RetentionDays: defaultRetentionDays, MaxMBPerDay: defaultLogMaxMBPerDay},
 		DataDir:        defaultDataDir,
 	}
 }

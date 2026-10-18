@@ -36,6 +36,10 @@ type Options struct {
 	// RetentionDays is how many calendar days to keep, today included. It
 	// must be at least 1.
 	RetentionDays int
+	// MaxBytesPerDay caps one day file. Records that would pass it are dropped
+	// and counted, so a client that sends queries as fast as it can (or a
+	// flood of refused ones) cannot fill the disk. Zero means no cap.
+	MaxBytesPerDay int64
 	// BufferSize is the capacity of the queue between the resolver and the
 	// disk writer. Zero means 4096.
 	BufferSize int
@@ -73,6 +77,8 @@ type Writer struct {
 	file          *os.File
 	out           *bufio.Writer
 	day           string
+	dayBytes      int64
+	capWarnedDay  string
 	encoded       bytes.Buffer
 	reported      uint64
 	lastWriteErr  string
@@ -255,7 +261,12 @@ func (w *Writer) write(e engine.Entry) {
 		w.fail(err)
 		return
 	}
-	if _, err := w.out.Write(w.encoded.Bytes()); err != nil {
+	if w.overCap(rec.Time.Format(dayLayout)) {
+		return
+	}
+	n, err := w.out.Write(w.encoded.Bytes())
+	w.dayBytes += int64(n)
+	if err != nil {
 		w.fail(fmt.Errorf("write query log: %w", err))
 		return
 	}
@@ -270,6 +281,21 @@ func (w *Writer) encode(rec Record) error {
 		return fmt.Errorf("encode query log record: %w", err)
 	}
 	return nil
+}
+
+// overCap reports whether the record just encoded would push today's file over
+// the byte cap; it then counts the drop and announces the cap once per day.
+func (w *Writer) overCap(day string) bool {
+	limit := w.opts.MaxBytesPerDay
+	if limit <= 0 || w.dayBytes+int64(w.encoded.Len()) <= limit {
+		return false
+	}
+	w.dropped.Add(1)
+	if w.capWarnedDay != day {
+		w.capWarnedDay = day
+		w.log.Warn("query log reached its daily size cap, further records of this day are dropped", "day", day, "max_bytes", limit)
+	}
+	return true
 }
 
 // selectFile makes the file of day the current one, rotating if needed.
@@ -287,10 +313,20 @@ func (w *Writer) selectFile(day string) error {
 		return fmt.Errorf("open query log: %w", err)
 	}
 	w.file, w.out, w.day = file, bufio.NewWriterSize(file, fileBufferBytes), day
+	w.dayBytes = existingSize(file)
 	if rotating {
 		w.purge()
 	}
 	return nil
+}
+
+// existingSize returns the bytes already in an appended-to file, so a restart
+// does not forget what was written earlier the same day.
+func existingSize(file *os.File) int64 {
+	if info, err := file.Stat(); err == nil {
+		return info.Size()
+	}
+	return 0
 }
 
 func (w *Writer) flush() error {

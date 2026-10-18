@@ -237,6 +237,9 @@ func (c Config) validateLog() []error {
 	if c.Log.RetentionDays < 1 {
 		errs = append(errs, errors.New("log.retention_days: must be at least 1"))
 	}
+	if c.Log.MaxMBPerDay < 1 {
+		errs = append(errs, errors.New("log.max_mb_per_day: must be at least 1, the log must never grow without a bound"))
+	}
 	return errs
 }
 

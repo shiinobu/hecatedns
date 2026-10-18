@@ -277,3 +277,21 @@ func TestValidate_AcceptsHardenedBoundaries(t *testing.T) {
 		})
 	}
 }
+
+func TestValidate_LogDailyCap(t *testing.T) {
+	cfg := Default()
+	cfg.Log.MaxMBPerDay = 0
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "log.max_mb_per_day") {
+		t.Fatalf("Validate() = %v, want an error naming log.max_mb_per_day: a zero cap would mean an unbounded log", err)
+	}
+	cfg.Log.MaxMBPerDay = -5
+	if err := cfg.Validate(); err == nil {
+		t.Error("a negative cap was accepted")
+	}
+	cfg.Log.Enabled = false
+	cfg.Log.MaxMBPerDay = 0
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() = %v, the cap does not matter while the log is off", err)
+	}
+}
