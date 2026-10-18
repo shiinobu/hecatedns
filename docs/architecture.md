@@ -1,6 +1,6 @@
 # xdns — Arsitektur
 
-*Versi 1.1 | 2026-10-18 | Status: Fase 0 dan Fase 1 selesai dan sudah ditinjau (lihat `phase-1-report.md`); Fase 2 menunggu "lanjut" dari Master | Penulis: Claude (keputusan desain didelegasikan penuh oleh Master, yang memulai Fase 0 dengan "oke mulai fase 0")*
+*Versi 1.2 | 2026-10-18 | Status: Fase 0, Fase 1, dan Fase 2 selesai dan sudah ditinjau (lihat `phase-1-report.md`, `phase-2-report.md`); Fase 3 menunggu "lanjut" dari Master (beserta Gerbang G1 dan G2) | Penulis: Claude & Gemini 4 Argon (keputusan desain didelegasikan penuh oleh Master)*
 
 Dokumen ini adalah spesifikasi desain xdns. Urutan kerja ada di `roadmap.md`. Dasar riset dan sumbernya ada di `research.md` (rujukan "riset §N" di bawah menunjuk ke sana).
 
@@ -252,36 +252,39 @@ SOA sintetis memakai TTL dan minimum sama dengan `block.ttl` agar cache negatif 
 
 ## 7. Daftar blokir
 
-| Nama | URL | Format | Entri (2026-10-18) |
+| Nama | URL | Format | Entri (diunduh 2026-10-18 malam) |
 |---|---|---|---|
-| `hagezi-pro` | `https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro-onlydomains.txt` | `domains` | 201.729 |
-| `hagezi-popups` | `https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/popupads-onlydomains.txt` | `domains` | 47.268 |
-| `abpindo` | `https://raw.githubusercontent.com/ABPindo/indonesianadblockrules/master/subscriptions/domain.txt` | `domains` | ±125 (kecil, tetapi lokal Indonesia) |
+| `hagezi-pro` | `https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro-onlydomains.txt` | `domains` | 202.297 (ditolak 0) |
+| `hagezi-popups` | `https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/popupads-onlydomains.txt` | `domains` | 47.668 (ditolak 0; 113 unik terhadap PRO) |
+| `abpindo` | `https://raw.githubusercontent.com/ABPindo/indonesianadblockrules/master/subscriptions/domain.txt` | `domains` | 124 (ditolak 0; lokal Indonesia) |
 
-Ketiganya sudah saya unduh dan periksa: satu domain per baris, komentar berawalan `#`, tanpa spasi pada baris data. Header HaGeZi menyatakan `Expires: 8 hours`; ABPindo `4 days`.
+Ketiganya sudah diunduh dan diverifikasi pada binary asli (total **250.089 entri** sebelum de-duplikasi): satu domain per baris, komentar berawalan `#`, tanpa spasi pada baris data. Header HaGeZi menyatakan `Expires: 8 hours`; ABPindo `4 days`.
 
 **Nama sumber** menjadi nama berkas (`data/lists/<nama>.txt`), jadi dibatasi: 1–64 karakter huruf, angka, `-`, atau `_`, diawali huruf atau angka, bukan nama perangkat Windows (CON, PRN, AUX, NUL, COM1–COM9, LPT1–LPT9), dan unik tanpa membedakan huruf besar-kecil. Sumber tanpa `enabled` dianggap aktif (diterapkan di Fase 1).
 
-**Format yang didukung versi 1:** `domains` (satu domain per baris) dan `hosts` (`0.0.0.0 domain`). Sintaks adblock penuh (`||domain^$opsi`) tidak didukung; masuk Fase 7 bila diperlukan.
+**Format yang didukung versi 1:** `domains` (satu domain per baris) dan `hosts` (`0.0.0.0 domain` atau `127.0.0.1 domain`, baris bawaan `localhost` diabaikan). Sintaks adblock penuh (`||domain^$opsi`) tidak didukung; masuk Fase 7 bila diperlukan.
 
 **Parser** (daftar dianggap masukan tak tepercaya):
-- abaikan baris kosong dan komentar (`#`, `!`, `;`), buang komentar di ujung baris;
-- huruf kecil; buang awalan `*.`;
-- validasi sintaks nama: label 1–63 karakter, total ≤ 253, hanya `a-z 0-9 - _`;
+- abaikan baris kosong dan komentar (`#`, `!`, `;`), buang komentar di ujung baris, dan kupas UTF-8 BOM di baris pertama;
+- huruf kecil ASCII; buang awalan `*.` dan titik akhir;
+- validasi sintaks nama lewat `engine.ParseEntry`: label 1–63 karakter, total ≤ 253, hanya `a-z 0-9 - _`;
 - tolak alamat IP dan entri satu label (agar satu baris rusak seperti `com` tidak memblokir seluruh TLD);
-- hitung dan laporkan baris yang ditolak; jangan berhenti karena satu baris buruk.
+- batas keras: panjang baris < 4.096 byte (baris lebih panjang dikuras tanpa alokasi besar dan dihitung sebagai ditolak), aliran terdekode ≤ 64 MiB (`ErrListTooLarge`), dan jumlah domain unik ≤ 1.000.000 per daftar (`ErrTooManyEntries`); daftar dengan 0 domain valid ditolak (`ErrEmptyList`) agar halaman galat HTML tidak pernah menghapus perlindungan;
+- bangun `engine.DomainSet` sekali jalan lewat `engine.DomainSetBuilder` tanpa peta atau slice perantara ganda.
 
 **Pembaruan:**
 - saat start: muat salinan cache di `data/lists/<nama>.txt` lebih dulu (cepat), lalu segarkan di latar belakang;
-- interval `lists.update_interval` (bawaan 24 jam) dengan sedikit jitter; permintaan `If-None-Match`/`If-Modified-Since` bila ada metadata;
-- hanya `https://`; batas waktu 30 detik; batas ukuran 64 MB per daftar;
-- tulis ke berkas sementara lalu `rename` (atomik); simpan metadata (`etag`, `fetched_at`, `count`, `rejected`) di `data/lists/<nama>.meta.json`;
+- interval `lists.update_interval` (bawaan 24 jam) dengan jitter hingga +10%, ditambah polling ukuran + waktu ubah berkas cache setiap 5 detik agar `xdns lists update` langsung dimuat server yang sedang berjalan tanpa restart (D11);
+- permintaan `If-None-Match` dikirim hanya bila `<nama>.txt` dan `<nama>.meta.json` keduanya ada; saat server membalas `304 Not Modified` dan cap berkas disk tidak berubah, `Manager` memakai kembali `*engine.DomainSet` yang sudah ada di memori tanpa mem-parse ulang berkas dari disk;
+- hanya `https://` (termasuk pada hingga 5 redirect; redirect ke-6 atau redirect ke `http://` ditolak); batas waktu 30 detik; batas ukuran 64 MiB per daftar;
+- nama host URL daftar di-resolve memakai server `bootstrap` secara berurutan lewat `miekg/dns` (UDP port 53 dengan fallback TCP bila terpotong) sehingga unduhan daftar tidak pernah berputar lewat `xdns` sendiri dan tetap berpindah ke bootstrap kedua bila bootstrap pertama diam/mati;
+- tulis ke berkas sementara lalu `rename` (atomik dengan coba-ulang singkat di Windows); simpan metadata (`etag`, `fetched_at`, `count`, `rejected`) di `data/lists/<nama>.meta.json`;
 - bila unduhan gagal atau berkas rusak: pertahankan salinan lama dan catat galat;
 - setelah ada perubahan, bangun snapshot baru lalu tukar atomik (`atomic.Pointer`); snapshot lama tidak pernah diubah.
 
 **Dua snapshot terpisah** (daftar dan aturan kustom) agar perubahan aturan tidak membangun ulang ratusan ribu entri.
 
-**Anggaran sumber daya** (target awal, diukur di Fase 2): sekitar 250 ribu entri, memori proses < 150 MB, pencarian p99 < 50 µs. Bila terlampaui, ganti peta string dengan peta hash 64-bit.
+**Anggaran sumber daya** (terukur di Fase 2 pada 250.000–250.089 entri): memori heap `DomainSet` bertambah **16,15–16,29 MiB** (`Sys` runtime Go 38–43 MiB; proses `xdns run` hidup: WorkingSet **71,74–74,20 MiB**, Private **103,35–105,25 MiB**, di bawah batas 150 MB), latensi pencarian rata-rata **215–250 ns/op** (0 alokasi), **p95 = 1,04–1,07 µs**, **p99 = 2,01 µs** (jauh di bawah batas 50 µs). Peta string standar Go (`map[string]struct{}`) sudah sangat memadai tanpa perlu diganti peta hash 64-bit.
 
 ---
 
@@ -389,7 +392,7 @@ log:
 data_dir: data
 ```
 
-Validasi saat start (kunci tak dikenal atau berulang, lebih dari satu dokumen YAML, `allowed_clients` kosong (untuk mengizinkan semua tulis `0.0.0.0/0` dan `::/0`), CIDR tak sah, `listen` berupa nama host, upstream bernama host tanpa `bootstrap`, URL daftar bukan `https`, nama sumber tak aman sebagai nama berkas atau ganda, `mode` tak dikenal, backend tak dikenal, TTL negatif → galat dengan pesan jelas dan keluar kode ≠ 0; semua masalah dilaporkan sekaligus). Jalur relatif dihitung dari lokasi berkas konfigurasi. Aturan yang ditambahkan di Fase 1: `enabled:` yang dihilangkan atau kosong (YAML null) berarti aktif; `rules.file` dan `log.dir` (bila log aktif) wajib terisi; `listen` unik dan port ≠ 0; TTL dibatasi 2147483647 detik sebelum konversi ke `uint32`; `cache.max_ttl: 0` berarti tanpa batas atas; `log.max_mb_per_day` minimal 1; kunci gabung YAML `<<` ditolak di dalam sumber daftar. Kunci yang tidak ditulis memakai nilai bawaan yang sama dengan contoh ini (`config.Default()`); daftar blokir tidak punya nilai bawaan, jadi tanpa sumber daftar yang aktif `xdns check` memberi peringatan.
+Validasi saat start (kunci tak dikenal atau berulang, lebih dari satu dokumen YAML, `allowed_clients` kosong (untuk mengizinkan semua tulis `0.0.0.0/0` dan `::/0`), CIDR tak sah, `listen` berupa nama host, upstream bernama host tanpa `bootstrap`, URL daftar bukan `https`, nama sumber tak aman sebagai nama berkas atau ganda, `mode` tak dikenal, backend tak dikenal, TTL negatif → galat dengan pesan jelas dan keluar kode ≠ 0; semua masalah dilaporkan sekaligus). Jalur relatif dihitung dari lokasi berkas konfigurasi. Aturan yang ditambahkan di Fase 1 dan Fase 2: `enabled:` yang dihilangkan atau kosong (YAML null) berarti aktif; `rules.file` dan `log.dir` (bila log aktif) wajib terisi; `listen` unik dan port ≠ 0; TTL dibatasi 2147483647 detik sebelum konversi ke `uint32`; `cache.max_ttl: 0` berarti tanpa batas atas; `log.max_mb_per_day` minimal 1; kunci gabung YAML `<<` ditolak di dalam sumber daftar; `LoopWarnings()` (bagian dari `Warnings()`) memperingatkan bila `upstreams` atau `bootstrap` mengarah ke alamat `listen` sendiri (termasuk kombinasi wildcard/loopback dan `localhost`), dan `xdns check` menggagalkan uji mandiri bila ditemukan loop itu. Kunci yang tidak ditulis memakai nilai bawaan yang sama dengan contoh ini (`config.Default()`); daftar blokir tidak punya nilai bawaan, jadi tanpa sumber daftar yang aktif `xdns check` memberi peringatan.
 
 ---
 
@@ -400,7 +403,7 @@ xdns **tidak pernah** menulis ulang `www.google.com`. Syarat agar hasilnya benar
 - hulu terenkripsi supaya ISP atau router tidak membajak jawaban DNS biasa;
 - tidak ada aturan atau daftar yang memetakan Google ke `forcesafesearch.google.com`.
 
-`xdns check` melakukan uji mandiri: resolve `www.google.com` lewat hulu yang dikonfigurasi dan memastikan rantai CNAME tidak memuat `forcesafesearch.google.com`; bila ada, cetak peringatan yang menyebut hulu mana. Batas: bila SafeSearch dikunci lewat pengaturan akun Google atau proxy jaringan, DNS tidak dapat membatalkannya.
+`xdns check` (`internal/selfcheck`) melakukan uji mandiri: resolve `www.google.com` (tipe A) lewat setiap hulu yang dikonfigurasi dan memastikan minimal satu hulu menjawab rekaman A dengan NOERROR serta rantai CNAME pada setiap hulu tidak memuat `forcesafesearch.google.com` (atau subdomainnya); bila ada yang memaksa SafeSearch, uji mandiri gagal dan menyebut hulu mana. Selain itu `selfcheck` memuat daftar blokir yang sudah ter-cache di disk dan memverifikasi bahwa satu domain contoh milik masing-masing daftar benar-benar diblokir oleh engine (serta memberi peringatan bila berkas cache belum diunduh lewat `xdns lists update`). Batas: bila SafeSearch dikunci lewat pengaturan akun Google atau proxy jaringan, DNS tidak dapat membatalkannya.
 
 ---
 
@@ -499,9 +502,10 @@ Perintah verifikasi tiap fase: `gofmt -l .` (kosong), `go vet ./...`, `go test .
 Belum dipastikan; dibuktikan lewat tes dan bukan diasumsikan:
 1. **Terverifikasi di Fase 1:** tanda tangan `proxy.Config.RequestHandler` dan perilaku cache dnsproxy (§5.3, `.agents/notes/dnsproxy-api-facts.md`).
 2. **Terverifikasi di Fase 1:** upstream DoH berupa IP tanpa bootstrap (jawaban DoH nyata dari `https://1.1.1.1/dns-query` pada binary).
-3. Perilaku `use-application-dns.net` (NXDOMAIN) dan `_dns.resolver.arpa` (NODATA) pada Firefox dan Chrome di HP.
-4. Format baris pada pembaruan daftar di masa depan. Ketiga daftar saat ini sudah diperiksa (2026-10-18): semua baris data berupa domain polos huruf kecil, tanpa `*.` dan tanpa spasi.
-5. Memori dan latensi pencarian dengan daftar penuh (angka aktual dicatat).
-6. Perilaku HP RedMagic terhadap jawaban `0.0.0.0` dibanding NODATA/NXDOMAIN.
+3. Perilaku `use-application-dns.net` (NXDOMAIN) dan `_dns.resolver.arpa` (NODATA) pada Firefox dan Chrome di HP (server sudah menjawab NXDOMAIN dan NODATA dengan SOA sintetis di Fase 2; reaksi browser HP diuji di Fase 3).
+4. **Terverifikasi di Fase 2:** ketiga daftar bawaan diunduh dan di-parse pada binary asli (`hagezi-pro` 202.297 domain, `hagezi-popups` 47.668 domain, `abpindo` 124 domain — total 250.089 entri sebelum de-duplikasi, 0 baris ditolak).
+5. **Terverifikasi di Fase 2:** memori dan latensi pencarian dengan daftar penuh (250.000–250.089 entri): `heap_inuse_delta` = 16,15–16,29 MiB, memori proses hidup WorkingSet = 71,74–74,20 MiB / Private = 103,35–105,25 MiB (< 150 MB), rata-rata = 215–250 ns/op (0 alokasi), p95 = 1,04–1,07 µs, p99 = 2,01 µs (< 50 µs).
+6. Perilaku HP RedMagic terhadap jawaban `0.0.0.0` dibanding NODATA/NXDOMAIN (Fase 3).
 7. Apakah EDE (RFC 8914) "Filtered" pada jawaban blokir bermanfaat; ditambahkan hanya bila terbukti tidak mengganggu klien.
 8. Penyelesaian konflik ICS pada UDP 53 (Fase 3).
+
