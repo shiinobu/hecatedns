@@ -515,3 +515,27 @@ func TestServer_ShutdownDoesNotWaitForAQueryStuckAtTheUpstream(t *testing.T) {
 		t.Fatal("Run did not return after cancel while a query was stuck at the upstream")
 	}
 }
+
+func TestServer_ReplyToAQueryWithABrokenBodyIsNeverLargerThanTheQuery(t *testing.T) {
+	s, _ := startNative(t, nil)
+	conn, err := net.Dial("udp", s.Addr(backend.NetworkUDP).String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	// A header that passes acceptMsg (one question) followed by half a name:
+	// miekg itself answers FORMERR before the rate limiter, ACL and query log
+	// see it. Whatever comes back must not be an amplifier.
+	msg := []byte{0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0, 3, 'a', 'b'}
+	if _, err := conn.Write(msg); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+
+	if err == nil && n > len(msg) {
+		t.Errorf("a %d-byte query got a %d-byte reply", len(msg), n)
+	}
+}
