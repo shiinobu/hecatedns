@@ -99,7 +99,11 @@ func ruleAdd(cfg config.Config, action, domain string, stdout io.Writer) error {
 	}
 	replaced := text.remove(rule.Domain)
 	text.add(rule)
-	if err := writeFileAtomic(cfg.Rules.File, text.bytes()); err != nil {
+	data := text.bytes()
+	if len(data) > engine.MaxRulesFileBytes {
+		return fmt.Errorf("%s menjadi terlalu besar (lebih dari %d byte); server mengabaikan sisanya, jadi aturan baru tidak akan berlaku. Hapus aturan lama dulu", cfg.Rules.File, engine.MaxRulesFileBytes)
+	}
+	if err := writeFileAtomic(cfg.Rules.File, data); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "aturan ditambahkan: %s\n", rule)
@@ -119,9 +123,20 @@ func parseRuleArgs(action, domain string) (engine.Rule, error) {
 	}
 	entry, err := engine.ParseEntry(domain)
 	if err != nil {
-		return engine.Rule{}, fmt.Errorf("domain %q ditolak: %w", truncate(domain), err)
+		return engine.Rule{}, fmt.Errorf("domain %q ditolak: %w%s", truncate(domain), err, punycodeHint(domain))
 	}
 	return engine.Rule{Action: kind, Domain: entry}, nil
+}
+
+// punycodeHint explains how to write a name with non-ASCII letters, which
+// rules and blocklists only accept in their xn-- form.
+func punycodeHint(domain string) string {
+	for i := 0; i < len(domain); i++ {
+		if domain[i] >= 0x80 {
+			return " (tulis nama dengan huruf non-ASCII dalam bentuk punycode, awalan xn--)"
+		}
+	}
+	return ""
 }
 
 // truncate keeps an echoed command-line value short in an error message.
@@ -136,7 +151,7 @@ func truncate(s string) string {
 func ruleRemove(cfg config.Config, domain string, stdout io.Writer) error {
 	entry, err := engine.ParseEntry(domain)
 	if err != nil {
-		return fmt.Errorf("domain %q ditolak: %w", truncate(domain), err)
+		return fmt.Errorf("domain %q ditolak: %w%s", truncate(domain), err, punycodeHint(domain))
 	}
 	text, err := readRulesText(cfg.Rules.File)
 	if err != nil {
@@ -163,7 +178,7 @@ func ruleList(cfg config.Config, stdout, stderr io.Writer) error {
 		if i == 0 {
 			line = strings.TrimPrefix(line, byteOrderMark)
 		}
-		rule, ok, parseErr := engine.ParseRuleLine(line)
+		rule, ok, parseErr := parseLine(line)
 		switch {
 		case parseErr != nil:
 			fmt.Fprintf(stderr, "baris %d dilewati server: %v\n", i+1, parseErr)

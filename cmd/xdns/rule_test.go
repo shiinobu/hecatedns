@@ -322,3 +322,42 @@ func TestRule_RulesPathIsADirectory(t *testing.T) {
 		t.Errorf("exit = %d, stderr = %q", code, stderr)
 	}
 }
+
+func TestRuleList_ShowsNoRuleThatTheServerWouldSkipAsTooLong(t *testing.T) {
+	f := newRuleFixture(t)
+	f.seed(t, "block short.example\nblock longline.example # "+strings.Repeat("x", engine.MaxRuleLineBytes)+"\n")
+
+	code, stdout, stderr := f.run(t, "-config", f.config, "list")
+
+	if code != exitOK || stdout != "block short.example\n" {
+		t.Errorf("exit = %d, stdout = %q; the server ignores a line of %d bytes or more, so it is not an active rule", code, stdout, engine.MaxRuleLineBytes)
+	}
+	assertContains(t, "stderr", stderr, []string{"baris 2 dilewati"})
+}
+
+func TestRuleAdd_RefusesToGrowTheFileBeyondWhatTheServerReads(t *testing.T) {
+	f := newRuleFixture(t)
+	// 10 bytes below the limit: the 20-byte rule line would end beyond it.
+	body := strings.Repeat("#", engine.MaxRulesFileBytes-11) + "\n"
+	f.seed(t, body)
+
+	code, _, stderr := f.run(t, "-config", f.config, "add", "block", "a.example.com")
+
+	if code != exitError || !strings.Contains(stderr, "terlalu besar") {
+		t.Errorf("exit = %d, stderr = %q; the new rule would land beyond the 4 MiB the server reads", code, stderr)
+	}
+	if got := f.content(t); got != body {
+		t.Error("a refused add still changed the rules file")
+	}
+}
+
+func TestRuleAdd_NonASCIIDomainGetsAPunycodeHint(t *testing.T) {
+	f := newRuleFixture(t)
+
+	code, _, stderr := f.run(t, "-config", f.config, "add", "block", "bücher.example")
+
+	if code != exitError {
+		t.Fatalf("exit = %d, want %d", code, exitError)
+	}
+	assertContains(t, "stderr", stderr, []string{"punycode", "xn--"})
+}

@@ -72,3 +72,18 @@ func assertContains(t *testing.T, stream, got string, wants []string) {
 		}
 	}
 }
+
+func TestUsageListsOnlyWhatIsStillMissing(t *testing.T) {
+	var stderr bytes.Buffer
+	if code := run(nil, &bytes.Buffer{}, &stderr); code != exitUsage {
+		t.Fatalf("exit = %d, want %d", code, exitUsage)
+	}
+	for _, line := range strings.Split(stderr.String(), "\n") {
+		for _, done := range []string{"check", "run", "log", "rule"} {
+			if strings.HasPrefix(strings.TrimSpace(line), done+" ") && strings.Contains(line, "belum diimplementasi") {
+				t.Errorf("usage claims %q is not implemented: %q", done, line)
+			}
+		}
+	}
+	assertContains(t, "stderr", stderr.String(), []string{"lists"})
+}

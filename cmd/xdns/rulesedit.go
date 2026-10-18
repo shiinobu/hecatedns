@@ -68,6 +68,15 @@ func parseRulesText(text string) rulesText {
 	return t
 }
 
+// parseLine parses one rules file line exactly as the server does, including
+// the rule that a line of MaxRuleLineBytes or more is ignored.
+func parseLine(line string) (engine.Rule, bool, error) {
+	if len(line) >= engine.MaxRuleLineBytes {
+		return engine.Rule{}, false, engine.ErrLineTooLong
+	}
+	return engine.ParseRuleLine(line)
+}
+
 // remove drops every line that holds a rule for domain, whatever its action,
 // and returns how many it dropped.
 func (t *rulesText) remove(domain string) int {
@@ -77,7 +86,7 @@ func (t *rulesText) remove(domain string) int {
 		if i == 0 {
 			candidate = strings.TrimPrefix(candidate, byteOrderMark)
 		}
-		if rule, ok, _ := engine.ParseRuleLine(candidate); ok && rule.Domain == domain {
+		if rule, ok, _ := parseLine(candidate); ok && rule.Domain == domain {
 			continue
 		}
 		kept = append(kept, line)

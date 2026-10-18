@@ -18,9 +18,9 @@ const usage = `penggunaan: xdns <perintah> [opsi]
 
 perintah:
   check   validasi berkas konfigurasi (xdns check -config xdns.yaml)
-  run     jalankan server           (belum diimplementasi)
-  log     baca log query            (belum diimplementasi)
-  rule    kelola aturan kustom      (belum diimplementasi)
+  run     jalankan server           (xdns run -config xdns.yaml)
+  log     baca log query            (xdns log -since 10m -blocked)
+  rule    kelola aturan kustom      (xdns rule add block contoh.com)
   lists   kelola daftar blokir      (belum diimplementasi)
 `
 

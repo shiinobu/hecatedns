@@ -17,13 +17,17 @@ const (
 	RuleAllow RuleAction = "allow"
 )
 
+// MaxRuleLineBytes is the length from which a rules file line is ignored by the
+// server; the rule CLI applies the same limit when it lists or edits rules.
+const MaxRuleLineBytes = 4096
+
 // MaxRulesFileBytes is the largest rules file the server reads; the rule CLI
 // refuses to rewrite a bigger one, because the server would ignore its tail.
 const MaxRulesFileBytes = 4 << 20
 
 // Limits that keep a hostile or broken rules file from exhausting memory.
 const (
-	maxRuleLineBytes  = 4096
+	maxRuleLineBytes  = MaxRuleLineBytes
 	maxRulesFileBytes = MaxRulesFileBytes
 	maxRuleIssues     = 100
 
