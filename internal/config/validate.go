@@ -1,0 +1,203 @@
+package config
+
+import (
+	"errors"
+	"fmt"
+	"net/netip"
+	"net/url"
+)
+
+// Validate checks the whole configuration and reports every problem found,
+// joined into one error. Each message starts with the offending field path.
+func (c Config) Validate() error {
+	var errs []error
+	errs = append(errs, c.validateBackend()...)
+	errs = append(errs, c.validateListen()...)
+	errs = append(errs, c.validateClients()...)
+	errs = append(errs, c.validateUpstreams()...)
+	errs = append(errs, c.validateBlock()...)
+	errs = append(errs, c.validateCache()...)
+	errs = append(errs, c.validateLists()...)
+	errs = append(errs, c.validateRules()...)
+	errs = append(errs, c.validateLog()...)
+	errs = append(errs, c.validateDataDir()...)
+	return errors.Join(errs...)
+}
+
+// Warnings lists conditions that are valid but probably not what the user
+// intends. The messages are shown by `xdns check`.
+func (c Config) Warnings() []string {
+	for _, s := range c.Lists.Sources {
+		if s.Enabled && s.Kind == KindBlock {
+			return nil
+		}
+	}
+	return []string{"tidak ada sumber daftar blokir yang aktif: hanya aturan kustom yang akan memblokir"}
+}
+
+func (c Config) validateBackend() []error {
+	if c.Backend == BackendDNSProxy || c.Backend == BackendNative {
+		return nil
+	}
+	return []error{fmt.Errorf("backend: %q is not %q or %q", c.Backend, BackendDNSProxy, BackendNative)}
+}
+
+func (c Config) validateListen() []error {
+	if len(c.Listen) == 0 {
+		return []error{errors.New("listen: at least one address is required")}
+	}
+	var errs []error
+	for i, addr := range c.Listen {
+		if _, err := netip.ParseAddrPort(addr); err != nil {
+			errs = append(errs, fmt.Errorf("listen[%d]: %q must be IP:port, hostnames are not allowed: %w", i, addr, err))
+		}
+	}
+	return errs
+}
+
+func (c Config) validateClients() []error {
+	var errs []error
+	for i, cidr := range c.AllowedClients {
+		if _, err := netip.ParsePrefix(cidr); err != nil {
+			errs = append(errs, fmt.Errorf("allowed_clients[%d]: %q is not a CIDR: %w", i, cidr, err))
+		}
+	}
+	return errs
+}
+
+func (c Config) validateUpstreams() []error {
+	if len(c.Upstreams) == 0 {
+		return []error{errors.New("upstreams: at least one upstream is required")}
+	}
+	var errs []error
+	needsBootstrap := false
+	for i, u := range c.Upstreams {
+		named, err := checkUpstream(u)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("upstreams[%d]: %q: %w", i, u, err))
+			continue
+		}
+		needsBootstrap = needsBootstrap || named
+	}
+	if needsBootstrap && len(c.Bootstrap) == 0 {
+		errs = append(errs, errors.New("bootstrap: at least one IP is required when an upstream is given by hostname"))
+	}
+	for i, b := range c.Bootstrap {
+		if _, err := netip.ParseAddr(b); err != nil {
+			errs = append(errs, fmt.Errorf("bootstrap[%d]: %q is not an IP address", i, b))
+		}
+	}
+	return errs
+}
+
+// checkUpstream accepts a bare IP, ip:port, or a udp/tcp/tls/https URL. It
+// reports whether the upstream names its host, which then needs bootstrap IPs.
+func checkUpstream(u string) (named bool, err error) {
+	if _, err := netip.ParseAddr(u); err == nil {
+		return false, nil
+	}
+	if _, err := netip.ParseAddrPort(u); err == nil {
+		return false, nil
+	}
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return false, err
+	}
+	switch parsed.Scheme {
+	case "udp", "tcp", "tls", "https":
+	default:
+		return false, fmt.Errorf("unsupported scheme %q, use udp, tcp, tls or https", parsed.Scheme)
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return false, errors.New("missing host")
+	}
+	_, ipErr := netip.ParseAddr(host)
+	return ipErr != nil, nil
+}
+
+func (c Config) validateBlock() []error {
+	var errs []error
+	switch c.Block.Mode {
+	case ModeNullIP, ModeNXDomain, ModeNoData, ModeRefused:
+	default:
+		errs = append(errs, fmt.Errorf("block.mode: %q is not one of %s, %s, %s, %s",
+			c.Block.Mode, ModeNullIP, ModeNXDomain, ModeNoData, ModeRefused))
+	}
+	if c.Block.TTL < 0 {
+		errs = append(errs, errors.New("block.ttl: must not be negative"))
+	}
+	return errs
+}
+
+func (c Config) validateCache() []error {
+	if !c.Cache.Enabled {
+		return nil
+	}
+	var errs []error
+	if c.Cache.SizeMB < 1 {
+		errs = append(errs, errors.New("cache.size_mb: must be at least 1"))
+	}
+	if c.Cache.MinTTL < 0 {
+		errs = append(errs, errors.New("cache.min_ttl: must not be negative"))
+	}
+	if c.Cache.MaxTTL < c.Cache.MinTTL {
+		errs = append(errs, errors.New("cache.min_ttl: must not exceed cache.max_ttl"))
+	}
+	return errs
+}
+
+func (c Config) validateLists() []error {
+	var errs []error
+	if len(c.Lists.Sources) > 0 && c.Lists.UpdateInterval <= 0 {
+		errs = append(errs, errors.New("lists.update_interval: must be positive when sources are configured"))
+	}
+	seen := make(map[string]bool, len(c.Lists.Sources))
+	for i, s := range c.Lists.Sources {
+		errs = append(errs, validateSource(i, s, seen[s.Name])...)
+		seen[s.Name] = true
+	}
+	return errs
+}
+
+func validateSource(i int, s Source, duplicate bool) []error {
+	field := func(name string) string { return fmt.Sprintf("lists.sources[%d].%s", i, name) }
+	var errs []error
+	switch {
+	case s.Name == "":
+		errs = append(errs, fmt.Errorf("%s: must not be empty", field("name")))
+	case duplicate:
+		errs = append(errs, fmt.Errorf("%s: duplicate name %q", field("name"), s.Name))
+	}
+	if u, err := url.Parse(s.URL); err != nil || u.Scheme != "https" || u.Host == "" {
+		errs = append(errs, fmt.Errorf("%s: %q must be an https URL", field("url"), s.URL))
+	}
+	if s.Kind != KindBlock && s.Kind != KindAllow {
+		errs = append(errs, fmt.Errorf("%s: %q is not %q or %q", field("kind"), s.Kind, KindBlock, KindAllow))
+	}
+	if s.Format != FormatDomains && s.Format != FormatHosts {
+		errs = append(errs, fmt.Errorf("%s: %q is not %q or %q", field("format"), s.Format, FormatDomains, FormatHosts))
+	}
+	return errs
+}
+
+func (c Config) validateRules() []error {
+	if c.Rules.PollInterval <= 0 {
+		return []error{errors.New("rules.poll_interval: must be positive")}
+	}
+	return nil
+}
+
+func (c Config) validateLog() []error {
+	if c.Log.Enabled && c.Log.RetentionDays < 1 {
+		return []error{errors.New("log.retention_days: must be at least 1")}
+	}
+	return nil
+}
+
+func (c Config) validateDataDir() []error {
+	if c.DataDir == "" {
+		return []error{errors.New("data_dir: must not be empty")}
+	}
+	return nil
+}

@@ -134,8 +134,8 @@ func Default() Config {
 }
 
 // Load reads the YAML file at path, decodes it strictly over Default() (an
-// unknown or duplicated key is an error), and resolves relative paths
-// against the directory that contains the file.
+// unknown or duplicated key is an error), resolves relative paths against
+// the directory that contains the file, and validates the result.
 func Load(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -150,6 +150,9 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("config %s: %w", path, err)
 	}
 	resolvePaths(&cfg, baseDir)
+	if err := cfg.Validate(); err != nil {
+		return Config{}, fmt.Errorf("config %s: %w", path, err)
+	}
 	return cfg, nil
 }
 
