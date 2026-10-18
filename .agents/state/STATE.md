@@ -2,11 +2,11 @@
 
 Update this file at the end of every task and in `/handoff`. If git disagrees with this file, git is right: fix this file.
 
-Last updated: 2026-10-18 night by Gemini 4 Argon (Phase 2 closed).
+Last updated: 2026-10-18 night by Gemini 4 Argon (`Phase 2 Clear` — Phase 2 closed).
 
 ## Snapshot
 
-- **Phase:** 2 done, waiting for "lanjut" from Master (plus Gate G1 and Gate G2 before Phase 3).
+- **Phase:** 2 done (`Phase 2 Clear`), waiting for "lanjut" from Master (plus Gate G1 and Gate G2 before Phase 3).
 - **Done in Phase 2:** P2-01 `lists/parser` (`74a646f`), P2-02 `lists/fetch` (`8c31c85`), P2-03 `lists/manager` (`084b377`), P2-04 wire manager into `xdns run` (`a7701ab`), P2-05 `engine/cname` (`8c34703`), P2-06 HTTPS/SVCB and special names (`cb99a20`), P2-07 `selfcheck` + `xdns check` + `xdns lists` (`af34c50`), P2-08 benchmarks (`a264c54`), P2-09 phase gates & review fixes (`e5c18e5`, `d3483b7`, `7fd1ac0`), docs pass (`3112e50`).
 - **In progress:** none.
 - **Code HEAD:** `3112e50` (`docs: update documents after phase 2 review`, code at `7fd1ac0`).
