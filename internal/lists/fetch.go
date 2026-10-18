@@ -321,6 +321,11 @@ func writeMetaAtomic(dir, name string, m Meta) error {
 	return writeFileAtomic(metaPath(dir, name), raw)
 }
 
+// Dir returns the lists cache directory inside dataDir (<data_dir>/lists).
+func Dir(dataDir string) string {
+	return filepath.Join(dataDir, "lists")
+}
+
 func listPath(dir, name string) string {
 	return filepath.Join(dir, name+".txt")
 }

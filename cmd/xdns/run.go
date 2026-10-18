@@ -14,6 +14,7 @@ import (
 	"xdns/internal/backend/dnsproxybe"
 	"xdns/internal/config"
 	"xdns/internal/engine"
+	"xdns/internal/lists"
 	"xdns/internal/qlog"
 )
 
@@ -71,7 +72,6 @@ func serve(ctx context.Context, cfg config.Config, stdout, stderr io.Writer, reg
 	for _, warning := range cfg.Warnings() {
 		fmt.Fprintf(stdout, "peringatan: %s\n", warning)
 	}
-	fmt.Fprintln(stdout, "catatan: daftar blokir belum dimuat (Fase 2); yang memblokir hanya aturan kustom (xdns rule)")
 
 	rules := engine.NewRulesFile(cfg.Rules.File, log)
 	if _, err := rules.Reload(); err != nil {
@@ -89,6 +89,21 @@ func serve(ctx context.Context, cfg config.Config, stdout, stderr io.Writer, reg
 	if err != nil {
 		return err
 	}
+
+	// agy wrote this
+	mgr := lists.NewManager(lists.ManagerOptions{
+		Dir:            lists.Dir(cfg.DataDir),
+		Sources:        cfg.Lists.Sources,
+		Bootstrap:      cfg.Bootstrap,
+		Target:         eng,
+		UpdateInterval: cfg.Lists.UpdateInterval,
+		Log:            log,
+	})
+	if _, err := mgr.LoadCache(); err != nil {
+		fmt.Fprintf(stdout, "peringatan: sebagian cache daftar blokir gagal dimuat: %v\n", err)
+	}
+	go mgr.Run(ctx)
+
 	b, err := registry.New(cfg.Backend, backend.Deps{Cfg: cfg, Engine: eng, Log: log})
 	if err != nil {
 		return err

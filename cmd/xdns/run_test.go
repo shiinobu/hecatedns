@@ -286,7 +286,8 @@ func TestRunServer_ABackendThatCannotStartEndsWithAnError(t *testing.T) {
 	}
 }
 
-func TestRunServer_PrintsConfigWarningsAndTheMissingListsNote(t *testing.T) {
+// agy wrote this
+func TestRunServer_PrintsConfigWarningsWithoutPhase1StubNote(t *testing.T) {
 	f := newRunFixture(t, "lists:\n  sources: []\n")
 	registry := backend.Registry{"dnsproxy": fakeFactory("dnsproxy", nil)}
 
@@ -294,7 +295,52 @@ func TestRunServer_PrintsConfigWarningsAndTheMissingListsNote(t *testing.T) {
 	waitFor(t, "the banner", func() bool { return strings.Contains(h.stdout(), "Ctrl+C") })
 	_, stdout, _ := h.stop()
 
-	assertContains(t, "stdout", stdout, []string{"peringatan: tidak ada sumber daftar blokir yang aktif", "daftar blokir belum dimuat"})
+	assertContains(t, "stdout", stdout, []string{"peringatan: tidak ada sumber daftar blokir yang aktif"})
+	if strings.Contains(stdout, "belum dimuat (Fase 2)") {
+		t.Errorf("Phase 1 stub note still printed in Phase 2: %q", stdout)
+	}
+}
+
+func TestRunServer_LoadsCachedBlockAndAllowListsIntoEngine(t *testing.T) {
+	yaml := `data_dir: data
+lists:
+  sources:
+    - { name: safe-allow, kind: allow, format: domains, url: "https://127.0.0.1:1/allow.txt" }
+    - { name: ads-block,  kind: block, format: domains, url: "https://127.0.0.1:1/block.txt" }
+`
+	f := newRunFixture(t, yaml)
+	listsDir := filepath.Join(f.dir, "data", "lists")
+	if err := os.MkdirAll(listsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(listsDir, "safe-allow.txt"), []byte("safe.ads.example.com\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(listsDir, "ads-block.txt"), []byte("ads.example.com\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	decisions := make(chan engine.Decision, 2)
+	serve := func(deps backend.Deps) error {
+		ctx := context.Background()
+		decisions <- deps.Engine.Before(ctx, blockingQuery("tracker.ads.example.com", "127.0.0.1"))
+		decisions <- deps.Engine.Before(ctx, blockingQuery("safe.ads.example.com", "127.0.0.1"))
+		return nil
+	}
+	h := f.start(t, backend.Registry{"dnsproxy": fakeFactory("dnsproxy", serve)})
+	dBlock := <-decisions
+	dAllow := <-decisions
+	code, _, stderr := h.stop()
+
+	if code != exitOK {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+	if dBlock.Verdict != engine.Block || dBlock.Reason != engine.ReasonList || dBlock.Source != "ads-block" {
+		t.Errorf("block decision = %+v, want Block/list/ads-block", dBlock)
+	}
+	if dAllow.Verdict != engine.Pass || dAllow.Reason != engine.ReasonAllow || dAllow.Source != "safe-allow" {
+		t.Errorf("allow decision = %+v, want Pass/allow/safe-allow", dAllow)
+	}
 }
 
 func TestRunServer_LogDisabledCreatesNoLogDirectory(t *testing.T) {
