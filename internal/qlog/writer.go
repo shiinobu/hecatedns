@@ -56,9 +56,10 @@ type Writer struct {
 	loc  *time.Location
 	log  *slog.Logger
 
-	queue chan engine.Entry
-	stop  chan struct{}
-	done  chan struct{}
+	queue    chan engine.Entry
+	stop     chan struct{}
+	done     chan struct{}
+	midnight *time.Timer
 
 	started   atomic.Bool
 	closed    atomic.Bool
@@ -133,6 +134,10 @@ func cmpLocation(loc *time.Location) *time.Location {
 
 func (w *Writer) start() {
 	if w.started.CompareAndSwap(false, true) {
+		// The timer is armed here, not in the goroutine, so its first delay is
+		// measured from the clock at Open and not from whenever the goroutine
+		// happens to get scheduled.
+		w.midnight = time.NewTimer(w.untilMidnight())
 		go w.run()
 	}
 }
@@ -175,8 +180,7 @@ func (w *Writer) Close() error {
 
 func (w *Writer) run() {
 	defer close(w.done)
-	midnight := time.NewTimer(w.untilMidnight())
-	defer midnight.Stop()
+	defer w.midnight.Stop()
 	report := time.NewTicker(dropReportInterval)
 	defer report.Stop()
 	for {
@@ -186,9 +190,9 @@ func (w *Writer) run() {
 			if len(w.queue) == 0 {
 				w.flush()
 			}
-		case <-midnight.C:
+		case <-w.midnight.C:
 			w.purge()
-			midnight.Reset(w.untilMidnight())
+			w.midnight.Reset(w.untilMidnight())
 		case <-report.C:
 			w.reportDrops()
 		case <-w.stop:
