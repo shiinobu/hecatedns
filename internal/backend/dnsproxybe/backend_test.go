@@ -208,6 +208,12 @@ func TestPanickingFilterStillAnswers(t *testing.T) {
 
 			resp := exchange(t, "udp", r.addr(t, backend.NetworkUDP), "panic.example", dns.TypeA, 1)
 
+			if stage == "before" {
+				if resp.Rcode != dns.RcodeRefused || len(resp.Answer) != 0 {
+					t.Fatalf("rcode %s with %d answers, want REFUSED (fail closed)", dns.RcodeToString[resp.Rcode], len(resp.Answer))
+				}
+				return
+			}
 			if got := answerIP(t, resp); got != upstreamIP {
 				t.Fatalf("answer %s, want the upstream answer %s (fail open)", got, upstreamIP)
 			}
@@ -360,5 +366,24 @@ func TestAfterBlockReplacesAnswerButNotCache(t *testing.T) {
 	}
 	if got := answerIP(t, second); got != upstreamIP || up.queries.Load() != 1 {
 		t.Fatalf("second answer %s with %d upstream queries, want the cached upstream answer and 1", got, up.queries.Load())
+	}
+}
+
+func TestPrivateReverseLookupIsRecordedAsAnsweredNotAsAFailure(t *testing.T) {
+	up := startFakeUpstream(t, 300)
+	cfg := testConfig(up.addr)
+	rec := &memRecorder{}
+	r := startEngineBackend(t, cfg, newTestEngine(t, cfg, "", nil, rec))
+
+	resp := exchange(t, "udp", r.addr(t, backend.NetworkUDP), "1.1.168.192.in-addr.arpa", dns.TypePTR, 7)
+
+	// dnsproxy has no private reverse upstream configured, so it answers
+	// NXDOMAIN itself. That is an answered query, not an upstream failure.
+	if resp.Rcode != dns.RcodeNameError {
+		t.Fatalf("rcode %s, want NXDOMAIN", dns.RcodeToString[resp.Rcode])
+	}
+	records := rec.all()
+	if len(records) != 1 || records[0].Action != engine.ActionPass || records[0].RCode != "NXDOMAIN" || records[0].Error != "" || records[0].Cached {
+		t.Fatalf("records = %+v, want one pass record with rcode NXDOMAIN, no error, not cached", records)
 	}
 }

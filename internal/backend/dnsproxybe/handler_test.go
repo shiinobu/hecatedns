@@ -67,7 +67,6 @@ func TestHandlerNeverLeavesResponseNil(t *testing.T) {
 	}{
 		{"block without response", &fakeFilter{before: engine.Decision{Verdict: engine.Block}}},
 		{"resolve panics", &fakeFilter{before: engine.Decision{Verdict: engine.Pass}}},
-		{"filter and fail-open resolve panic", &fakeFilter{panics: true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -80,6 +79,20 @@ func TestHandlerNeverLeavesResponseNil(t *testing.T) {
 				t.Fatalf("Res = %v, want a SERVFAIL reply to the request", dctx.Res)
 			}
 		})
+	}
+}
+
+func TestHandlerFilterPanicFailsClosed(t *testing.T) {
+	// A panic before Before has returned leaves it unknown whether the client
+	// passed the ACL, so the safe answer is REFUSED, never an unfiltered Resolve.
+	dctx := newDNSContext()
+	h := &handler{filter: &fakeFilter{panics: true}, log: discardLog}
+
+	if err := h.ServeDNS(context.Background(), nil, dctx); err != nil {
+		t.Fatalf("ServeDNS = %v, want nil", err)
+	}
+	if dctx.Res == nil || dctx.Res.Rcode != dns.RcodeRefused || dctx.Res.Id != dctx.Req.Id {
+		t.Fatalf("Res = %v, want a REFUSED reply to the request", dctx.Res)
 	}
 }
 
