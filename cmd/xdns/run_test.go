@@ -399,3 +399,47 @@ type runHandle struct {
 	stop   func() (code int, stdout, stderr string)
 	stdout func() string
 }
+
+func TestRunServer_KeepsAnOperationalLogFileInTheLogDirectory(t *testing.T) {
+	f := newRunFixture(t, "")
+	registry := backend.Registry{"dnsproxy": fakeFactory("dnsproxy", nil)}
+	h := f.start(t, registry)
+	waitFor(t, "the server to report where it listens", func() bool { return strings.Contains(h.stdout(), "xdns berjalan") })
+
+	code, _, stderr := h.stop()
+
+	if code != exitOK {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+	data, err := os.ReadFile(filepath.Join(f.logDir, "xdns.log"))
+	if err != nil {
+		t.Fatalf("no operational log file: %v (a task without a console would leave no warnings behind)", err)
+	}
+	if !strings.Contains(string(data), `msg="query log closed"`) {
+		t.Errorf("xdns.log = %q, want the lines the server also printed to stderr", data)
+	}
+	if !strings.Contains(stderr, `msg="query log closed"`) {
+		t.Errorf("stderr = %q, want the log lines on the console as before", stderr)
+	}
+}
+
+func TestRunServer_AnUnusableLogDirectoryWarnsAboutTheFileAndFailsOnTheQueryLog(t *testing.T) {
+	f := newRunFixture(t, "")
+	if err := os.WriteFile(f.logDir, []byte("a file where the log directory should be"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	registry := backend.Registry{"dnsproxy": fakeFactory("dnsproxy", nil)}
+	h := f.start(t, registry)
+
+	code, stdout, stderr := h.stop()
+
+	if code == exitOK {
+		t.Fatalf("exit = 0 although the query log cannot be opened; stdout %q", stdout)
+	}
+	if !strings.Contains(stderr, "xdns run:") {
+		t.Errorf("stderr = %q, want the query log error", stderr)
+	}
+	if !strings.Contains(stdout, "peringatan: log operasional") {
+		t.Errorf("stdout = %q, want a warning that the operational log goes to the screen only", stdout)
+	}
+}

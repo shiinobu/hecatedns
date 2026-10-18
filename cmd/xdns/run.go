@@ -17,10 +17,15 @@ import (
 	"xdns/internal/engine"
 	"xdns/internal/lists"
 	"xdns/internal/qlog"
+	"xdns/internal/runlog"
 )
 
 // bytesPerMBShift converts megabytes to bytes with a shift (1 MB = 1 << 20).
 const bytesPerMBShift = 20
+
+// runLogMaxBytes caps the operational log file; with its one backup the two
+// files stay under 10 MB.
+const runLogMaxBytes = 5 << bytesPerMBShift
 
 // defaultRegistry lists the backends this binary contains; `backend:` in the
 // configuration picks one.
@@ -72,7 +77,9 @@ func runServerCtx(ctx context.Context, args []string, stdout, stderr io.Writer, 
 // ctx ends. Everything it opens is closed on return, the query log last so it
 // is flushed.
 func serve(ctx context.Context, cfg config.Config, stdout, stderr io.Writer, registry backend.Registry) error {
-	log := slog.New(slog.NewTextHandler(stderr, nil))
+	logOut, closeRunLog := openRunLog(cfg, stderr, stdout)
+	defer closeRunLog()
+	log := slog.New(slog.NewTextHandler(logOut, nil))
 	for _, warning := range cfg.Warnings() {
 		fmt.Fprintf(stdout, "peringatan: %s\n", warning)
 	}
@@ -113,6 +120,23 @@ func serve(ctx context.Context, cfg config.Config, stdout, stderr io.Writer, reg
 		return err
 	}
 	return runBackend(ctx, b, stdout)
+}
+
+// openRunLog returns the writer for the operational log: stderr, plus the file
+// xdns.log in the log directory when logging is enabled, so a server started
+// without a console (a scheduled task) still leaves its warnings behind. A file
+// that cannot be opened is a warning, not a reason to stop. The returned close
+// function is always safe to call.
+func openRunLog(cfg config.Config, stderr, stdout io.Writer) (io.Writer, func()) {
+	if !cfg.Log.Enabled {
+		return stderr, func() {}
+	}
+	file, err := runlog.Open(cfg.Log.Dir, runLogMaxBytes)
+	if err != nil {
+		fmt.Fprintf(stdout, "peringatan: log operasional tidak bisa ditulis ke berkas, hanya ke layar: %v\n", err)
+		return stderr, func() {}
+	}
+	return runlog.Tee(stderr, file), func() { _ = file.Close() }
 }
 
 // openQueryLog starts the query log when the configuration enables it. The
