@@ -69,6 +69,36 @@ func TestValidate_Rejects(t *testing.T) {
 		{"zero poll interval", func(c *Config) { c.Rules.PollInterval = 0 }, "rules.poll_interval"},
 		{"zero retention when log enabled", func(c *Config) { c.Log.RetentionDays = 0 }, "log.retention_days"},
 		{"empty data_dir", func(c *Config) { c.DataDir = "" }, "data_dir"},
+		{"empty allowed_clients", func(c *Config) { c.AllowedClients = nil }, "allowed_clients"},
+		{"list name path traversal", func(c *Config) {
+			c.Lists.Sources = withSource(func(s *Source) { s.Name = "../../evil" })
+		}, "lists.sources[0].name"},
+		{"list name with slash", func(c *Config) {
+			c.Lists.Sources = withSource(func(s *Source) { s.Name = "a/b" })
+		}, "lists.sources[0].name"},
+		{"list name with colon", func(c *Config) {
+			c.Lists.Sources = withSource(func(s *Source) { s.Name = "a:b" })
+		}, "lists.sources[0].name"},
+		{"list name with space", func(c *Config) {
+			c.Lists.Sources = withSource(func(s *Source) { s.Name = "a b" })
+		}, "lists.sources[0].name"},
+		{"list name too long", func(c *Config) {
+			c.Lists.Sources = withSource(func(s *Source) { s.Name = strings.Repeat("a", 65) })
+		}, "lists.sources[0].name"},
+		{"list name starting with dash", func(c *Config) {
+			c.Lists.Sources = withSource(func(s *Source) { s.Name = "-a" })
+		}, "lists.sources[0].name"},
+		{"list name reserved CON", func(c *Config) {
+			c.Lists.Sources = withSource(func(s *Source) { s.Name = "CON" })
+		}, "lists.sources[0].name"},
+		{"list name reserved com1 lowercase", func(c *Config) {
+			c.Lists.Sources = withSource(func(s *Source) { s.Name = "com1" })
+		}, "lists.sources[0].name"},
+		{"list names differing only by case", func(c *Config) {
+			upper, lower := okSource(), okSource()
+			upper.Name, lower.Name = "Hagezi", "hagezi"
+			c.Lists.Sources = []Source{upper, lower}
+		}, "duplicate"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -104,6 +134,10 @@ func TestValidate_Accepts(t *testing.T) {
 			c.Bootstrap = []string{"1.1.1.1"}
 		}},
 		{"enabled source", func(c *Config) { c.Lists.Sources = []Source{okSource()} }},
+		{"allow everyone CIDRs", func(c *Config) { c.AllowedClients = []string{"0.0.0.0/0", "::/0"} }},
+		{"list name with dash and underscore", func(c *Config) {
+			c.Lists.Sources = withSource(func(s *Source) { s.Name = "hagezi-pro_2" })
+		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -167,5 +201,22 @@ func TestLoad_InvalidConfigFails(t *testing.T) {
 	_, err := Load(path)
 	if err == nil || !strings.Contains(err.Error(), "backend") {
 		t.Fatalf("Load error = %v, want it to mention backend", err)
+	}
+}
+
+func TestLoad_RejectsEmptyAllowedClients(t *testing.T) {
+	tests := []struct{ name, content string }{
+		{"empty list", "allowed_clients: []\n"},
+		{"all entries commented out", "allowed_clients:\n  # - 10.0.0.0/8\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path, _ := writeConfig(t, tc.content)
+
+			_, err := Load(path)
+			if err == nil || !strings.Contains(err.Error(), "allowed_clients") {
+				t.Fatalf("Load error = %v, want it to mention allowed_clients", err)
+			}
+		})
 	}
 }

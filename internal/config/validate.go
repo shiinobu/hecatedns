@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"net/netip"
 	"net/url"
+	"strings"
 )
+
+// maxSourceNameLen bounds a list source name, which becomes a file name.
+const maxSourceNameLen = 64
 
 // Validate checks the whole configuration and reports every problem found,
 // joined into one error. Each message starts with the offending field path.
@@ -56,6 +60,9 @@ func (c Config) validateListen() []error {
 }
 
 func (c Config) validateClients() []error {
+	if len(c.AllowedClients) == 0 {
+		return []error{errors.New("allowed_clients: at least one CIDR is required, use 0.0.0.0/0 and ::/0 to allow everyone")}
+	}
 	var errs []error
 	for i, cidr := range c.AllowedClients {
 		if _, err := netip.ParsePrefix(cidr); err != nil {
@@ -154,8 +161,9 @@ func (c Config) validateLists() []error {
 	}
 	seen := make(map[string]bool, len(c.Lists.Sources))
 	for i, s := range c.Lists.Sources {
-		errs = append(errs, validateSource(i, s, seen[s.Name])...)
-		seen[s.Name] = true
+		key := strings.ToLower(s.Name)
+		errs = append(errs, validateSource(i, s, seen[key])...)
+		seen[key] = true
 	}
 	return errs
 }
@@ -166,6 +174,9 @@ func validateSource(i int, s Source, duplicate bool) []error {
 	switch {
 	case s.Name == "":
 		errs = append(errs, fmt.Errorf("%s: must not be empty", field("name")))
+	case !validSourceName(s.Name):
+		errs = append(errs, fmt.Errorf("%s: %q must be 1-%d letters, digits, '-' or '_' starting with a letter or digit, and not a reserved Windows device name",
+			field("name"), s.Name, maxSourceNameLen))
 	case duplicate:
 		errs = append(errs, fmt.Errorf("%s: duplicate name %q", field("name"), s.Name))
 	}
@@ -200,4 +211,36 @@ func (c Config) validateDataDir() []error {
 		return []error{errors.New("data_dir: must not be empty")}
 	}
 	return nil
+}
+
+// validSourceName reports whether name is safe to use as a file name on every
+// supported OS: it starts with a letter or digit, continues with letters,
+// digits, '-' or '_', fits in maxSourceNameLen bytes, and is not a reserved
+// Windows device name.
+func validSourceName(name string) bool {
+	if name == "" || len(name) > maxSourceNameLen {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		isAlnum := c >= '0' && c <= '9' || c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z'
+		if !isAlnum && (i == 0 || (c != '-' && c != '_')) {
+			return false
+		}
+	}
+	return !isWindowsDeviceName(name)
+}
+
+// isWindowsDeviceName reports the names Windows reserves for devices, with or
+// without an extension: CON, PRN, AUX, NUL, COM1-COM9 and LPT1-LPT9.
+func isWindowsDeviceName(name string) bool {
+	upper := strings.ToUpper(name)
+	switch upper {
+	case "CON", "PRN", "AUX", "NUL":
+		return true
+	}
+	if len(upper) == 4 && (strings.HasPrefix(upper, "COM") || strings.HasPrefix(upper, "LPT")) {
+		return upper[3] >= '1' && upper[3] <= '9'
+	}
+	return false
 }
