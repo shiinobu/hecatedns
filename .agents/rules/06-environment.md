@@ -42,7 +42,7 @@ Git Bash:    CGO_ENABLED=1 go test -race ./... -count=1
 ## Practical notes
 
 - Git emits LF/CRLF warnings on Windows; `.gitattributes` (`* text=auto eol=lf`) keeps files LF. Run `gofmt -l .` to catch drift.
-- The installed `nslookup` accepts the port option (checked: `nslookup -port=5300 -timeout=2 -retry=1 example.com 127.0.0.1` printed "No response from server" while nothing listened, no "unrecognized option"). Use `nslookup -port=5300 example.com 127.0.0.1` for the Phase 1 "done when" check. `Resolve-DnsName` has no port option. In PowerShell 5.1 `nslookup` output that goes to stderr is wrapped as a `NativeCommandError` record (seen above for the failure line), so judge by the printed text, not by the error record.
+- **Windows `nslookup` ignores `-port`** (verified 2026-10-18 on this PC: `nslookup -port=5300 example.com 127.0.0.1` printed "No response from server" while xdns answered fine on 5300; the server never saw the query, so nslookup was asking UDP 53). `Resolve-DnsName` has no port option either. To query xdns on `127.0.0.1:5300` use `scripts/dnsquery.ps1 example.com -Port 5300` (A/AAAA/CNAME and rcode). On port 53 (phone test, Phase 3) plain `nslookup` works. In PowerShell 5.1 nslookup output that goes to stderr is wrapped as a `NativeCommandError` record, so judge by the printed text.
 - When a Windows path is passed to a Go test (`../../configs/xdns.example.yaml`) keep it relative; tests run with the package directory as cwd.
 - Scratch location for temporary work: a temp directory outside the repo (for example `$env:TEMP\xdns-scratch`). Delete what you create there when done.
 - `data/` (runtime state), `/xdns.yaml` (to be added to `.gitignore` in Phase 1), `*.exe`, `*.pem`, `*.key` must never be committed.

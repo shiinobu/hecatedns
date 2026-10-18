@@ -7,7 +7,7 @@ description: Systematic debugging for xdns - reproduce, isolate, find the root c
 No fix before a root cause. Guessing and patching symptoms is the failure mode.
 
 1. **State the symptom precisely:** exact command, input, expected vs actual output, error text. For a phone-test problem add: the time of the event, the client IP, the domain involved.
-2. **Reproduce** with the smallest case: a failing unit test, or a `nslookup -port=5300 <name> 127.0.0.1` against a locally running `xdns run -config <scratch config>`. If it does not reproduce, say so and collect more evidence instead of changing code.
+2. **Reproduce** with the smallest case: a failing unit test, or a `scripts/dnsquery.ps1 <name> -Port 5300` against a locally running `xdns run -config <scratch config>`. If it does not reproduce, say so and collect more evidence instead of changing code.
 3. **Gather evidence, not theories:**
    - The query log: `xdns log -around HH:MM -window 30s` (or `-grep <domain>`, `-blocked`). It shows `action`, `reason`, `source`, `upstream`, `rcode`, `ms`, `via`.
    - Compare the engine decision with the backend result: was it `Before` (rule/list/acl/special), `After` (cname), or the upstream?
