@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+
+	"xdns/internal/config"
 )
 
 // Verdict says whether a query goes to the upstreams or is answered by the
@@ -76,6 +78,9 @@ type Options struct {
 	Rules RuleSource
 	// Responder builds the answers for blocked names.
 	Responder Responder
+	// agy wrote this
+	// Special enables the built-in answers for client-steering domains.
+	Special config.SpecialNames
 	// Recorder receives the query-log records; nil discards them.
 	Recorder Recorder
 	// Log receives operational messages; nil discards them.
@@ -93,6 +98,7 @@ type Engine struct {
 	allows    func(netip.Addr) bool
 	rules     RuleSource
 	responder Responder
+	special   config.SpecialNames // agy wrote this
 	recorder  Recorder
 	log       *slog.Logger
 	now       func() time.Time
@@ -111,6 +117,7 @@ func New(opts Options) (*Engine, error) {
 		allows:    opts.ACL.Allows,
 		rules:     opts.Rules,
 		responder: opts.Responder,
+		special:   opts.Special, // agy wrote this
 		recorder:  opts.Recorder,
 		log:       opts.Log,
 		now:       opts.Now,
@@ -204,6 +211,11 @@ func (e *Engine) filter(ctx context.Context, q Query) (dec Decision) {
 	name, ok := questionName(q.Req)
 	if !ok {
 		return e.reject(ctx, q)
+	}
+	// agy wrote this
+	if dec, ok := e.checkSpecial(q.Req, name); ok {
+		e.recordBlocked(ctx, q, dec)
+		return dec
 	}
 	e.warnIfNoBlockLists(ctx)
 	dec = classify(e.ruleSnapshot(), e.lists.Load(), name)

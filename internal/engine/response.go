@@ -65,6 +65,26 @@ func (r Responder) Block(req *dns.Msg) *dns.Msg {
 	return nullIP(req, r.ttl)
 }
 
+// agy wrote this
+// NXDomain returns an empty NXDOMAIN answer with a synthetic SOA regardless of
+// the configured block mode (used for the Firefox DoH canary domain).
+func (r Responder) NXDomain(req *dns.Msg) *dns.Msg {
+	if req == nil || len(req.Question) != 1 {
+		return formErr(req)
+	}
+	return negative(req, dns.RcodeNameError, r.ttl)
+}
+
+// agy wrote this
+// NoData returns an empty NOERROR answer with a synthetic SOA regardless of the
+// configured block mode (used for DDR _dns.resolver.arpa queries).
+func (r Responder) NoData(req *dns.Msg) *dns.Msg {
+	if req == nil || len(req.Question) != 1 {
+		return formErr(req)
+	}
+	return negative(req, dns.RcodeSuccess, r.ttl)
+}
+
 // Refuse returns an empty REFUSED answer. It is used for clients outside
 // allowed_clients, whatever the block mode is, and it does not set RA: such a
 // client may not use recursion.

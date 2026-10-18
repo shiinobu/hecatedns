@@ -41,7 +41,7 @@ func Run(t *testing.T, constructors []Constructor) {
 var cases = []testCase{
 	{"blocked A answers 0.0.0.0 without asking the upstream", blockedA},
 	{"blocked AAAA answers ::", blockedAAAA},
-	{"blocked HTTPS answers NODATA with an SOA", blockedHTTPS},
+	{"blocked HTTPS and SVCB answer NODATA with an SOA (direct and via CNAME)", blockedHTTPS},
 	{"blocked name over TCP", blockedOverTCP},
 	{"blocking ignores case and covers subdomains only", blockedCaseAndSuffix},
 	{"passed query returns the upstream answer", passedQuery},
@@ -52,6 +52,7 @@ var cases = []testCase{
 	{"one log record per query, cache hits included", logRecordPerQuery},
 	{"opcode other than QUERY is answered NOTIMP, never forwarded", nonQueryOpcode},
 	{"CNAME to a blocked domain is blocked on both upstream and cache hit", blockedCNAMEAndCacheHit},
+	{"special names answer NXDOMAIN for canary and NODATA for DDR", specialNames}, // agy wrote this
 }
 
 var blockSetup = setup{blockList: []string{"ads.test"}}
@@ -78,18 +79,32 @@ func blockedAAAA(t *testing.T, factory backend.Factory) {
 }
 
 func blockedHTTPS(t *testing.T, factory backend.Factory) {
-	h := start(t, factory, blockSetup)
+	// agy wrote this
+	h := start(t, factory, setup{
+		blockList: []string{"ads.test"},
+		cnames: map[string][]string{
+			"cloaked.example": {"tracker.ads.test"},
+		},
+	})
 
-	resp := h.ask("udp", "ads.test", dns.TypeHTTPS)
-
-	if resp.Rcode != dns.RcodeSuccess || len(resp.Answer) != 0 {
-		t.Errorf("HTTPS for a blocked name: rcode %s with %d answers, want NOERROR and none", dns.RcodeToString[resp.Rcode], len(resp.Answer))
-	}
-	if len(resp.Ns) != 1 || resp.Ns[0].Header().Rrtype != dns.TypeSOA {
-		t.Errorf("authority section = %v, want one SOA", resp.Ns)
+	for _, qtype := range []uint16{dns.TypeHTTPS, dns.TypeSVCB} {
+		for _, name := range []string{"ads.test", "cloaked.example"} {
+			resp := h.ask("udp", name, qtype)
+			if resp.Rcode != dns.RcodeSuccess || len(resp.Answer) != 0 {
+				t.Errorf("%s for %s: rcode %s with %d answers, want NOERROR and none",
+					dns.TypeToString[qtype], name, dns.RcodeToString[resp.Rcode], len(resp.Answer))
+			}
+			if len(resp.Ns) != 1 || resp.Ns[0].Header().Rrtype != dns.TypeSOA {
+				t.Errorf("%s for %s: authority section = %v, want one SOA",
+					dns.TypeToString[qtype], name, resp.Ns)
+			}
+		}
 	}
 	if got := h.upstream.queries("ads.test"); got != 0 {
 		t.Errorf("a blocked name reached the upstream %d times", got)
+	}
+	if got := h.upstream.queries("cloaked.example"); got != 2 {
+		t.Errorf("cloaked.example reached the upstream %d times, want 2 (one HTTPS, one SVCB)", got)
 	}
 }
 
@@ -244,6 +259,37 @@ func blockedCNAMEAndCacheHit(t *testing.T, factory backend.Factory) {
 	}
 	if entries[2].Action != engine.ActionPass {
 		t.Errorf("entry[2] = %+v, want pass for allowed CNAME target", entries[2])
+	}
+}
+
+// agy wrote this
+func specialNames(t *testing.T, factory backend.Factory) {
+	h := start(t, factory, blockSetup)
+
+	canary := h.ask("udp", "use-application-dns.net", dns.TypeA)
+	if canary.Rcode != dns.RcodeNameError || len(canary.Answer) != 0 || len(canary.Ns) != 1 || canary.Ns[0].Header().Rrtype != dns.TypeSOA {
+		t.Errorf("use-application-dns.net: rcode=%s answers=%d ns=%v, want NXDOMAIN + 1 SOA",
+			dns.RcodeToString[canary.Rcode], len(canary.Answer), canary.Ns)
+	}
+	if got := h.upstream.queries("use-application-dns.net"); got != 0 {
+		t.Errorf("use-application-dns.net reached the upstream %d times", got)
+	}
+
+	ddr := h.ask("udp", "_dns.resolver.arpa", dns.TypeSVCB)
+	if ddr.Rcode != dns.RcodeSuccess || len(ddr.Answer) != 0 || len(ddr.Ns) != 1 || ddr.Ns[0].Header().Rrtype != dns.TypeSOA {
+		t.Errorf("_dns.resolver.arpa: rcode=%s answers=%d ns=%v, want NOERROR (NODATA) + 1 SOA",
+			dns.RcodeToString[ddr.Rcode], len(ddr.Answer), ddr.Ns)
+	}
+	if got := h.upstream.queries("_dns.resolver.arpa"); got != 0 {
+		t.Errorf("_dns.resolver.arpa reached the upstream %d times", got)
+	}
+
+	entries := h.entries(2)
+	if entries[0].Action != engine.ActionBlock || entries[0].Reason != engine.ReasonSpecial || entries[0].Source != engine.SourceFirefoxCanary || entries[0].RCode != "NXDOMAIN" {
+		t.Errorf("entry[0] = %+v, want block/special/firefox_canary NXDOMAIN", entries[0])
+	}
+	if entries[1].Action != engine.ActionBlock || entries[1].Reason != engine.ReasonSpecial || entries[1].Source != engine.SourceDDR || entries[1].RCode != "NOERROR" {
+		t.Errorf("entry[1] = %+v, want block/special/ddr NOERROR", entries[1])
 	}
 }
 

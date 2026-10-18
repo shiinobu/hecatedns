@@ -82,6 +82,12 @@ func (u *fakeUpstream) serve(w dns.ResponseWriter, req *dns.Msg) {
 			resp.Answer = append(resp.Answer, &dns.A{Hdr: hdr, A: upstreamA})
 		case dns.TypeAAAA:
 			resp.Answer = append(resp.Answer, &dns.AAAA{Hdr: hdr, AAAA: upstreamAAAA})
+		case dns.TypeHTTPS:
+			// agy wrote this
+			resp.Answer = append(resp.Answer, &dns.HTTPS{SVCB: dns.SVCB{Hdr: hdr, Priority: 1, Target: "."}})
+		case dns.TypeSVCB:
+			// agy wrote this
+			resp.Answer = append(resp.Answer, &dns.SVCB{Hdr: hdr, Priority: 1, Target: "."})
 		}
 	}
 	_ = w.WriteMsg(resp)
@@ -202,7 +208,8 @@ func (h *harness) newEngine(cfg config.Config, s setup) *engine.Engine {
 	if _, err := rules.Reload(); err != nil {
 		t.Fatalf("load rules: %v", err)
 	}
-	eng, err := engine.New(engine.Options{ACL: acl, Rules: rules, Responder: responder, Recorder: h.log})
+	// agy wrote this
+	eng, err := engine.New(engine.Options{ACL: acl, Rules: rules, Responder: responder, Special: cfg.SpecialNames, Recorder: h.log})
 	if err != nil {
 		t.Fatalf("engine: %v", err)
 	}

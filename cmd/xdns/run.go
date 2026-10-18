@@ -142,7 +142,8 @@ func newEngine(cfg config.Config, rules engine.RuleSource, recorder engine.Recor
 	if err != nil {
 		return nil, err
 	}
-	return engine.New(engine.Options{ACL: acl, Rules: rules, Responder: responder, Recorder: recorder, Log: log})
+	// agy wrote this
+	return engine.New(engine.Options{ACL: acl, Rules: rules, Responder: responder, Special: cfg.SpecialNames, Recorder: recorder, Log: log})
 }
 
 // runBackend starts b, reports where it listens once it is up, and waits for it
