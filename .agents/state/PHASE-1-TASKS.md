@@ -31,4 +31,4 @@ Phase 1 is done when ALL of these hold (real binary, not only tests):
 ## Review / close-out
 
 - [x] Review done (report saved under `state/reviews/phase-1-review.md`), Critical and Important fixed with RED then GREEN, gates green again.
-- [ ] Docs pass done (list in `state/STATE.md`), `docs/phase-1-report.md` written, short report given to Master, `state/STATE.md` set to "Phase 1 done, waiting for lanjut", `state/PHASE-2-TASKS.md` created from `docs/roadmap.md` Phase 2.
+- [x] Docs pass done (list was in `state/STATE.md`), `docs/phase-1-report.md` written, short report given to Master, `state/STATE.md` set to "Phase 1 done, waiting for lanjut", `state/PHASE-2-TASKS.md` created from `docs/roadmap.md` Phase 2.

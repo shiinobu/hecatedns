@@ -49,3 +49,13 @@ Master delegated technical decisions to the implementing agent on 2026-10-18 and
 - An omitted `enabled:` on a list source means true. `run` prints config `Warnings()`. Validation gains: non-empty `rules.file` and `log.dir`, unique `listen`, port != 0, TTL caps before `uint32` conversion.
 - Tasks come straight from `docs/roadmap.md` (no separate plan document). Task order in `state/PHASE-1-TASKS.md` puts `acl` before `engine`, because `Before` calls it first (the earlier note listed `engine` first; either order is fine as long as the ACL step and its tests exist before the phase ends).
 - Model split used by Claude (Sonnet main + Opus agents) exists only to stretch Claude's usage window. It does not apply to other agents: a single agent does everything, but runs the review in a fresh session (`/review-phase`).
+
+## Phase 1 close-out decisions (2026-10-18)
+
+- Priority is custom allow > custom block > list allow > list block (architecture section 6 steps 5-6 were reworded to match). The earlier numbered steps let a list `allow` beat the owner's own `block`; that was never implemented.
+- The engine answers malformed requests and opcodes other than QUERY itself (FORMERR/NOTIMP, reason `invalid`, one record, after the ACL), because dnsproxy forwards odd opcodes upstream past every rule.
+- A panic before `Before` returns fails closed (REFUSED) in the adapter; panics inside the engine fail open except for the ACL.
+- `log.max_mb_per_day` (default 256, minimum 1 while the log is on) caps the query log; excess records are dropped and counted.
+- I1 (TCP connections hold shared request slots) is accepted for the home LAN and becomes a Phase 6 prerequisite.
+- `xdns rule add` refuses a result over 4 MiB (the server ignores the rest of a file that large); a rules line of 4096 bytes or more is ignored by the server and not shown by `rule list`.
+- `scripts/dnsquery.ps1` was added although it was not a listed task: `nslookup -port` is ignored on Windows, so the roadmap criterion needed a replacement.

@@ -74,3 +74,8 @@ Keep entries short (the full detail lives in code, tests and commits). Never rew
 - Decided: an unknown-ACL-state panic in the adapter answers REFUSED (fail closed) instead of resolving unfiltered; `rule add` replaces and refuses to exceed 4 MiB; the log cap is mandatory (>= 1 MB/day) while the log is on.
 - Problems / not verified: graceful Ctrl+C on a real Windows console; behavior on a full disk; `log.max_mb_per_day` interacts with the idle flush only by dropping (tested), not by rotating.
 - Next: docs pass (architecture, roadmap, README, example config, `docs/phase-1-report.md`), STATE, `PHASE-2-TASKS.md`, report to Master, then `/save-session`.
+
+## 2026-10-18 night - Claude (Sonnet 5.5) - Phase 1 docs pass and close-out
+- Did: docs pass after the review fixes: `docs/architecture.md` (header, 5.1, 5.2, 5.3, 6, 9, 10, 12, 13, 14, 15, 18), `docs/roadmap.md` (status, Phase 1 criterion, Phase 6 prerequisite task 8, history row), `README.md`, `configs/xdns.example.yaml` (`max_mb_per_day`, upstreams comment), `docs/phase-1-report.md`, `state/STATE.md`, `state/PHASE-2-TASKS.md`, `notes/decisions.md`, `notes/open-questions.md` (Q3 decided, Q4, Q5).
+- Evidence: `go test ./... -count=1` and `xdns check -config configs/xdns.example.yaml` after the doc edits (see the commit).
+- Next: wait for Master's "lanjut" before Phase 2.

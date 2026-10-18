@@ -8,7 +8,7 @@ Add new questions at the bottom with a number. When one is answered, move it to 
 
 **Q2. dnsproxy integration points (docs section 18, items 1-2).** Exact signature of `proxy.Config.RequestHandler` (type `Handler`); how a handler supplies a response and stops dnsproxy from resolving; where `After` can hook in (the docs say a `BeforeRequestHandler` hook was not found - check `middleware.go`, `requesthandler.go`, `proxy.go`, `dnscontext.go`); whether a DoH upstream given as an IP (`https://1.1.1.1/dns-query`) needs a bootstrap; how the dnsproxy cache treats answers that `After` replaced. Answers go to `notes/dnsproxy-api-facts.md`. If `After` cannot replace a cached answer cleanly, record the consequence for the CNAME check (Phase 2) and for the design.
 
-**Q3. Run-time loop detection.** An upstream/bootstrap equal to xdns's own listen address is accepted by config validation. Decide whether `run` should refuse it (Phase 1 task P1-10).
+**Q3. Run-time loop detection (decided in Phase 1 close-out: handle in Phase 2 task P2-07 as a warning plus a selfcheck failure, not a refusal in `run`).** An upstream/bootstrap equal to xdns's own listen address is accepted by config validation. Decide whether `run` should refuse it (Phase 1 task P1-10).
 
 ## For Master (do not ask early; ask at the gate)
 
