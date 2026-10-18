@@ -17,7 +17,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/miekg/dns"
 
 	"xdns/internal/config"
 	"xdns/internal/engine"
@@ -61,13 +64,17 @@ type FetchResult struct {
 
 // Fetcher downloads, validates and atomically caches blocklist files.
 type Fetcher struct {
-	Dir       string
-	Bootstrap []string
-	Client    *http.Client
-	TLSConfig *tls.Config
-	Timeout   time.Duration
-	MaxBytes  int64
-	Now       func() time.Time
+	Dir              string
+	Bootstrap        []string
+	BootstrapTimeout time.Duration
+	Client           *http.Client
+	TLSConfig        *tls.Config
+	Timeout          time.Duration
+	MaxBytes         int64
+	Now              func() time.Time
+
+	mu        sync.Mutex
+	transport *http.Transport
 }
 
 // Fetch downloads src over HTTPS, validates and parses the body, and writes
@@ -163,11 +170,20 @@ func (f *Fetcher) httpClient() *http.Client {
 	if f.Client != nil {
 		base = *f.Client
 	} else {
-		base.Transport = f.newTransport()
+		base.Transport = f.sharedTransport()
 	}
 	base.Timeout = f.timeout()
 	base.CheckRedirect = checkHTTPSRedirect
 	return &base
+}
+
+func (f *Fetcher) sharedTransport() *http.Transport {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.transport == nil {
+		f.transport = f.newTransport()
+	}
+	return f.transport
 }
 
 func (f *Fetcher) newTransport() *http.Transport {
@@ -175,30 +191,99 @@ func (f *Fetcher) newTransport() *http.Transport {
 	if f.TLSConfig != nil {
 		tr.TLSClientConfig = f.TLSConfig.Clone()
 	}
-	dialer := &net.Dialer{Timeout: bootstrapDialTimeout}
-	if addrs := normalizeBootstrap(f.Bootstrap); len(addrs) > 0 {
-		dialer.Resolver = newBootstrapResolver(addrs)
+	dialer := &net.Dialer{Timeout: f.bootstrapTimeout()}
+	addrs := normalizeBootstrap(f.Bootstrap)
+	if len(addrs) > 0 {
+		tr.DialContext = f.dialBootstrapContext(dialer, addrs)
+	} else {
+		tr.DialContext = dialer.DialContext
 	}
-	tr.DialContext = dialer.DialContext
 	return tr
 }
 
-func newBootstrapResolver(addrs []string) *net.Resolver {
-	return &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			d := net.Dialer{Timeout: bootstrapDialTimeout}
-			var lastErr error
-			for _, addr := range addrs {
-				conn, err := d.DialContext(ctx, network, addr)
-				if err == nil {
-					return conn, nil
-				}
-				lastErr = err
+func (f *Fetcher) dialBootstrapContext(dialer *net.Dialer, addrs []string) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(address)
+		if err != nil || host == "" {
+			return dialer.DialContext(ctx, network, address)
+		}
+		if _, err := netip.ParseAddr(host); err == nil {
+			return dialer.DialContext(ctx, network, address)
+		}
+		ips, err := resolveBootstrapHost(ctx, addrs, host, f.bootstrapTimeout())
+		if err != nil {
+			return nil, err
+		}
+		var lastErr error
+		for _, ip := range ips {
+			conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+			if err == nil {
+				return conn, nil
 			}
-			return nil, lastErr
-		},
+			lastErr = err
+		}
+		return nil, lastErr
 	}
+}
+
+func resolveBootstrapHost(ctx context.Context, addrs []string, host string, timeout time.Duration) ([]netip.Addr, error) {
+	qname := dns.Fqdn(host)
+	var lastErr error
+	for _, bsAddr := range addrs {
+		ips, err := queryBootstrapAddr(ctx, bsAddr, qname, dns.TypeA, timeout)
+		if err == nil && len(ips) == 0 {
+			ips, err = queryBootstrapAddr(ctx, bsAddr, qname, dns.TypeAAAA, timeout)
+		}
+		if err == nil && len(ips) > 0 {
+			return ips, nil
+		}
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = fmt.Errorf("bootstrap %s returned no addresses for %s", bsAddr, host)
+		}
+	}
+	return nil, lastErr
+}
+
+func queryBootstrapAddr(ctx context.Context, bsAddr, qname string, qtype uint16, timeout time.Duration) ([]netip.Addr, error) {
+	req := new(dns.Msg)
+	req.SetQuestion(qname, qtype)
+	req.RecursionDesired = true
+
+	client := &dns.Client{Net: "udp", Timeout: timeout}
+	resp, _, err := client.ExchangeContext(ctx, req, bsAddr)
+	if err == nil && resp != nil && resp.Truncated {
+		tcpClient := &dns.Client{Net: "tcp", Timeout: timeout}
+		resp, _, err = tcpClient.ExchangeContext(ctx, req, bsAddr)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil || resp.Rcode != dns.RcodeSuccess {
+		return nil, fmt.Errorf("bootstrap %s rcode=%d", bsAddr, msgRcode(resp))
+	}
+	var ips []netip.Addr
+	for _, rr := range resp.Answer {
+		switch rec := rr.(type) {
+		case *dns.A:
+			if ip, ok := netip.AddrFromSlice(rec.A); ok {
+				ips = append(ips, ip.Unmap())
+			}
+		case *dns.AAAA:
+			if ip, ok := netip.AddrFromSlice(rec.AAAA); ok {
+				ips = append(ips, ip)
+			}
+		}
+	}
+	return ips, nil
+}
+
+func msgRcode(m *dns.Msg) int {
+	if m == nil {
+		return -1
+	}
+	return m.Rcode
 }
 
 func normalizeBootstrap(raw []string) []string {
@@ -223,7 +308,7 @@ func checkHTTPSRedirect(req *http.Request, via []*http.Request) error {
 	if !strings.EqualFold(req.URL.Scheme, "https") {
 		return ErrHTTPSRequired
 	}
-	if len(via) >= maxRedirects {
+	if len(via) > maxRedirects {
 		return ErrTooManyRedirects
 	}
 	return nil
@@ -244,6 +329,13 @@ func (f *Fetcher) timeout() time.Duration {
 		return f.Timeout
 	}
 	return DefaultFetchTimeout
+}
+
+func (f *Fetcher) bootstrapTimeout() time.Duration {
+	if f != nil && f.BootstrapTimeout > 0 {
+		return f.BootstrapTimeout
+	}
+	return bootstrapDialTimeout
 }
 
 func (f *Fetcher) maxBytes() int64 {

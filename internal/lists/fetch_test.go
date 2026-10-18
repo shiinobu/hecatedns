@@ -201,6 +201,18 @@ func TestFetcher_RejectsHTTPAndInsecureRedirectAndEmptyList(t *testing.T) {
 		switch r.URL.Path {
 		case "/to-http":
 			http.Redirect(w, r, httpSrv.URL+"/list.txt", http.StatusFound)
+		case "/hop1":
+			http.Redirect(w, r, "/hop2", http.StatusFound)
+		case "/hop2":
+			http.Redirect(w, r, "/hop3", http.StatusFound)
+		case "/hop3":
+			http.Redirect(w, r, "/hop4", http.StatusFound)
+		case "/hop4":
+			http.Redirect(w, r, "/hop5", http.StatusFound)
+		case "/hop5":
+			http.Redirect(w, r, "/done", http.StatusFound)
+		case "/done":
+			_, _ = w.Write([]byte("five-hops.example.com\n"))
 		case "/loop":
 			http.Redirect(w, r, "/loop", http.StatusFound)
 		case "/empty":
@@ -221,7 +233,16 @@ func TestFetcher_RejectsHTTPAndInsecureRedirectAndEmptyList(t *testing.T) {
 		t.Fatalf("Fetch redirect to http:// err = %v, want %v", err, ErrHTTPSRequired)
 	}
 
-	// Redirect loop rejected.
+	// Exactly 5 HTTPS redirects succeed.
+	hopRes, err := f.Fetch(context.Background(), testSource(redirSrv.URL+"/hop1"))
+	if err != nil {
+		t.Fatalf("Fetch 5 HTTPS redirects err = %v, want nil", err)
+	}
+	if !hopRes.Set.Match("five-hops.example.com") {
+		t.Errorf("expected five-hops.example.com to match after 5 redirects")
+	}
+
+	// Redirect loop (> 5 redirects) rejected.
 	if _, err := f.Fetch(context.Background(), testSource(redirSrv.URL+"/loop")); !errors.Is(err, ErrTooManyRedirects) {
 		t.Fatalf("Fetch redirect loop err = %v, want %v", err, ErrTooManyRedirects)
 	}
@@ -257,8 +278,15 @@ func TestFetcher_TimeoutAbortsSlowServer(t *testing.T) {
 	}
 }
 
-func TestBootstrapResolver_ResolvesThroughBootstrapNotSystem(t *testing.T) {
-	// Start a fake DNS server on 127.0.0.1:0 that answers lists.example.com -> 127.0.0.1.
+func TestBootstrapResolver_FailsOverFromSilentUDPAndReusesTransport(t *testing.T) {
+	// First bootstrap server is a silent UDP blackhole that never replies.
+	blackholePC, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen blackhole udp: %v", err)
+	}
+	t.Cleanup(func() { _ = blackholePC.Close() })
+
+	// Second bootstrap server is a working fake DNS server on 127.0.0.1:0.
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen udp: %v", err)
@@ -294,27 +322,67 @@ func TestBootstrapResolver_ResolvesThroughBootstrapNotSystem(t *testing.T) {
 	port := strconv.Itoa(tlsSrv.Listener.Addr().(*net.TCPAddr).Port)
 	baseTr := client.Transport.(*http.Transport).Clone()
 
-	f := &Fetcher{
-		Dir:       t.TempDir(),
-		Bootstrap: []string{"", "192.0.2.1", pc.LocalAddr().String()},
-		TLSConfig: baseTr.TLSClientConfig,
-	}
-	// Dial timeout for the unreachable first bootstrap IP is short if we test normalizeBootstrap + failover.
 	gotAddrs := normalizeBootstrap([]string{" 1.1.1.1 ", "127.0.0.1:5354", "bad"})
 	if len(gotAddrs) != 2 || gotAddrs[0] != "1.1.1.1:53" || gotAddrs[1] != "127.0.0.1:5354" {
 		t.Fatalf("normalizeBootstrap = %v", gotAddrs)
 	}
-	f.Bootstrap = []string{pc.LocalAddr().String()}
+
+	f := &Fetcher{
+		Dir:              t.TempDir(),
+		Bootstrap:        []string{"", blackholePC.LocalAddr().String(), pc.LocalAddr().String()},
+		BootstrapTimeout: 50 * time.Millisecond,
+		Timeout:          500 * time.Millisecond,
+		TLSConfig:        baseTr.TLSClientConfig,
+	}
 
 	res, err := f.Fetch(context.Background(), testSource("https://lists.example.com:"+port+"/list.txt"))
 	if err != nil {
-		t.Fatalf("Fetch via bootstrap DNS: %v", err)
+		t.Fatalf("Fetch via bootstrap DNS failover: %v", err)
 	}
 	if !res.Set.Match("resolved.example.com") {
 		t.Errorf("expected resolved.example.com to match")
 	}
 	if dnsQueries.Load() == 0 {
 		t.Errorf("expected fake bootstrap DNS server to receive queries, got 0")
+	}
+
+	// Second call with Client == nil must reuse the same *http.Transport instance.
+	tr1 := f.httpClient().Transport
+	tr2 := f.httpClient().Transport
+	if tr1 == nil || tr1 != tr2 {
+		t.Errorf("expected Fetcher to reuse default Transport across calls (%p vs %p)", tr1, tr2)
+	}
+}
+
+func TestFetcher_OrphanedMetaWithoutListFileDoesNotSendETag(t *testing.T) {
+	var gotIfNoneMatch string
+	srv, client := newTLSServer(t, func(w http.ResponseWriter, r *http.Request) {
+		gotIfNoneMatch = r.Header.Get("If-None-Match")
+		if gotIfNoneMatch != "" {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("ETag", `"v1"`)
+		_, _ = w.Write([]byte("fresh.example.com\n"))
+	})
+
+	dir := t.TempDir()
+	src := testSource(srv.URL + "/list.txt")
+	// Write only <name>.meta.json without <name>.txt.
+	if err := writeMetaAtomic(dir, src.Name, Meta{ETag: `"v1"`, Count: 1}); err != nil {
+		t.Fatalf("writeMetaAtomic: %v", err)
+	}
+
+	f := &Fetcher{Dir: dir, Client: client}
+	res, err := f.Fetch(context.Background(), src)
+	if err != nil {
+		t.Fatalf("Fetch with orphaned meta: %v", err)
+	}
+	if gotIfNoneMatch != "" {
+		t.Errorf("If-None-Match = %q, want empty when .txt is missing", gotIfNoneMatch)
+	}
+	if res.NotModified || !res.Set.Match("fresh.example.com") {
+		t.Errorf("unexpected FetchResult: %+v", res)
 	}
 }
 
