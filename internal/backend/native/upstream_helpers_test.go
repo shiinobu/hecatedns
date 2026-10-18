@@ -42,14 +42,22 @@ func (f *fakeDNS) networks() []string {
 // the request and the network it arrived on.
 func startFakeDNS(t *testing.T, handler func(req *dns.Msg, network string) *dns.Msg) *fakeDNS {
 	t.Helper()
-	for attempt := 0; attempt < 20; attempt++ {
+	// A UDP socket whose TCP twin cannot be bound is kept open until the test
+	// ends: closing it would hand the same port to the next attempt.
+	var skipped []net.PacketConn
+	t.Cleanup(func() {
+		for _, pc := range skipped {
+			_ = pc.Close()
+		}
+	})
+	for attempt := 0; attempt < 100; attempt++ {
 		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("fake DNS: listen udp: %v", err)
 		}
 		ln, err := net.Listen("tcp", pc.LocalAddr().String())
 		if err != nil {
-			_ = pc.Close() // the TCP port was taken; try another UDP port
+			skipped = append(skipped, pc)
 			continue
 		}
 		f := &fakeDNS{addr: pc.LocalAddr().String()}

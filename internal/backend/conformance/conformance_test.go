@@ -4,13 +4,15 @@ import (
 	"testing"
 
 	"xdns/internal/backend/dnsproxybe"
+	"xdns/internal/backend/native"
 )
 
-// constructors lists every backend under test. The native backend joins in
-// Phase 4 and must pass the same suite unchanged.
+// constructors lists every backend under test. Each must pass the same suite
+// unchanged.
 func constructors() []Constructor {
 	return []Constructor{
 		{Name: dnsproxybe.Name, Factory: dnsproxybe.New},
+		{Name: native.Name, Factory: native.New},
 	}
 }
 

@@ -53,6 +53,7 @@ var cases = []testCase{
 	{"opcode other than QUERY is answered NOTIMP, never forwarded", nonQueryOpcode},
 	{"CNAME to a blocked domain is blocked on both upstream and cache hit", blockedCNAMEAndCacheHit},
 	{"special names answer NXDOMAIN for canary and NODATA for DDR", specialNames}, // agy wrote this
+	{"an oversized or malformed UDP datagram does not stop the server", oversizedDatagram},
 }
 
 var blockSetup = setup{blockList: []string{"ads.test"}}
@@ -291,6 +292,26 @@ func specialNames(t *testing.T, factory backend.Factory) {
 	if entries[1].Action != engine.ActionBlock || entries[1].Reason != engine.ReasonSpecial || entries[1].Source != engine.SourceDDR || entries[1].RCode != "NOERROR" {
 		t.Errorf("entry[1] = %+v, want block/special/ddr NOERROR", entries[1])
 	}
+}
+
+// oversizedDatagram sends datagrams a UDP server must survive: one far larger
+// than any DNS query (on Windows the failed read of such a datagram once stopped
+// a server for good), one too short to hold a header, and one that is not DNS.
+func oversizedDatagram(t *testing.T, factory backend.Factory) {
+	h := start(t, factory, blockSetup)
+
+	conn, err := net.Dial("udp", h.bound.Addr(backend.NetworkUDP).String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	for _, junk := range [][]byte{make([]byte, 9000), {1, 2, 3}, []byte("GET / HTTP/1.1\r\n\r\n")} {
+		if _, err := conn.Write(junk); err != nil {
+			t.Fatalf("write %d bytes: %v", len(junk), err)
+		}
+	}
+
+	assertPassed(t, h.ask("udp", "fine.example", dns.TypeA), dns.TypeA, upstreamA)
 }
 
 func assertNullAnswer(t *testing.T, resp *dns.Msg, qtype uint16, want net.IP) {

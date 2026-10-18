@@ -387,10 +387,10 @@ func TestRunServer_ConfigAndUsageProblems(t *testing.T) {
 	}
 }
 
-func TestDefaultRegistry_HasTheDNSProxyBackend(t *testing.T) {
+func TestDefaultRegistry_HasBothBackends(t *testing.T) {
 	names := defaultRegistry().Names()
-	if len(names) != 1 || names[0] != "dnsproxy" {
-		t.Errorf("registered backends = %v, want [dnsproxy] until Phase 4", names)
+	if len(names) != 2 || names[0] != "dnsproxy" || names[1] != "native" {
+		t.Errorf("registered backends = %v, want [dnsproxy native]", names)
 	}
 }
 

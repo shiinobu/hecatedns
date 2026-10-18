@@ -12,6 +12,7 @@ import (
 
 	"xdns/internal/backend"
 	"xdns/internal/backend/dnsproxybe"
+	"xdns/internal/backend/native"
 	"xdns/internal/config"
 	"xdns/internal/engine"
 	"xdns/internal/lists"
@@ -21,10 +22,13 @@ import (
 // bytesPerMBShift converts megabytes to bytes with a shift (1 MB = 1 << 20).
 const bytesPerMBShift = 20
 
-// defaultRegistry lists the backends this binary contains. The native backend
-// joins in Phase 4.
+// defaultRegistry lists the backends this binary contains; `backend:` in the
+// configuration picks one.
 func defaultRegistry() backend.Registry {
-	return backend.Registry{dnsproxybe.Name: dnsproxybe.New}
+	return backend.Registry{
+		dnsproxybe.Name: dnsproxybe.New,
+		native.Name:     native.New,
+	}
 }
 
 // runServer implements `xdns run`: serve until Ctrl+C or SIGTERM.
