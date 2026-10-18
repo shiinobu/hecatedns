@@ -35,7 +35,7 @@ func TestRun(t *testing.T) {
 		{"no arguments", nil, exitUsage, nil, []string{"penggunaan"}},
 		{"unknown command", []string{"bogus"}, exitUsage, nil, []string{"bogus"}},
 		{"run is a stub", []string{"run"}, exitUsage, nil, []string{"belum diimplementasi"}},
-		{"log is a stub", []string{"log"}, exitUsage, nil, []string{"belum diimplementasi"}},
+		{"log with a missing default config", []string{"log"}, exitError, nil, []string{"xdns.yaml"}},
 		{"rule without a subcommand shows usage", []string{"rule"}, exitUsage, nil, []string{"penggunaan", "xdns rule add"}},
 		{"lists is a stub", []string{"lists"}, exitUsage, nil, []string{"belum diimplementasi"}},
 		{"check example config", []string{"check", "-config", exampleConfig}, exitOK,
