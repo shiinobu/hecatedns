@@ -30,12 +30,14 @@ const (
 )
 
 // cacheKey identifies an answer: the lower-cased question plus the DNSSEC OK
-// bit, because a client that asks for DNSSEC records must not be served an
-// answer stored without them.
+// and Checking Disabled bits. A client that asks for DNSSEC records must not be
+// served an answer stored without them, and a client that wants validation must
+// not be served an answer fetched with validation switched off.
 type cacheKey struct {
 	name   string
 	qtype  uint16
 	qclass uint16
+	cd     bool
 	do     bool
 }
 
@@ -223,7 +225,7 @@ func keyFor(req *dns.Msg) (cacheKey, bool) {
 		return cacheKey{}, false
 	}
 	q := req.Question[0]
-	key := cacheKey{name: dns.CanonicalName(q.Name), qtype: q.Qtype, qclass: q.Qclass}
+	key := cacheKey{name: dns.CanonicalName(q.Name), qtype: q.Qtype, qclass: q.Qclass, cd: req.CheckingDisabled}
 	if opt := req.IsEdns0(); opt != nil {
 		key.do = opt.Do()
 	}

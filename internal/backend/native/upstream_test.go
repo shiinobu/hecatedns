@@ -247,6 +247,7 @@ func TestBootstrap_FallsBackToTheNextServer(t *testing.T) {
 type stub struct {
 	name  string
 	fail  bool
+	rcode int // when set, the stub answers with this rcode and no records
 	delay time.Duration
 
 	mu    sync.Mutex
@@ -269,6 +270,9 @@ func (s *stub) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
 	if s.fail {
 		return nil, errors.New(s.name + " is down")
 	}
+	if s.rcode != 0 {
+		return new(dns.Msg).SetRcode(q, s.rcode), nil
+	}
 	return aReply(q), nil
 }
 
@@ -290,6 +294,40 @@ func TestPool_FailsOverToTheNextUpstream(t *testing.T) {
 	}
 	if from != "up" {
 		t.Errorf("answered by %q, want up", from)
+	}
+}
+
+func TestPool_FailsOverWhenAnUpstreamAnswersServFailOrRefused(t *testing.T) {
+	for _, rcode := range []int{dns.RcodeServerFailure, dns.RcodeRefused} {
+		throttled, healthy := &stub{name: "throttled", rcode: rcode}, &stub{name: "healthy"}
+		p := newPool([]upstream{throttled, healthy}, fixedRand(0))
+
+		resp, from, err := p.Exchange(context.Background(), queryMsg("fine.example", dns.TypeA))
+		if err != nil || from != "healthy" || len(resp.Answer) != 1 {
+			t.Errorf("%s from the first upstream: got %v from %q (%v), want the healthy upstream's answer", dns.RcodeToString[rcode], resp, from, err)
+		}
+	}
+}
+
+func TestPool_ReturnsTheUpstreamsServFailWhenEveryoneFails(t *testing.T) {
+	p := newPool([]upstream{&stub{name: "one", rcode: dns.RcodeServerFailure}, &stub{name: "two", rcode: dns.RcodeServerFailure}}, fixedRand(0))
+
+	resp, _, err := p.Exchange(context.Background(), queryMsg("fine.example", dns.TypeA))
+	if err != nil || resp == nil || resp.Rcode != dns.RcodeServerFailure {
+		t.Errorf("Exchange = %v, %v; want the upstream's SERVFAIL answer, not an error", resp, err)
+	}
+}
+
+func TestPool_NXDOMAINIsAFinalAnswer(t *testing.T) {
+	first, second := &stub{name: "first", rcode: dns.RcodeNameError}, &stub{name: "second"}
+	p := newPool([]upstream{first, second}, fixedRand(0))
+
+	resp, from, err := p.Exchange(context.Background(), queryMsg("gone.example", dns.TypeA))
+	if err != nil || from != "first" || resp.Rcode != dns.RcodeNameError {
+		t.Errorf("got %v from %q (%v), want the first upstream's NXDOMAIN", resp, from, err)
+	}
+	if second.count() != 0 {
+		t.Error("the pool asked a second upstream after a definitive NXDOMAIN")
 	}
 }
 

@@ -124,3 +124,21 @@ func TestLimiter_ConcurrentUse(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestLimiter_FullTableIsSweptAtMostOncePerSecond(t *testing.T) {
+	clock := newFakeClock()
+	l := testLimiter(clock, 10, 5, 50)
+
+	for i := 0; i < 1000; i++ {
+		l.allow(netip.AddrFrom4([4]byte{10, byte(i >> 8), byte(i), 1}))
+	}
+	if l.sweeps > 1 {
+		t.Errorf("table swept %d times within one second, want at most 1 (each sweep scans every entry under the lock)", l.sweeps)
+	}
+
+	clock.Advance(1100 * time.Millisecond)
+	l.allow(netip.MustParseAddr("172.16.0.1"))
+	if l.sweeps != 2 {
+		t.Errorf("sweeps after a second passed = %d, want 2", l.sweeps)
+	}
+}

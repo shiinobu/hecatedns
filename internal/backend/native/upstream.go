@@ -89,8 +89,15 @@ func newPool(ups []upstream, rnd func() float64) *pool {
 // Exchange asks the upstreams in weighted random order until one answers. It
 // returns the reply and the address of the upstream that gave it. When the
 // context ends it stops at once, without blaming the upstream that was slow.
+//
+// An upstream that answers SERVFAIL or REFUSED (a provider throttling or
+// failing) counts as failed and the next one is asked; if nobody does better,
+// that answer is returned rather than an error, so the client sees the upstream's
+// own verdict. Any other rcode, NXDOMAIN included, is a final answer.
 func (p *pool) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, string, error) {
 	var errs []error
+	var fallback *dns.Msg
+	var fallbackFrom string
 	for _, i := range p.order() {
 		if err := ctx.Err(); err != nil {
 			errs = append(errs, err)
@@ -99,6 +106,13 @@ func (p *pool) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, string, erro
 		m := p.members[i]
 		start := time.Now()
 		resp, err := m.up.Exchange(ctx, q)
+		if err == nil && failedRcode(resp.Rcode) {
+			if fallback == nil {
+				fallback, fallbackFrom = resp, m.up.Address()
+			}
+			err = fmt.Errorf("answered %s", dns.RcodeToString[resp.Rcode])
+			resp = nil
+		}
 		if ctx.Err() == nil {
 			p.record(i, time.Since(start), err)
 		}
@@ -107,7 +121,16 @@ func (p *pool) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, string, erro
 		}
 		errs = append(errs, fmt.Errorf("%s: %w", m.up.Address(), err))
 	}
+	if fallback != nil {
+		return fallback, fallbackFrom, nil
+	}
 	return nil, "", fmt.Errorf("all upstreams failed: %w", errors.Join(errs...))
+}
+
+// failedRcode reports an rcode that says the upstream could not serve the
+// query, as opposed to saying something about the name.
+func failedRcode(rcode int) bool {
+	return rcode == dns.RcodeServerFailure || rcode == dns.RcodeRefused
 }
 
 // order returns the member indexes in the order to try them: a weighted random

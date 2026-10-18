@@ -2,6 +2,7 @@ package native
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -16,16 +17,19 @@ import (
 )
 
 const (
-	// maxInFlight bounds the queries being resolved at once, as the dnsproxy
-	// backend does (dnsproxybe.MaxGoroutines). It is separate from the TCP
-	// connection limit, so a flood of TCP connections cannot starve UDP queries
-	// and the other way round.
-	maxInFlight = 256
+	// resolveTimeout bounds one query from the moment it is accepted: the pool
+	// asks its upstreams one after the other, upstreamTimeout each. Without it a
+	// blackholed upstream would hold an in-flight slot for the whole run.
+	resolveTimeout = 2*upstreamTimeout + time.Second
 
 	// dropLogEvery is the shortest time between two warnings about dropped
 	// queries.
 	dropLogEvery = 10 * time.Second
 )
+
+// errBusy is the reason a query is answered SERVFAIL when no upstream slot is
+// free for it.
+var errBusy = errors.New("too many upstream queries in flight")
 
 // Filter is the part of the engine the handler calls. *engine.Engine satisfies
 // it; tests substitute fakes.
@@ -59,39 +63,39 @@ type handler struct {
 	cache   *cache
 	up      exchanger
 	limiter *limiter
-	slots   chan struct{}
+	gate    *gate
 	log     *slog.Logger
+
+	// base is the parent of every query's context; the backend cancels it at
+	// shutdown so queries in flight do not hold the shutdown up. timeout bounds
+	// one query.
+	base    context.Context
+	timeout time.Duration
 
 	dropped  atomic.Uint64
 	lastWarn atomic.Int64 // unix nanoseconds of the last drop warning
 }
 
 func newHandler(f Filter, c *cache, up exchanger, l *limiter, log *slog.Logger) *handler {
-	return &handler{filter: f, cache: c, up: up, limiter: l, slots: make(chan struct{}, maxInFlight), log: log}
+	return &handler{
+		filter: f, cache: c, up: up, limiter: l, gate: newGate(), log: log,
+		base: context.Background(), timeout: resolveTimeout,
+	}
 }
 
 var _ dns.Handler = (*handler)(nil)
 
 // ServeDNS implements dns.Handler. A rate-limited query is dropped without an
-// answer: an answer to a spoofed source address would be an amplifier. A query
-// that finds no free slot is dropped on UDP and answered SERVFAIL on TCP.
+// answer: an answer to a spoofed source address would be an amplifier. The
+// rate limiter runs before the engine, so it also covers clients outside the ACL.
 func (h *handler) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	client, proto := clientOf(w)
 	if !h.limiter.allow(client) {
 		h.drop("rate limit", client)
 		return
 	}
-	select {
-	case h.slots <- struct{}{}:
-		defer func() { <-h.slots }()
-	default:
-		h.drop("too many queries in flight", client)
-		if proto == "tcp" {
-			h.write(w, req, servFail(req), proto)
-		}
-		return
-	}
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(h.base, h.timeout)
+	defer cancel()
 	h.write(w, req, h.resolve(ctx, req, client, proto), proto)
 }
 
@@ -125,13 +129,13 @@ func (h *handler) resolve(ctx context.Context, req *dns.Msg, client netip.Addr, 
 		return blockReply(req, dec)
 	}
 	stage = stageResolve
-	got, meta, err := h.lookup(ctx, req)
+	got, meta, err := h.lookup(ctx, req, client)
 	if err != nil {
 		h.filter.Failed(ctx, q, err)
 		return servFail(req)
 	}
 	resp, stage = got, stageAnswer
-	if dec := h.filter.After(ctx, q, got, meta); dec.Verdict == engine.Block && dec.Resp != nil {
+	if dec := h.filter.After(ctx, q, got, meta); dec.Verdict == engine.Block {
 		return blockReply(req, dec)
 	}
 	return got
@@ -139,14 +143,19 @@ func (h *handler) resolve(ctx context.Context, req *dns.Msg, client netip.Addr, 
 
 // lookup answers from the cache or the upstreams. An ANY query is answered
 // NOTIMP, as the dnsproxy backend does, because ANY answers are large and make
-// good amplification.
-func (h *handler) lookup(ctx context.Context, req *dns.Msg) (*dns.Msg, engine.Meta, error) {
+// good amplification. Only the upstream exchange takes a slot of the gate.
+func (h *handler) lookup(ctx context.Context, req *dns.Msg, client netip.Addr) (*dns.Msg, engine.Meta, error) {
 	if req.Question[0].Qtype == dns.TypeANY {
 		return new(dns.Msg).SetRcode(req, dns.RcodeNotImplemented), engine.Meta{}, nil
 	}
 	if cached, ok := h.cache.get(req); ok {
 		return cached, engine.Meta{Cached: true}, nil
 	}
+	if !h.gate.acquire(client) {
+		h.drop("too many upstream queries in flight", client)
+		return nil, engine.Meta{}, errBusy
+	}
+	defer h.gate.release(client)
 	start := time.Now()
 	resp, from, err := h.up.Exchange(ctx, upstreamQuery(req))
 	latency := time.Since(start)

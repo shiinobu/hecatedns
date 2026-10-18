@@ -450,3 +450,18 @@ func entrySize(t *testing.T, c *cache, name string) int {
 	c.clear()
 	return size
 }
+
+func TestCache_KeySeparatesCheckingDisabled(t *testing.T) {
+	clock := newFakeClock()
+	c := testCache(clock, nil)
+	cd := queryFor("fine.example", dns.TypeA)
+	cd.CheckingDisabled = true
+	c.put(cd, answerFor(cd, 300))
+
+	if _, ok := c.get(queryFor("fine.example", dns.TypeA)); ok {
+		t.Error("a query with checking enabled was served an answer fetched with checking disabled")
+	}
+	if _, ok := c.get(cd); !ok {
+		t.Error("the query that stored the answer missed its own entry")
+	}
+}

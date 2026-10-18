@@ -19,6 +19,9 @@ const (
 	// (the dnsproxy backend shares them: open question Q4).
 	maxTCPConns = 64
 
+	// maxTCPConnsPerIP keeps one host from holding every one of them.
+	maxTCPConnsPerIP = 8
+
 	// tcpIdleTimeout closes a connection that sends nothing after its first
 	// query; tcpReadTimeout bounds the wait for the first query and each message.
 	tcpIdleTimeout = 10 * time.Second
@@ -59,14 +62,17 @@ func listenAddrs(listen []string) ([]netip.AddrPort, error) {
 // response and holds exactly one question is passed on, whatever its opcode: the
 // engine answers NOTIMP for a non-QUERY opcode and records it, which the default
 // accept function would do silently. A response is ignored, since answering one
-// is how reflection loops start.
+// is how reflection loops start. A message with another number of questions or
+// with extra records is ignored too: miekg would answer it FORMERR before the
+// ACL, the rate limiter and the query log see it (dnsproxy does that; native
+// stays silent, and no real client sends such a message).
 func acceptMsg(dh dns.Header) dns.MsgAcceptAction {
 	const qrBit = 1 << 15
 	switch {
 	case dh.Bits&qrBit != 0:
 		return dns.MsgIgnore
 	case dh.Qdcount != 1 || dh.Ancount > 1 || dh.Nscount > 1 || dh.Arcount > 2:
-		return dns.MsgReject
+		return dns.MsgIgnore
 	}
 	return dns.MsgAccept
 }
@@ -75,18 +81,30 @@ func acceptMsg(dh dns.Header) dns.MsgAcceptAction {
 // buffer (WSAEMSGSIZE). Elsewhere the kernel truncates silently.
 const wsaEMsgSize = syscall.Errno(10040)
 
-// tolerantReader wraps miekg's reader so that one oversized datagram does not
-// stop the UDP server. miekg treats every read error that is not temporary as
-// fatal and returns from the serve loop, which would let any host on the network
-// switch DNS off with a single packet.
+// readRetryPause keeps the serve loop from spinning on a read that keeps failing.
+const readRetryPause = 10 * time.Millisecond
+
+// tolerantReader wraps miekg's reader so that a failed UDP read does not stop
+// the UDP server. miekg treats every read error that is not temporary as fatal
+// and returns from the serve loop, which would let any host on the network
+// switch DNS off with a single packet (on Windows an oversized datagram fails the
+// read with WSAEMSGSIZE). Only a closed socket, which is how shutdown ends the
+// loop, is left fatal.
 type tolerantReader struct{ dns.Reader }
 
 func (r tolerantReader) ReadUDP(conn *net.UDPConn, timeout time.Duration) ([]byte, *dns.SessionUDP, error) {
 	m, s, err := r.Reader.ReadUDP(conn, timeout)
-	if errors.Is(err, wsaEMsgSize) {
-		return nil, nil, temporaryError{err}
+	if err == nil || errors.Is(err, net.ErrClosed) {
+		return m, s, err
 	}
-	return m, s, err
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return m, s, err
+	}
+	if !errors.Is(err, wsaEMsgSize) {
+		time.Sleep(readRetryPause)
+	}
+	return nil, nil, temporaryError{err}
 }
 
 // temporaryError marks a read error the serve loop may skip.
@@ -102,25 +120,71 @@ type limitListener struct {
 	slots     chan struct{}
 	done      chan struct{}
 	closeOnce sync.Once
+
+	perIP  int
+	mu     sync.Mutex
+	counts map[netip.Addr]int
 }
 
-func newLimitListener(l net.Listener, limit int) *limitListener {
-	return &limitListener{Listener: l, slots: make(chan struct{}, limit), done: make(chan struct{})}
+// newLimitListener caps l at limit open connections, and at perIP from any one
+// client address, so one host cannot take every slot.
+func newLimitListener(l net.Listener, limit, perIP int) *limitListener {
+	return &limitListener{
+		Listener: l, slots: make(chan struct{}, limit), done: make(chan struct{}),
+		perIP: perIP, counts: make(map[netip.Addr]int),
+	}
 }
 
-// Accept implements net.Listener.
+// Accept implements net.Listener. A connection from an address that already has
+// its share is closed at once and the wait for the next one goes on.
 func (l *limitListener) Accept() (net.Conn, error) {
-	select {
-	case l.slots <- struct{}{}:
-	case <-l.done:
-		return nil, net.ErrClosed
+	for {
+		select {
+		case l.slots <- struct{}{}:
+		case <-l.done:
+			return nil, net.ErrClosed
+		}
+		conn, err := l.Listener.Accept()
+		if err != nil {
+			<-l.slots
+			return nil, err
+		}
+		ip := remoteIP(conn)
+		if !l.reserve(ip) {
+			_ = conn.Close()
+			<-l.slots
+			continue
+		}
+		return &limitConn{Conn: conn, release: func() { l.unreserve(ip); <-l.slots }}, nil
 	}
-	conn, err := l.Listener.Accept()
+}
+
+// remoteIP returns the peer address of conn without a port, IPv4-mapped IPv6
+// unmapped. An address that cannot be parsed counts as the zero address.
+func remoteIP(conn net.Conn) netip.Addr {
+	ap, err := netip.ParseAddrPort(conn.RemoteAddr().String())
 	if err != nil {
-		<-l.slots
-		return nil, err
+		return netip.Addr{}
 	}
-	return &limitConn{Conn: conn, release: func() { <-l.slots }}, nil
+	return ap.Addr().Unmap()
+}
+
+func (l *limitListener) reserve(ip netip.Addr) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.counts[ip] >= l.perIP {
+		return false
+	}
+	l.counts[ip]++
+	return true
+}
+
+func (l *limitListener) unreserve(ip netip.Addr) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.counts[ip]--; l.counts[ip] <= 0 {
+		delete(l.counts, ip)
+	}
 }
 
 // Close implements net.Listener and wakes an Accept that waits for a slot.
@@ -170,7 +234,7 @@ func bind(addrs []netip.AddrPort) ([]socket, error) {
 			closeAll()
 			return nil, fmt.Errorf("listening on tcp %s: %w", ap, err)
 		}
-		socks = append(socks, socket{udp: udp, tcp: newLimitListener(tcp, maxTCPConns)})
+		socks = append(socks, socket{udp: udp, tcp: newLimitListener(tcp, maxTCPConns, maxTCPConnsPerIP)})
 	}
 	return socks, nil
 }
@@ -197,9 +261,10 @@ func servers(socks []socket, h dns.Handler, started func()) []*dns.Server {
 	return out
 }
 
-// serve runs the servers until ctx ends or one fails, then shuts them all down
-// with a fresh deadline. started is closed once every server listens.
-func serve(ctx context.Context, srvs []*dns.Server, started *sync.WaitGroup, ready func()) error {
+// serve runs the servers until ctx ends or one fails, then shuts them all down.
+// started counts the servers that listen. stopQueries cancels the queries in
+// flight; it runs first, so the shutdown does not wait for a slow upstream.
+func serve(ctx context.Context, srvs []*dns.Server, socks []socket, started *sync.WaitGroup, ready, stopQueries func()) error {
 	failed := make(chan error, len(srvs))
 	for _, srv := range srvs {
 		go func() { failed <- srv.ActivateAndServe() }()
@@ -228,6 +293,7 @@ func serve(ctx context.Context, srvs []*dns.Server, started *sync.WaitGroup, rea
 		stopped(err)
 	}
 
+	stopQueries()
 	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
 	errs := []error{runErr}
@@ -236,8 +302,26 @@ func serve(ctx context.Context, srvs []*dns.Server, started *sync.WaitGroup, rea
 			errs = append(errs, fmt.Errorf("native backend: shutdown: %w", err))
 		}
 	}
-	for ; pending > 0; pending-- {
-		<-failed
+	// miekg only stops a server that is running. One that had not started yet
+	// when Shutdown ran would start serving afterwards and never return, so the
+	// sockets are closed as well: such a server then fails its first read and
+	// returns at once.
+	for _, s := range socks {
+		_ = s.udp.Close()
+		_ = s.tcp.Close()
+	}
+	deadline := time.After(shutdownTimeout)
+	for pending > 0 {
+		select {
+		case err := <-failed:
+			pending--
+			if err != nil && !errors.Is(err, net.ErrClosed) {
+				errs = append(errs, fmt.Errorf("native backend: server stopped: %w", err))
+			}
+		case <-deadline:
+			errs = append(errs, errors.New("native backend: servers did not stop in time"))
+			pending = 0
+		}
 	}
 	return errors.Join(errs...)
 }

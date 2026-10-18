@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/miekg/dns"
 
@@ -303,25 +304,6 @@ func TestHandler_RateLimitedQueriesAreDroppedWithoutAnAnswer(t *testing.T) {
 	}
 }
 
-func TestHandler_NoFreeSlotDropsUDPAndAnswersTCPServFail(t *testing.T) {
-	h := newTestHandler(&fakeFilter{}, okExchanger())
-	for i := 0; i < cap(h.slots); i++ {
-		h.slots <- struct{}{}
-	}
-
-	udp := udpWriter("192.168.1.150")
-	h.ServeDNS(udp, queryFor("fine.example", dns.TypeA))
-	tcp := tcpWriter("192.168.1.150")
-	h.ServeDNS(tcp, queryFor("fine.example", dns.TypeA))
-
-	if udp.count() != 0 {
-		t.Error("a UDP query without a free slot was answered")
-	}
-	if got := tcp.only(t).Rcode; got != dns.RcodeServerFailure {
-		t.Errorf("TCP rcode = %s, want SERVFAIL", dns.RcodeToString[got])
-	}
-}
-
 // bigExchanger answers with n A records, enough to overflow a classic UDP packet.
 func bigExchanger(n int) *fakeExchanger {
 	return &fakeExchanger{fn: func(q *dns.Msg) (*dns.Msg, error) {
@@ -414,5 +396,130 @@ func TestUpstreamQuery_KeepsOnlyTheQuestionAndFlags(t *testing.T) {
 	}
 	if len(opt.Option) != 2 {
 		t.Error("the client's own message was modified")
+	}
+}
+
+func TestHandler_UpstreamQueriesBeyondTheLimitGetServFailButCacheAndBlocksStillWork(t *testing.T) {
+	f := &fakeFilter{before: func(q engine.Query) engine.Decision {
+		if q.Req.Question[0].Name == "ads.test." {
+			return engine.Decision{Verdict: engine.Block, Resp: new(dns.Msg).SetRcode(q.Req, dns.RcodeNameError)}
+		}
+		return engine.Decision{Verdict: engine.Pass}
+	}}
+	up := okExchanger()
+	h := newTestHandler(f, up)
+	h.ServeDNS(udpWriter("192.168.1.150"), queryFor("cached.example", dns.TypeA))
+	h.gate.total = h.gate.maxTotal
+
+	miss := udpWriter("192.168.1.150")
+	h.ServeDNS(miss, queryFor("fresh.example", dns.TypeA))
+	hit := udpWriter("192.168.1.150")
+	h.ServeDNS(hit, queryFor("cached.example", dns.TypeA))
+	blocked := udpWriter("192.168.1.150")
+	h.ServeDNS(blocked, queryFor("ads.test", dns.TypeA))
+
+	if got := miss.only(t).Rcode; got != dns.RcodeServerFailure {
+		t.Errorf("cache miss with every upstream slot taken: rcode %s, want SERVFAIL", dns.RcodeToString[got])
+	}
+	if len(f.failed) != 1 {
+		t.Errorf("Failed called %d times, want 1 so the query is logged", len(f.failed))
+	}
+	if up.calls() != 1 {
+		t.Errorf("upstream asked %d times, want only the warm-up query", up.calls())
+	}
+	if len(hit.only(t).Answer) != 1 {
+		t.Error("a cache hit was refused because the upstream slots were taken")
+	}
+	if got := blocked.only(t).Rcode; got != dns.RcodeNameError {
+		t.Errorf("blocked query rcode %s, want the engine's NXDOMAIN", dns.RcodeToString[got])
+	}
+}
+
+func TestHandler_OneClientCannotTakeAllTheUpstreamSlots(t *testing.T) {
+	h := newTestHandler(&fakeFilter{}, okExchanger())
+	greedy := netip.MustParseAddr("192.168.1.66")
+	h.gate.perClient[greedy] = h.gate.maxPerClient
+
+	blocked := udpWriter("192.168.1.66")
+	h.ServeDNS(blocked, queryFor("one.example", dns.TypeA))
+	other := udpWriter("192.168.1.150")
+	h.ServeDNS(other, queryFor("two.example", dns.TypeA))
+
+	if got := blocked.only(t).Rcode; got != dns.RcodeServerFailure {
+		t.Errorf("client at its limit: rcode %s, want SERVFAIL", dns.RcodeToString[got])
+	}
+	if got := other.only(t).Rcode; got != dns.RcodeSuccess {
+		t.Errorf("another client: rcode %s, want it served normally", dns.RcodeToString[got])
+	}
+}
+
+func TestHandler_SlotsAreGivenBackAfterEveryQuery(t *testing.T) {
+	h := newTestHandler(&fakeFilter{}, okExchanger())
+	for i := 0; i < 3; i++ {
+		h.ServeDNS(udpWriter("192.168.1.150"), queryFor(fmt.Sprintf("n%d.example", i), dns.TypeA))
+	}
+	if h.gate.total != 0 || len(h.gate.perClient) != 0 {
+		t.Errorf("gate holds %d slots for %d clients after the queries ended, want none", h.gate.total, len(h.gate.perClient))
+	}
+}
+
+type hangingUpstream struct{ calls chan struct{} }
+
+func (u *hangingUpstream) Exchange(ctx context.Context, _ *dns.Msg) (*dns.Msg, string, error) {
+	u.calls <- struct{}{}
+	<-ctx.Done()
+	return nil, "", ctx.Err()
+}
+
+func TestHandler_ResolvingHasADeadline(t *testing.T) {
+	f := &fakeFilter{}
+	up := &hangingUpstream{calls: make(chan struct{}, 1)}
+	h := newTestHandler(f, up)
+	h.timeout = 100 * time.Millisecond
+	w := udpWriter("192.168.1.150")
+
+	done := make(chan struct{})
+	go func() { h.ServeDNS(w, queryFor("slow.example", dns.TypeA)); close(done) }()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("a query whose upstream never answers held its slot for more than 3 s")
+	}
+	if got := w.only(t).Rcode; got != dns.RcodeServerFailure || len(f.failed) != 1 {
+		t.Errorf("rcode %s, Failed called %d times; want SERVFAIL and 1", dns.RcodeToString[got], len(f.failed))
+	}
+}
+
+func TestHandler_ShutdownCancelsQueriesInFlight(t *testing.T) {
+	up := &hangingUpstream{calls: make(chan struct{}, 1)}
+	h := newTestHandler(&fakeFilter{}, up)
+	base, cancel := context.WithCancel(context.Background())
+	h.base = base
+	w := udpWriter("192.168.1.150")
+
+	done := make(chan struct{})
+	go func() { h.ServeDNS(w, queryFor("slow.example", dns.TypeA)); close(done) }()
+	<-up.calls
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("a query in flight was not cancelled when the backend shut down")
+	}
+}
+
+func TestHandler_BlockFromAfterWithoutAnAnswerFailsClosed(t *testing.T) {
+	f := &fakeFilter{after: func(engine.Query, *dns.Msg, engine.Meta) engine.Decision {
+		return engine.Decision{Verdict: engine.Block}
+	}}
+	h := newTestHandler(f, okExchanger())
+	w := udpWriter("192.168.1.150")
+
+	h.ServeDNS(w, queryFor("cloaked.example", dns.TypeA))
+
+	if got := w.only(t).Rcode; got != dns.RcodeServerFailure {
+		t.Errorf("rcode = %s, want SERVFAIL rather than the answer the engine wanted blocked", dns.RcodeToString[got])
 	}
 }

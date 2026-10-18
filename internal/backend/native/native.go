@@ -88,10 +88,15 @@ func (s *server) Run(ctx context.Context) (err error) {
 	s.udpAddr.Store(&udp)
 	s.tcpAddr.Store(&tcp)
 
+	// Queries run under this context, which is cancelled when the shutdown begins.
+	queries, stopQueries := context.WithCancel(context.Background())
+	defer stopQueries()
+	s.handler.base = queries
+
 	var started sync.WaitGroup
 	srvs := servers(socks, s.handler, started.Done)
 	started.Add(len(srvs))
-	return serve(ctx, srvs, &started, s.markReady)
+	return serve(ctx, srvs, socks, &started, s.markReady, stopQueries)
 }
 
 func (s *server) markReady() {

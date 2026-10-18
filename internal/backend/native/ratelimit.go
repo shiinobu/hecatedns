@@ -21,6 +21,11 @@ const (
 	// idleAfter is how long a client may be silent before it is forgotten when
 	// the table is full.
 	idleAfter = time.Minute
+
+	// sweepEvery is the shortest time between two scans of a full table. A scan
+	// visits every entry under the lock, so scanning for every new source would let
+	// a flood of spoofed addresses serialise all queries.
+	sweepEvery = time.Second
 )
 
 // bucket is one client's token bucket.
@@ -38,7 +43,10 @@ type limiter struct {
 	rate    float64
 	burst   float64
 	max     int
-	now     func() time.Time
+
+	lastSweep time.Time
+	sweeps    int // number of sweeps so far, for tests
+	now       func() time.Time
 }
 
 func newLimiter() *limiter {
@@ -59,8 +67,10 @@ func (l *limiter) allow(client netip.Addr) bool {
 	now := l.now()
 	b, ok := l.buckets[client]
 	if !ok {
-		if len(l.buckets) >= l.max {
+		if len(l.buckets) >= l.max && now.Sub(l.lastSweep) >= sweepEvery {
 			l.forgetIdleLocked(now)
+			l.lastSweep = now
+			l.sweeps++
 		}
 		if len(l.buckets) >= l.max {
 			return true

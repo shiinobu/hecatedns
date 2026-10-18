@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -177,9 +178,9 @@ func TestAcceptMsg(t *testing.T) {
 		{"query with EDNS", dns.Header{Qdcount: 1, Arcount: 1}, dns.MsgAccept},
 		{"response", dns.Header{Bits: 1 << 15, Qdcount: 1}, dns.MsgIgnore},
 		{"update opcode still reaches the engine", dns.Header{Bits: uint16(dns.OpcodeUpdate) << 11, Qdcount: 1}, dns.MsgAccept},
-		{"no question", dns.Header{}, dns.MsgReject},
-		{"two questions", dns.Header{Qdcount: 2}, dns.MsgReject},
-		{"many records", dns.Header{Qdcount: 1, Ancount: 9}, dns.MsgReject},
+		{"no question", dns.Header{}, dns.MsgIgnore},
+		{"two questions", dns.Header{Qdcount: 2}, dns.MsgIgnore},
+		{"many records", dns.Header{Qdcount: 1, Ancount: 9}, dns.MsgIgnore},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -214,7 +215,7 @@ func TestLimitListener_WaitsForAFreeSlotAndReleasesOnClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := newLimitListener(raw, 2)
+	l := newLimitListener(raw, 2, 10)
 	defer l.Close()
 	dial := func() net.Conn {
 		c, err := net.Dial("tcp", raw.Addr().String())
@@ -264,7 +265,7 @@ func TestLimitListener_CloseWakesAWaitingAccept(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := newLimitListener(raw, 1)
+	l := newLimitListener(raw, 1, 10)
 	l.slots <- struct{}{} // take the only slot
 
 	done := make(chan error, 1)
@@ -283,4 +284,132 @@ func TestLimitListener_CloseWakesAWaitingAccept(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Close did not wake the Accept that waited for a slot")
 	}
+}
+
+// errReader is a dns.Reader whose reads all fail with err.
+type errReader struct{ err error }
+
+func (r errReader) ReadTCP(net.Conn, time.Duration) ([]byte, error) { return nil, r.err }
+func (r errReader) ReadUDP(*net.UDPConn, time.Duration) ([]byte, *dns.SessionUDP, error) {
+	return nil, nil, r.err
+}
+
+func TestTolerantReader_OnlyAClosedSocketEndsTheServeLoop(t *testing.T) {
+	cases := []struct {
+		name      string
+		err       error
+		temporary bool
+	}{
+		{"datagram larger than the buffer", wsaEMsgSize, true},
+		{"any other read failure", errors.New("wsarecvfrom: some network error"), true},
+		{"socket closed by shutdown", net.ErrClosed, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := tolerantReader{errReader{tc.err}}.ReadUDP(nil, 0)
+
+			var netErr net.Error
+			isTemporary := errors.As(err, &netErr) && netErr.Temporary()
+			if isTemporary != tc.temporary {
+				t.Errorf("error %v: temporary = %v, want %v", err, isTemporary, tc.temporary)
+			}
+			if err == nil {
+				t.Error("the error was swallowed")
+			}
+		})
+	}
+}
+
+func TestLimitListener_CapsConnectionsPerClientAddress(t *testing.T) {
+	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := newLimitListener(raw, 10, 2)
+	defer l.Close()
+	dial := func() net.Conn {
+		c, err := net.Dial("tcp", raw.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { c.Close() })
+		return c
+	}
+
+	dial()
+	first, err := acceptWithin(t, l, time.Second)
+	if err != nil {
+		t.Fatalf("first Accept: %v", err)
+	}
+	dial()
+	if _, err := acceptWithin(t, l, time.Second); err != nil {
+		t.Fatalf("second Accept: %v", err)
+	}
+
+	pending := make(chan net.Conn, 1)
+	go func() {
+		c, err := l.Accept()
+		if err == nil {
+			pending <- c
+		}
+	}()
+	third := dial()
+	_ = third.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := third.Read(make([]byte, 1)); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Errorf("third connection from the same address: read = %v, want it closed by the server", err)
+	}
+	select {
+	case <-pending:
+		t.Fatal("a third connection from one address was accepted")
+	default:
+	}
+
+	_ = first.Close()
+	dial()
+	select {
+	case <-pending:
+	case <-time.After(time.Second):
+		t.Error("a connection was still refused after the address was back under its limit")
+	}
+}
+
+func TestServer_StopsWhenCancelledBeforeItHasStarted(t *testing.T) {
+	probe, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := probe.LocalAddr().String()
+	_ = probe.Close()
+	cfg := config.Default()
+	cfg.Listen = []string{addr}
+	cfg.Upstreams = []string{"192.0.2.1"}
+	cfg.Bootstrap = nil
+	s, err := newServer(cfg, &fakeFilter{}, nil, testTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- s.Run(ctx) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Run with a cancelled context = %v, want nil", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return after an immediate cancel; the servers kept running")
+	}
+
+	pc, err := net.ListenPacket("udp", addr)
+	if err != nil {
+		t.Fatalf("the UDP port is still held after Run returned: %v", err)
+	}
+	_ = pc.Close()
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		t.Fatalf("the TCP port is still held after Run returned: %v", err)
+	}
+	_ = ln.Close()
 }
