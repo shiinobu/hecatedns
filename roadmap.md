@@ -1,6 +1,6 @@
 # xdns — Roadmap
 
-*Versi 1.0 | 2026-10-18 | Status: **menunggu review Master**. Fase 0 dimulai setelah Master bilang "mulai".*
+*Versi 1.0 | 2026-10-18 | Status: **Fase 0 selesai**; Fase 1 berikutnya.*
 
 Roadmap ini adalah alur kerja bertahap. Desain teknisnya ada di `architecture.md`, dasar risetnya di `research.md`. Kode `D#`, `S#`, `R#` merujuk ke tabel keputusan, kriteria sukses, dan risiko di `architecture.md`.
 
@@ -197,3 +197,4 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 | Tanggal | Perubahan |
 |---|---|
 | 2026-10-18 | Versi 1.0 dibuat. Urutan fase menaruh tes di HP (Fase 3) sebelum backend `native` (Fase 4) |
+| 2026-10-18 | Fase 0 selesai. `yaml.v3` dipasang di Tugas 2 (bukan Tugas 1) karena baru dipakai di sana; nilai bawaan ada di `config.Default()`; `.gitattributes` memaksa akhir baris LF agar `gofmt` bersih di Windows |

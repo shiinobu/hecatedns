@@ -1,6 +1,6 @@
 # xdns — Arsitektur
 
-*Versi 1.0 | 2026-10-18 | Status: **menunggu review Master** | Penulis: Claude (keputusan desain didelegasikan penuh oleh Master)*
+*Versi 1.0 | 2026-10-18 | Status: **disetujui Master, Fase 0 selesai** | Penulis: Claude (keputusan desain didelegasikan penuh oleh Master)*
 
 Dokumen ini adalah spesifikasi desain xdns. Urutan kerja ada di `roadmap.md`. Dasar riset dan sumbernya ada di `research.md` (rujukan "riset §N" di bawah menunjuk ke sana).
 
@@ -366,7 +366,7 @@ log:
 data_dir: data
 ```
 
-Validasi saat start (kunci tak dikenal, CIDR tak sah, URL daftar bukan `https`, `mode` tak dikenal, backend tak dikenal, TTL negatif → galat dengan pesan jelas dan keluar kode ≠ 0). Jalur relatif dihitung dari lokasi berkas konfigurasi.
+Validasi saat start (kunci tak dikenal, CIDR tak sah, URL daftar bukan `https`, `mode` tak dikenal, backend tak dikenal, TTL negatif → galat dengan pesan jelas dan keluar kode ≠ 0). Jalur relatif dihitung dari lokasi berkas konfigurasi. Kunci yang tidak ditulis memakai nilai bawaan yang sama dengan contoh ini (`config.Default()`); daftar blokir tidak punya nilai bawaan, jadi tanpa sumber daftar yang aktif `xdns check` memberi peringatan.
 
 ---
 
