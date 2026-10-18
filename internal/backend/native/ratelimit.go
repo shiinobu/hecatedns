@@ -8,11 +8,12 @@ import (
 
 const (
 	// A client may send a burst of rateBurst queries and then rateLimit per
-	// second. A phone opening a busy page sends a few dozen at once, so the
-	// burst is generous; sustained 100 per second is far above any real client
-	// and only a flood reaches it.
-	rateLimit = 100.0
-	rateBurst = 200.0
+	// second. A phone opening a busy page sends a few dozen at once, and an
+	// ad-block test page such as adblock.turtlecute.org sends about 255 within
+	// half a second (A and HTTPS for every host), so the burst leaves room for
+	// that; only a flood reaches the sustained rate.
+	rateLimit = 200.0
+	rateBurst = 500.0
 
 	// maxTrackedClients bounds the table, which spoofed UDP source addresses
 	// could otherwise grow without limit.

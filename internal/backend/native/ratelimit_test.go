@@ -142,3 +142,39 @@ func TestLimiter_FullTableIsSweptAtMostOncePerSecond(t *testing.T) {
 		t.Errorf("sweeps after a second passed = %d, want 2", l.sweeps)
 	}
 }
+
+func TestLimiter_DefaultsAbsorbABrowserAdblockTestBurst(t *testing.T) {
+	clock := newFakeClock()
+	l := newLimiterAt(rateLimit, rateBurst, maxTrackedClients, clock.Now)
+	client := netip.MustParseAddr("192.168.1.150")
+
+	const queries, window = 300, 500 * time.Millisecond
+	dropped := 0
+	for i := 0; i < queries; i++ {
+		if !l.allow(client) {
+			dropped++
+		}
+		clock.Advance(window / queries)
+	}
+	if dropped != 0 {
+		t.Errorf("%d of %d queries sent within %v were dropped; adblock.turtlecute.org sent 255 in about that long from one phone", dropped, queries, window)
+	}
+}
+
+func TestLimiter_DefaultsStillStopAFlood(t *testing.T) {
+	clock := newFakeClock()
+	l := newLimiterAt(rateLimit, rateBurst, maxTrackedClients, clock.Now)
+	client := netip.MustParseAddr("192.168.1.150")
+
+	const queries = 10000
+	allowed := 0
+	for i := 0; i < queries; i++ {
+		if l.allow(client) {
+			allowed++
+		}
+		clock.Advance(time.Second / queries)
+	}
+	if limit := int(rateBurst + rateLimit); allowed > limit {
+		t.Errorf("%d of %d queries in one second were allowed, want at most %d", allowed, queries, limit)
+	}
+}
