@@ -158,7 +158,7 @@ func (e *Engine) Before(ctx context.Context, q Query) Decision {
 // After inspects the answer of a forwarded query (including its CNAME chain)
 // and records the final decision. It never modifies resp.
 func (e *Engine) After(ctx context.Context, q Query, resp *dns.Msg, m Meta) Decision {
-	if resp != nil && !m.Cached {
+	if resp != nil && m.Upstream != "" {
 		e.health.answered(e.log)
 	}
 	// agy wrote this

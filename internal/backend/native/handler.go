@@ -142,12 +142,16 @@ func (h *handler) resolve(ctx context.Context, req *dns.Msg, client netip.Addr, 
 	return got
 }
 
-// lookup answers from the cache or the upstreams. An ANY query is answered
+// lookup answers from the cache or the upstreams. A reverse lookup of a private
+// address is answered locally (see isLocalReverse). An ANY query is answered
 // NOTIMP, as the dnsproxy backend does, because ANY answers are large and make
 // good amplification. Only the upstream exchange takes a slot of the gate.
 func (h *handler) lookup(ctx context.Context, req *dns.Msg, client netip.Addr) (*dns.Msg, engine.Meta, error) {
 	if req.Question[0].Qtype == dns.TypeANY {
 		return new(dns.Msg).SetRcode(req, dns.RcodeNotImplemented), engine.Meta{}, nil
+	}
+	if isLocalReverse(req.Question[0]) {
+		return localReverseReply(req), engine.Meta{}, nil
 	}
 	if cached, ok := h.cache.get(req); ok {
 		return cached, engine.Meta{Cached: true}, nil

@@ -54,6 +54,7 @@ var cases = []testCase{
 	{"CNAME to a blocked domain is blocked on both upstream and cache hit", blockedCNAMEAndCacheHit},
 	{"special names answer NXDOMAIN for canary and NODATA for DDR", specialNames}, // agy wrote this
 	{"an oversized or malformed UDP datagram does not stop the server", oversizedDatagram},
+	{"reverse lookups of private addresses are answered NXDOMAIN and never leave the machine", privateReverse},
 }
 
 var blockSetup = setup{blockList: []string{"ads.test"}}
@@ -345,4 +346,30 @@ func answerIP(rr dns.RR) net.IP {
 		return v.AAAA
 	}
 	return nil
+}
+
+// privateReverse: a PTR for a private address (RFC 6303) says nothing a public
+// resolver could know, and asking it would tell Cloudflare or Google which
+// hosts are on the home network. Public addresses still go upstream.
+func privateReverse(t *testing.T, factory backend.Factory) {
+	h := start(t, factory, setup{})
+
+	for _, name := range []string{"99.1.168.192.in-addr.arpa", "1.0.0.10.in-addr.arpa", "9.16.172.in-addr.arpa", "1.0.0.127.in-addr.arpa"} {
+		resp := h.ask("udp", name, dns.TypePTR)
+		if resp.Rcode != dns.RcodeNameError || len(resp.Answer) != 0 {
+			t.Errorf("PTR %s: rcode %s with %d answers, want NXDOMAIN", name, dns.RcodeToString[resp.Rcode], len(resp.Answer))
+		}
+		if got := h.upstream.queries(name); got != 0 {
+			t.Errorf("PTR %s reached the upstream %d times", name, got)
+		}
+	}
+	h.ask("udp", "8.8.8.8.in-addr.arpa", dns.TypePTR)
+	if got := h.upstream.queries("8.8.8.8.in-addr.arpa"); got != 1 {
+		t.Errorf("PTR for a public address reached the upstream %d times, want 1", got)
+	}
+	for _, e := range h.entries(5)[:4] {
+		if e.Action != engine.ActionPass || e.RCode != "NXDOMAIN" || e.Upstream != "" {
+			t.Errorf("record = %+v, want a pass answered locally with NXDOMAIN", e)
+		}
+	}
 }

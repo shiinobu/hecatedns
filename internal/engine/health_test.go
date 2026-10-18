@@ -244,3 +244,16 @@ func TestUpstreamHealth_ConcurrentUse(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestAfter_AnAnswerMadeLocallySaysNothingAboutTheUpstreams(t *testing.T) {
+	e, logs, _ := newHealthEngine(t)
+	for i := 0; i < 5; i++ {
+		failQuery(e, errors.New("down"))
+	}
+	answerQuery(e, Meta{})
+	answerQuery(e, Meta{})
+
+	if got := len(logs.at(slog.LevelInfo)); got != 0 {
+		t.Errorf("%d recovery lines caused by answers no upstream gave (a local reverse answer), want none", got)
+	}
+}
