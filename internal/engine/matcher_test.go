@@ -2,9 +2,12 @@ package engine
 
 import (
 	"fmt"
+	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func mustSet(t *testing.T, entries ...string) *DomainSet {
@@ -193,5 +196,93 @@ func BenchmarkDomainSet_Match(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = set.Match(queries[i%len(queries)])
+	}
+}
+
+// agy wrote this
+func build250kListSet() *ListSet {
+	makeList := func(prefix string, n int) *DomainSet {
+		raw := make([]string, n)
+		for i := range raw {
+			raw[i] = fmt.Sprintf("%s-%d.net-%d.example.com", prefix, i, i%251)
+		}
+		set, _ := NewDomainSet(raw)
+		return set
+	}
+	return NewListSet(nil, []NamedSet{
+		{Name: "hagezi-pro", Set: makeList("pro", 202000)},
+		{Name: "hagezi-popups", Set: makeList("popup", 47500)},
+		{Name: "abpindo", Set: makeList("indo", 500)},
+	})
+}
+
+// agy wrote this
+func BenchmarkListSet_Lookup250k(b *testing.B) {
+	lists := build250kListSet()
+	queries := []string{
+		"pro-150000.net-99.example.com",
+		"a.b.popup-40000.net-92.example.com",
+		"sub.indo-400.net-149.example.com",
+		"www.clean-site-not-in-any-list.org",
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = lists.LookupBlock(queries[i%len(queries)])
+	}
+}
+
+// agy wrote this
+func TestListSet_Budget250k(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping 250k budget measurement in -short mode")
+	}
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+
+	lists := build250kListSet()
+
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+	var heapDeltaMB float64
+	if after.HeapInuse > before.HeapInuse {
+		heapDeltaMB = float64(after.HeapInuse-before.HeapInuse) / (1 << 20)
+	}
+	sysMB := float64(after.Sys) / (1 << 20)
+
+	queries := []string{
+		"pro-150000.net-99.example.com",
+		"a.b.popup-40000.net-92.example.com",
+		"sub.indo-400.net-149.example.com",
+		"www.clean-site-not-in-any-list.org",
+	}
+	const (
+		batches   = 500
+		batchSize = 500
+	)
+	samples := make([]time.Duration, batches)
+	for b := 0; b < batches; b++ {
+		start := time.Now()
+		for j := 0; j < batchSize; j++ {
+			_, _ = lists.LookupBlock(queries[(b*batchSize+j)%len(queries)])
+		}
+		samples[b] = time.Since(start) / batchSize
+	}
+	slices.Sort(samples)
+	runtime.KeepAlive(lists)
+
+	p50 := samples[len(samples)*50/100]
+	p95 := samples[len(samples)*95/100]
+	p99 := samples[len(samples)*99/100]
+	t.Logf("250k entries budget: heap_inuse_delta=%.2f MiB, sys=%.2f MiB, p50=%v, p95=%v, p99=%v",
+		heapDeltaMB, sysMB, p50, p95, p99)
+
+	if heapDeltaMB > 150 {
+		t.Errorf("heap delta = %.2f MiB, exceeds 150 MiB budget", heapDeltaMB)
+	}
+	if p99 > 50*time.Microsecond {
+		t.Errorf("lookup p99 = %v, exceeds 50 µs budget", p99)
 	}
 }
