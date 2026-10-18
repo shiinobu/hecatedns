@@ -18,6 +18,12 @@ const (
 	// the map slot, the list element, the key and the Msg struct.
 	entryOverhead = 128
 
+	// recordOverhead is the estimated heap cost of one resource record beyond its
+	// packed size (the interface value, the header, the name string). The packed
+	// length alone would let a cache full of small records use several times its
+	// configured size.
+	recordOverhead = 64
+
 	// minLifetime is the shortest remaining life an entry is still served with.
 	// A smaller value would show up as TTL 0, which clients read as "do not use".
 	minLifetime = time.Second
@@ -139,7 +145,9 @@ func (c *cache) put(req, resp *dns.Msg) {
 	}
 	msg := resp.Copy()
 	msg.Extra = withoutOPT(msg.Extra)
-	e := &cacheEntry{key: key, msg: msg, stored: c.now(), lifetime: life, size: msg.Len() + len(key.name) + entryOverhead}
+	records := len(msg.Answer) + len(msg.Ns) + len(msg.Extra)
+	size := msg.Len() + len(key.name) + entryOverhead + records*recordOverhead
+	e := &cacheEntry{key: key, msg: msg, stored: c.now(), lifetime: life, size: size}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
