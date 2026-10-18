@@ -1,6 +1,6 @@
 # xdns — Roadmap
 
-*Versi 1.4 | 2026-10-19 | Status: **Fase 0, Fase 1, Fase 2, dan Fase 3 selesai; Fase 4 selesai di sisi kode dan tes** (laporan: `phase-0-report.md`, `phase-1-report.md`, `phase-2-report.md`, `phase-3-report.md`, `phase-4-report.md`, `test-report.md`); tinggal tes HP dengan `backend: native` (menunggu Master), lalu Fase 5.*
+*Versi 1.5 | 2026-10-19 | Status: **Fase 0 sampai Fase 5 selesai** (laporan: `phase-0-report.md` sampai `phase-5-report.md`, `test-report.md`). Uji 7 hari (S4) dipindah ke Fase 6 di VPS atas keputusan Master. Berikutnya Fase 6, dimulai dari gerbang G3, hanya setelah Master bilang "lanjut".*
 
 Roadmap ini adalah alur kerja bertahap. Desain teknisnya ada di `architecture.md`, dasar risetnya di `research.md`. Kode `D#`, `S#`, `R#` merujuk ke tabel keputusan, kriteria sukses, dan risiko di `architecture.md`.
 
@@ -25,7 +25,7 @@ Roadmap ini adalah alur kerja bertahap. Desain teknisnya ada di `architecture.md
 | 2 | Daftar + CNAME + nama khusus | HaGeZi PRO/Pop-Up + ABPindo termuat, pemeriksaan CNAME, HTTPS/SVCB, `xdns check` | 1–2 sesi | Rp0 |
 | 3 | **Tes di HP (Wi-Fi rumah)** | S1–S3 terukur, penyetelan | 1 sesi + waktu tes Master | Rp0 |
 | 4 | Backend `native` + suite kesesuaian | Ganti backend dengan satu baris | 2 sesi | Rp0 |
-| 5 | Stabilisasi | Jalan otomatis saat boot, uji 7 hari (S4) | 1 sesi + 7 hari | Rp0 |
+| 5 | Stabilisasi | Jalan otomatis saat boot, review penuh Fase 4, log berbatas; uji 7 hari (S4) dipindah ke Fase 6 | 1 sesi | Rp0 |
 | 6 | VPS + DoT | HP terlindungi di luar rumah lewat Private DNS | 1–2 sesi | ≤ Rp50 ribu/bulan |
 | 7 | Opsional | UI web lokal, daftar tambahan, Plan B APK | menyesuaikan | menyesuaikan |
 
@@ -125,7 +125,7 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 
 **Tujuan.** Backend kedua (pendekatan 1) dengan perilaku keputusan yang sama, bisa ditukar lewat konfigurasi.
 
-**Hasil.** Suite kesesuaian (15 kasus) hijau pada kedua backend dari satu tabel; `backend: native` cukup satu baris; 2.000 query sampel memberi keputusan engine identik (0 beda). Diubah dari rencana atas keputusan Master: **DoT sebagai hulu ditunda** (DoH, UDP, dan TCP polos ada), dan **review fase dibuat singkat** (review penuh diwajibkan di Fase 5, dan paling lambat sebelum Fase 6). Tugas 7 (tes HP dengan `native`) menunggu Master. Lihat `phase-4-report.md`. Teks di bawah adalah rencana awal.
+**Hasil.** Suite kesesuaian (15 kasus) hijau pada kedua backend dari satu tabel; `backend: native` cukup satu baris; 2.000 query sampel memberi keputusan engine identik (0 beda). Diubah dari rencana atas keputusan Master: **DoT sebagai hulu ditunda** (DoH, UDP, dan TCP polos ada), dan **review fase dibuat singkat** (review penuh diwajibkan di Fase 5, dan paling lambat sebelum Fase 6). Tugas 7 (tes HP dengan `native`) dikerjakan di awal Fase 5 (97%, semua aman). Lihat `phase-4-report.md`. Teks di bawah adalah rencana awal.
 
 **Tugas**
 1. `native/cache`, `native/upstream` (DoH, DoT, plain, failover); tes dengan hulu palsu.
@@ -140,17 +140,19 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 
 ---
 
-## Fase 5 — Stabilisasi
+## Fase 5 — Stabilisasi — selesai 2026-10-19
 
 **Tujuan.** Berjalan sendiri tanpa dijaga.
+
+**Hasil.** Review penuh Fase 4 (0 Critical, 2 Important, 7 Minor; semua yang wajib sudah diperbaiki dengan tes lebih dulu), tes HP dengan `native` (97%, server rumah kini memakai `native`), batas laju `native` dinaikkan ke 200/detik burst 500, Ctrl+C anggun terbukti pada konsol asli di kedua backend, peringatan hulu gagal beruntun, log query pulih sesudah disk penuh, log operasional `xdns.log` berbatas ukuran, dan tugas Task Scheduler `xdns` terpasang. Diubah dari rencana atas keputusan Master: **uji 7 hari (S4) dipindah ke Fase 6 di VPS** karena PC ini dimatikan tiap malam, dan tugas Task Scheduler memakai hak biasa (bukan "tertinggi") serta pemicu berulang tiap menit, karena "restart bila gagal" terbukti tidak bekerja. Lihat `phase-5-report.md`. Teks di bawah adalah rencana awal.
 
 **Tugas**
 1. Jalan otomatis saat boot lewat Task Scheduler (hak tertinggi, mulai saat startup, restart bila gagal).
 2. Shutdown rapi pada sinyal; peringatan di log bila hulu gagal beruntun.
 3. Retensi dan rotasi log; ukuran `data/` terbatas.
-4. Uji 7 hari: catat memori, jumlah query, galat; tanpa restart manual.
+4. Uji 7 hari: catat memori, jumlah query, galat; tanpa restart manual. *(Dipindah ke Fase 6, tugas 9.)*
 
-**Selesai bila.** S4 terpenuhi.
+**Selesai bila.** S4 terpenuhi. *(Diubah: Fase 5 selesai dengan tugas 1 sampai 3 dan review; S4 diukur di Fase 6.)*
 
 ---
 
@@ -170,6 +172,8 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 7. Uji bahwa server bukan resolver terbuka (klien tanpa nama host benar ditolak).
 
 8. **Prasyarat dari tinjauan Fase 1 (I1)**: kolam slot TCP terpisah dari UDP (satu host di LAN dapat menahan 256 koneksi TCP menganggur dan menghentikan UDP; `proxy.Proxy` kedua khusus TCP atau batas koneksi per IP di depan dnsproxy); pembatas laju per IP klien; tinjau SO_REUSEPORT di Linux/Android (dnsproxy mengaktifkannya sehingga instance kedua dapat memakai port yang sama tanpa galat).
+9. **Uji 7 hari (S4), dipindah dari Fase 5**: di VPS yang hidup 24 jam; catat memori, jumlah query, galat, dan p95 latensi query lolos tanpa cache per hari; tanpa restart manual.
+10. **Utang dari review Fase 4 dan Fase 5** (wajib sebelum server terbuka ke internet): tabel pembatas laju `native` yang penuh melepas sumber baru (I2: bucket overflow atau pengusiran) dan kunci IPv6 per /64 untuk pembatas, batas TCP per alamat, dan gerbang hulu; koneksi TCP klien di luar ACL bertahan sekitar 16 menit (periksa ACL saat accept atau tutup setelah REFUSED); batas koneksi TCP per IP dan pembatas laju untuk `dnsproxy`; deduplikasi query untuk `native`; DoT sebagai hulu bila masih diinginkan; opsional M6 (gerbang hulu gagal cepat), M7 (`scripts/compare` melewati baris rusak tanpa lapor), serta M3 dan M4 dari review Fase 5 (peringatan hulu yang naik turun, `errBusy` terhitung kegagalan hulu).
 
 **Selesai bila.** HP di data seluler memblokir iklan dengan kriteria yang sama dan server tidak menjawab klien yang tidak berwenang.
 
@@ -210,4 +214,5 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 | 2026-10-18 | Fase 3 selesai (laporan: `phase-3-report.md`, `test-report.md`). Tidak ada perubahan kode Go. G2 terjawab: ICS tidak perlu dihentikan (bind khusus `192.168.1.99:53` berhasil), dua aturan firewall sempit, PC dipesan di router pada `192.168.1.99`, HP memakai `192.168.1.150`. S1: 95% lalu 97% (126 lalu 128 dari 132) pada `adblock.turtlecute.org`; `canyoublockit.com` eXtreme terblokir semua menurut pengamatan Master. S2: pemicu redirect Shopee adalah `s.shopee.co.id` (diblokir); Play Store belum pernah muncul. Aturan kustom ditambah: `ad.doubleclick.net`, `adservice.google.com`, `s.shopee.co.id`. `AGENTS.md` ditambahkan di root |
 | 2026-10-18 | Fase 2 selesai (laporan: `phase-2-report.md`). Ketiga daftar bawaan diunduh dan termuat (`hagezi-pro` 202.297, `hagezi-popups` 47.668, `abpindo` 124 — total 250.089 entri); pemeriksaan rantai CNAME di `After` (termasuk pada cache hit); nama khusus (`use-application-dns.net` NXDOMAIN, `_dns.resolver.arpa` NODATA); `selfcheck` + `xdns check` (termasuk S3 SafeSearch dan deteksi loop Q3) + `xdns lists status|update`. Benchmark 250 ribu entri: rata-rata 215–250 ns/op (0 alokasi), p99 2,01 µs (< 50 µs), memori proses hidup WorkingSet 71,74–74,20 MiB (< 150 MB). Tinjauan berkonteks baru: 0 Critical, 2 Important (I1 failover bootstrap DNS pada pengunduh daftar, I2 pemilihan sampel per daftar di `selfcheck`), 8 Minor — seluruhnya diperbaiki dengan TDD |
 | 2026-10-19 | Fase 4 selesai di sisi kode dan tes (laporan: `phase-4-report.md`); versi 1.4. Backend `native` (cache, hulu DoH/UDP/TCP dengan failover, server UDP+TCP, handler, pembatas laju) lulus suite 15 kasus yang sama dengan `dnsproxy`; 2.000 query sampel: 0 beda keputusan. Atas keputusan Master: DoT sebagai hulu ditunda, review fase dibuat singkat (review penuh wajib di Fase 5 dan paling lambat sebelum Fase 6). Temuan: satu datagram UDP besar menghentikan loop UDP miekg di Windows (diperbaiki, jadi kasus suite). Tes HP dengan `native` menunggu Master |
+| 2026-10-19 | Fase 5 selesai (laporan: `phase-5-report.md`); versi 1.5. Review penuh Fase 4 oleh agent Opus: 0 Critical, 2 Important (I1 tenggat bootstrap diperbaiki, I2 tabel pembatas laju ditunda ke Fase 6), 7 Minor; diperbaiki dengan tes lebih dulu, termasuk dua bug nyata (query ke hulu polos tidak dibatalkan saat shutdown, reverse lookup privat diteruskan ke hulu). Tes HP dengan `native` lulus (97%); batas laju `native` 200/detik burst 500; server rumah memakai `native`. Ctrl+C anggun, peringatan hulu gagal beruntun, log query pulih sesudah disk penuh, log operasional `xdns.log` berbatas ukuran. Tugas Task Scheduler terpasang dengan pemicu berulang tiap menit, karena "restart bila gagal" terbukti tidak bekerja. Atas keputusan Master uji 7 hari (S4) dipindah ke Fase 6 di VPS (PC mati tiap malam). Review akhir fase (Sonnet, hemat): 0 Critical, 1 Important (galat yang mengakhiri server tidak masuk `xdns.log`, diperbaiki), 5 Minor (dua diperbaiki, sisanya ditunda). Koreksi pada dokumen Fase 4 (FORMERR, "5 detik", ARPA) |
 

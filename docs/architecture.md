@@ -1,6 +1,6 @@
 # xdns — Arsitektur
 
-*Versi 1.4 | 2026-10-19 | Status: Fase 0, Fase 1, Fase 2, dan Fase 3 selesai; Fase 4 (backend `native`) selesai di sisi kode dan tes, tinggal tes HP dengan `native` yang menunggu Master (lihat `phase-1-report.md`, `phase-2-report.md`, `phase-3-report.md`, `phase-4-report.md`, `test-report.md`) | Penulis: Claude & Gemini 4 Argon (keputusan desain didelegasikan penuh oleh Master)*
+*Versi 1.5 | 2026-10-19 | Status: Fase 0 sampai Fase 5 selesai. Backend `native` lulus tes HP dan menjadi backend server rumah; xdns jalan otomatis saat boot lewat Task Scheduler. Uji 7 hari (S4) dipindah ke Fase 6 di VPS atas keputusan Master (lihat `phase-1-report.md` sampai `phase-5-report.md`, `test-report.md`) | Penulis: Claude & Gemini 4 Argon (keputusan desain didelegasikan penuh oleh Master)*
 
 Dokumen ini adalah spesifikasi desain xdns. Urutan kerja ada di `roadmap.md`. Dasar riset dan sumbernya ada di `research.md` (rujukan "riset §N" di bawah menunjuk ke sana).
 
@@ -27,7 +27,7 @@ Pelengkap terdokumentasi: Firefox + uBlock Origin. Plan B: APK (§16).
 | S1 | Domain iklan pada daftar terblokir | `xdns check`: domain contoh tiap daftar dijawab `0.0.0.0`. Hasil adblock.turtlecute.org dan canyoublockit.com dicatat sebelum dan sesudah. Target awal: ≥ 90% host uji terblokir (disesuaikan setelah baseline) | Fase 3 |
 | S2 | Pemicu redirect Play Store ditemukan dan dihentikan | Log query di sekitar waktu kejadian → aturan atau daftar → 10 percobaan ulang tanpa redirect yang sama | Fase 3 |
 | S3 | SafeSearch tidak dipaksa oleh DNS | `www.google.com` tidak berantai ke `forcesafesearch.google.com`; self-check lulus | Fase 2 dan 3 |
-| S4 | Stabil | 7 hari berjalan tanpa crash atau restart manual, memori stabil, latensi query lolos (cache miss) p95 < 150 ms (target awal) | Fase 5 |
+| S4 | Stabil | 7 hari berjalan tanpa crash atau restart manual, memori stabil, latensi query lolos (cache miss) p95 < 150 ms (target awal) | Fase 6, di VPS (dipindah dari Fase 5 pada 2026-10-19: PC ini dimatikan tiap malam, jadi 7 hari tanpa putus tidak bisa dicapai di sini) |
 | S5 | Salah blokir mudah diperbaiki | Satu perintah `xdns rule add allow <domain>` berlaku ≤ 10 detik tanpa restart | Fase 1 |
 
 ---
@@ -103,9 +103,11 @@ xdns/
 │   │   ├── rules.go            #   aturan kustom: parser + muat ulang
 │   │   ├── response.go         #   pembentuk jawaban blokir (4 mode)
 │   │   ├── cname.go            #   pemeriksaan rantai CNAME
-│   │   └── special.go          #   nama khusus (canary, DDR)
+│   │   ├── special.go          #   nama khusus (canary, DDR)
+│   │   └── health.go           #   peringatan bila hulu gagal beruntun (kedua backend)
 │   ├── lists/                  # sumber daftar: unduh, parser, cache disk, penjadwal
 │   ├── qlog/                   # log query: penulis JSONL, rotasi, pembaca
+│   ├── runlog/                 # log operasional xdns.log: berkas berbatas ukuran + Tee ke layar
 │   ├── backend/
 │   │   ├── backend.go          #   antarmuka Backend, Deps, registri
 │   │   ├── dnsproxybe/         #   adapter AdGuard dnsproxy (pendekatan 4)
@@ -113,6 +115,7 @@ xdns/
 │   │   └── conformance/        #   suite tes yang sama untuk kedua backend
 │   └── selfcheck/              # uji mandiri: SafeSearch, hulu, domain contoh
 ├── configs/xdns.example.yaml
+├── scripts/                    # dnsquery.ps1, compare (pembanding backend), autostart.ps1 (Task Scheduler)
 ├── testdata/                   # daftar contoh, fixture
 └── data/                       # data runtime, di-.gitignore
     ├── rules.txt  lists/  logs/  tls/
@@ -199,26 +202,26 @@ Tipe pesan DNS yang dipakai dnsproxy sama dengan engine (`github.com/miekg/dns`)
 
 ### 5.4 Backend `native` (pendekatan 1)
 
-Dibangun di Fase 4 (paket `internal/backend/native`, cakupan tes 93,1%).
+Dibangun di Fase 4 dan diperbaiki setelah review penuh di Fase 5 (paket `internal/backend/native`, cakupan tes 93,8%). Sejak 2026-10-19 backend ini yang melayani server rumah.
 
 | Berkas | Isi |
 |---|---|
 | `native.go` | Pabrik `New` dan `Run` (satu kali pakai); mengikat soket lebih dulu sehingga galat bind kembali seketika; implementasi `backend.Bound` |
-| `server.go` | Listener UDP dan TCP lewat `dns.Server` pada setiap alamat `listen`; `acceptMsg` meneruskan opcode selain QUERY ke engine (supaya dijawab NOTIMP *dan* dicatat) dan mengabaikan paket berbit respons serta pesan dengan jumlah pertanyaan atau record yang tidak wajar (tanpa jawaban; dnsproxy menjawab FORMERR); batas koneksi TCP sendiri (`limitListener`: 64 total, 8 per alamat klien); `tolerantReader` agar kegagalan baca UDP (di Windows: datagram lebih besar dari buffer) tidak menghentikan server, kecuali soket memang ditutup; shutdown menutup soket juga supaya server yang dibatalkan sebelum sempat mulai tidak jalan terus |
+| `server.go` | Listener UDP dan TCP lewat `dns.Server` pada setiap alamat `listen`; `acceptMsg` meneruskan opcode selain QUERY ke engine (supaya dijawab NOTIMP *dan* dicatat) dan mengabaikan paket berbit respons serta pesan yang *headernya* menyebut jumlah pertanyaan atau record yang tidak wajar (tanpa jawaban dan tanpa log; dnsproxy menjawab FORMERR). Pesan dengan header wajar tetapi badan rusak tidak sampai ke handler: miekg menjawab FORMERR sendiri sebelum batas laju, ACL, dan log, dan jawaban itu tidak pernah lebih besar dari request (dijaga tes, `28e0769`); batas koneksi TCP sendiri (`limitListener`: 64 total, 8 per alamat klien); `tolerantReader` agar kegagalan baca UDP (di Windows: datagram lebih besar dari buffer) tidak menghentikan server, kecuali soket memang ditutup; shutdown menutup soket juga supaya server yang dibatalkan sebelum sempat mulai tidak jalan terus |
 | `handler.go` | Batas laju → `Before` → cache → hulu → `After`; `Failed` bila semua hulu gagal; ANY dijawab NOTIMP; pemulihan panik per tahap (sebelum engine meloloskan: REFUSED; di cache atau hulu: SERVFAIL; sesudah jawaban ada: jawaban dipertahankan); hanya pertukaran ke hulu yang memakai slot (256 total, 64 per klien; di atas batas dijawab SERVFAIL dan dicatat lewat `Failed`), jadi cache hit dan jawaban blokir tetap jalan saat hulu lambat; tiap query punya batas waktu 11 detik dan dibatalkan saat shutdown; ukuran UDP mengikuti EDNS klien (512–1232) |
-| `upstream.go`, `upstream_plain.go`, `upstream_doh.go`, `upstream_parse.go`, `bootstrap.go` | Kolam hulu: pilihan acak berbobot 1/srtt dengan failover ke yang lain; plain UDP (diulang lewat TCP bila terpotong) dan TCP; DoH (POST RFC 8484, ID 0, HTTP/2, tanpa proksi lingkungan, tanpa redirect, badan ≤ 65535 byte, tipe `application/dns-message`); nama host DoH di-resolve lewat resolver bootstrap saat koneksi baru dibuat. Jawaban diterima hanya bila bit QR, ID, opcode, dan pertanyaan cocok. Hulu yang menjawab SERVFAIL atau REFUSED dianggap gagal dan hulu berikutnya ditanya; bila semua begitu, jawaban hulu itu yang diteruskan. **DoT sebagai hulu belum ada** (`tls://` ditolak dengan pesan jelas); `udp://` dan `tcp://` harus berupa IP |
+| `upstream.go`, `upstream_plain.go`, `upstream_doh.go`, `upstream_parse.go`, `bootstrap.go` | Kolam hulu: pilihan acak berbobot 1/srtt dengan failover ke yang lain; plain UDP (diulang lewat TCP bila terpotong) dan TCP; DoH (POST RFC 8484, ID 0, HTTP/2, tanpa proksi lingkungan, tanpa redirect, badan ≤ 65535 byte, tipe `application/dns-message`); nama host DoH di-resolve lewat resolver bootstrap saat koneksi baru dibuat, dengan anggaran waktu sendiri yang dibagi: tiap server bootstrap dan tiap alamat hasilnya mendapat sebagian dari sisa waktu, jadi satu server yang diam tidak menghabiskan seluruh batas waktu (net/http membuang batas waktu request saat dial, sejak Go 1.23). Query ke hulu UDP/TCP polos menutup koneksinya saat konteks dibatalkan, karena miekg hanya menghormati batas waktu, bukan pembatalan. Jawaban diterima hanya bila bit QR, ID, opcode, dan pertanyaan cocok. Hulu yang menjawab SERVFAIL atau REFUSED dianggap gagal dan hulu berikutnya ditanya; bila semua begitu, jawaban hulu itu yang diteruskan. **DoT sebagai hulu belum ada** (`tls://` ditolak dengan pesan jelas); `udp://` dan `tcp://` harus berupa IP |
 | `cache.go` | LRU berbatas byte (ukuran paket + biaya tetap per entri dan per record); kunci (nama huruf kecil, tipe, kelas, bit DO, bit CD); TTL dijepit `min_ttl`/`max_ttl`; cache negatif (NXDOMAIN, NODATA) memakai min(TTL SOA, minimum SOA); hanya NOERROR dan NXDOMAIN tanpa TC yang disimpan; TTL tersaji = sisa umur entri; OPT hulu dibuang |
-| `ratelimit.go` | Token bucket per IP klien (200/detik, burst 500; dinaikkan dari 100/200 setelah tes HP: halaman tes iklan mengirim ±255 kueri dalam setengah detik), tabel dibatasi 4096 klien (tabel penuh disapu paling sering sekali per detik; klien baru yang tidak muat dilayani tanpa dilacak); klien yang kena batas dibuang tanpa jawaban (jawaban ke alamat palsu = amplifier). Query yang dibuang tidak masuk log query |
+| `ratelimit.go` | Token bucket per IP klien (200/detik, burst 500; dinaikkan dari 100/200 setelah tes HP: halaman tes iklan mengirim ±255 kueri dalam setengah detik), tabel dibatasi 4096 klien (tabel penuh disapu paling sering sekali per detik; klien baru yang tidak muat dilayani tanpa dilacak, artinya pada tabel penuh sumber baru tidak dibatasi sama sekali: terukur 1.200 dari 1.200 query dijawab, temuan I2, ditunda ke Fase 6); klien yang kena batas dibuang tanpa jawaban (jawaban ke alamat palsu = amplifier). Query yang dibuang tidak masuk log query |
 
 Cache menyimpan jawaban hulu *sebelum* `After`, sama seperti dnsproxy, sehingga pemeriksaan CNAME tetap berjalan pada setiap cache hit. Query ke hulu dibangun baru dari pertanyaan klien (RD, CD, EDNS 1232 dengan bit DO bila klien memintanya): cookie, client subnet, dan padding klien tidak ikut keluar.
 
 **Perbedaan yang diketahui dengan adapter `dnsproxy`** (semuanya tanpa dampak untuk klien privat di LAN):
-- dnsproxy menjawab ANY, jumlah pertanyaan ≠ 1, dan deteksi rekursi *sebelum* handler (tanpa ACL dan tanpa log). `native` menolak jumlah pertanyaan ≠ 1 di `acceptMsg` (FORMERR, tanpa log), tetapi menjawab ANY setelah `Before`, sehingga ACL berlaku dan query tercatat.
-- dnsproxy menjawab NXDOMAIN untuk reverse lookup alamat privat dari klien *non-privat*; `native` meneruskannya ke hulu. Baru relevan bila klien publik diizinkan (Fase 6).
+- dnsproxy menjawab ANY, jumlah pertanyaan ≠ 1, dan deteksi rekursi *sebelum* handler (tanpa ACL dan tanpa log). `native` mengabaikan paket yang headernya menyebut jumlah pertanyaan atau record tidak wajar di `acceptMsg` (tanpa jawaban, tanpa log; koreksi 2026-10-19: versi sebelumnya menulis FORMERR), tetapi menjawab ANY setelah `Before`, sehingga ACL berlaku dan query tercatat.
+- **Sudah sama sejak Fase 5 (`dcc5347`):** reverse lookup (PTR, SOA, NS) untuk nama di zona RFC 6303 (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, fc00::/7, fe80::/10) dijawab lokal dengan NXDOMAIN dan SOA oleh kedua backend, untuk semua klien, memakai fungsi golibs yang sama (`netutil.IsLocallyServed`). Review penuh menunjukkan `native` sebelumnya meneruskannya ke Cloudflare/Google, termasuk dari klien privat (misalnya `nslookup 192.168.1.99` di Windows); catatan lama "baru relevan di Fase 6" keliru.
 - `native` tidak mendeduplikasi query identik yang sedang berjalan (`PendingRequests` milik dnsproxy).
-- Slot TCP: `native` punya batas koneksi TCP sendiri (64 total, 8 per alamat klien) dan slot hulu sendiri, sehingga masalah Q4 tidak berlaku. Belum ada pemeriksaan ACL saat accept; satu host di luar ACL masih bisa memegang 8 koneksi selama batas baca (5 detik).
-- Pesan dengan jumlah pertanyaan ≠ 1 diabaikan oleh `native`, dijawab FORMERR oleh dnsproxy.
-- Kunci IPv6 pada pembatas laju memakai alamat penuh, bukan /64; perlu ditinjau bila IPv6 klien diizinkan (Fase 6).
+- Slot TCP: `native` punya batas koneksi TCP sendiri (64 total, 8 per alamat klien) dan slot hulu sendiri, sehingga masalah Q4 tidak berlaku. Belum ada pemeriksaan ACL saat accept. Koreksi 2026-10-19: batas baca 5 detik hanya berlaku sampai query pertama; sesudahnya berlaku batas menganggur 10 detik dan 100 query per koneksi, jadi satu host di luar ACL yang mengirim satu query tiap 9 detik bisa mempertahankan satu koneksi sekitar 16,5 menit dan membukanya lagi (terukur reviewer; 8 koneksi per alamat). Tidak berbahaya hari ini (firewall `LocalSubnet` dan ACL /24); Fase 6: periksa ACL saat accept atau tutup koneksi setelah REFUSED.
+- Pesan dengan header wajar tetapi badan rusak dijawab FORMERR oleh miekg sebelum batas laju, ACL, dan log (tidak pernah lebih besar dari request, jadi bukan penguat; dijaga tes). Hanya relevan bila UDP 53 dibuka ke internet.
+- Kunci IPv6 pada pembatas laju, batas TCP per alamat, dan gerbang hulu per klien memakai alamat penuh, bukan /64; ketiganya diperbaiki bersama di Fase 6, bersama temuan I2 (tabel pembatas penuh).
 
 ### 5.5 Daftar blokir (`internal/lists`)
 
@@ -335,8 +338,10 @@ Alur pelacakan redirect: picu redirect di HP → catat jam → `xdns log -around
 {"ts":"...","qname":"smetrics.situs.com","action":"block","reason":"cname","source":"hagezi-pro","via":"x.pelacak.net"}
 ```
 
+- **Log operasional** (peringatan dan galat server, bukan query): ditulis ke layar *dan*, bila `log.enabled`, ke `<log.dir>/xdns.log` (`internal/runlog`), supaya tugas terjadwal tanpa konsol tetap meninggalkan jejak. Berkas dibatasi 5 MB ditambah satu cadangan `xdns.log.1`, jadi paling banyak sekitar 10 MB. Gagal menulis berkas hanya menjadi peringatan di layar, tidak pernah menghentikan server. Galat yang mengakhiri server (misalnya gagal mengikat `192.168.1.99:53` karena Wi-Fi belum siap saat boot) ikut ditulis ke berkas ini sebelum ditutup; **galat memuat konfigurasi tidak bisa**, karena folder log berasal dari konfigurasi itu, jadi jalankan `xdns check` setelah mengubah `xdns.yaml`. Bila rotasi gagal (di Windows, program lain yang membuka `xdns.log`, misalnya `Get-Content -Wait`, menghalangi penggantian nama), baris tetap ditambahkan ke berkas sekarang sampai dua kali batas, lalu dibuang sampai rotasi berhasil lagi; berkas yang gagal dibuka ulang dibuka lagi pada penulisan berikutnya;
 - rotasi harian menurut tanggal lokal; retensi `log.retention_days` (bawaan 7, hari ini ikut dihitung); hanya berkas biasa `queries-YYYYMMDD.jsonl` yang pernah dihapus, saat start, saat rotasi, dan sesaat setelah tengah malam;
 - penulisan lewat saluran berpenyangga: bila penuh, catatan dibuang dan penghitung `dropped` dicatat; query tidak pernah menunggu disk;
+- **disk penuh** (diperbaiki di Fase 5, `73647aa`): `bufio.Writer` menyimpan galat pertamanya, sehingga satu saat disk penuh dulu mengakhiri log untuk sisa hari itu dan catatan yang hilang tetap dihitung tertulis. Sekarang penyangga di-reset setelah tulis atau flush gagal, catatan yang belum terkonfirmasi dihitung `dropped`, dan catatan berikutnya mulai di baris baru (tulis yang gagal bisa meninggalkan setengah baris). Diuji dengan disk palsu yang penuh lalu lega; belum diuji pada drive penuh yang asli;
 - **batas ukuran harian** `log.max_mb_per_day` (bawaan 256, minimal 1): catatan yang melewati batas dibuang dan dihitung, peringatan satu kali per hari, ukuran berkas yang sudah ada ikut dihitung setelah restart. Tanpa batas, satu pengirim UDP bisa menulis sekitar 14 MB/detik lewat penolakan ACL yang dicatat satu per query;
 - nama dan galat disanitasi (karakter kontrol dan bidi diganti `?`), baris di atas 64 KiB dilewati pembaca; `xdns log` membaca log yang sedang ditulis server (di Windows ukuran berkas yang terbuka dilaporkan 0, jangan jadikan patokan);
 - cincin memori 5.000 catatan terakhir disiapkan untuk UI di Fase 7;
@@ -426,6 +431,7 @@ xdns **tidak pernah** menulis ulang `www.google.com`. Syarat agar hasilnya benar
 - UDP 5353 dipakai banyak proses (mDNS). Port 5300 dan 853 bebas.
 - **`nslookup` Windows menerima `-port` tetapi mengabaikannya** (selalu memakai port 53); pakai `scripts/dnsquery.ps1 <nama> -Port <port>` atau klien miekg/dns.
 - Rentang port yang dikecualikan Windows (Hyper-V/WinNAT, mis. UDP 49674-49973) membuat bind gagal dengan WSAEACCES; tes tidak boleh mengandaikan port TCP dan UDP yang sama selalu sama-sama bebas.
+- **Jalan otomatis saat boot (Fase 5):** `scripts/autostart.ps1 install` (PowerShell Administrator) membuat tugas Task Scheduler `xdns`: pemicu startup dengan tunda 30 detik, diulang tiap 1 menit selama 365 hari sejak tiap boot, akun sekarang lewat S4U (jalan tanpa login, hak biasa: bukan SYSTEM dan bukan "highest"), tersembunyi, tanpa batas waktu, `MultipleInstances = IgnoreNew`. Ulangan itu hanya menghidupkan xdns bila belum jalan, penting karena Wi-Fi bisa belum memberi `192.168.1.99` saat boot dan xdns keluar dengan galat. **Pengaturan "restart bila gagal" Task Scheduler tidak dipakai: diuji, tugas yang keluar dengan kode 1 atau dimatikan paksa tidak dihidupkan lagi.** Pemicu berulang diuji dengan tugas percobaan (hidup lagi tepat 1 menit sesudah keluar kode 1). Perintah lain: `status` dan `remove` (satu-satunya rollback; ikut menghentikan prosesnya). `remove` dan shutdown Windows mengakhiri xdns dengan `TerminateProcess`, tanpa jalur shutdown anggun (log query tetap aman karena penulis mengosongkan penyangga tiap antrean menganggur); tugas bersifat tersembunyi, jadi tidak tampak di antarmuka Task Scheduler tetapi `status` dan `remove` bekerja dengan nama `xdns`; pemicu berulang berakhir 365 hari sesudah tiap boot. Aturan firewall terikat ke `bin\xdns.exe`, jadi bangun ulang ke jalur yang sama; karena pemicunya berulang tiap menit, `Stop-ScheduledTask` saja tidak mematikan xdns untuk seterusnya (menit berikutnya hidup lagi). Untuk mengganti binary (berkas yang sedang berjalan terkunci): `Disable-ScheduledTask`, `Stop-ScheduledTask`, salin berkasnya, lalu `Enable-ScheduledTask` dan `Start-ScheduledTask`. Untuk mematikannya sampai Master menyalakan lagi: `Disable-ScheduledTask` lalu hentikan prosesnya, atau `remove`. (Belum diketahui apakah pemicu yang diganti pada 2026-10-19 sudah berulang sebelum boot berikutnya; pada boot berikutnya ia diharapkan berulang, belum diuji lewat boot sungguhan.)
 - Mode berkas `0600`/`0700` tidak ditegakkan di Windows (berkas mewarisi ACL folder induk); mengganti nama berkas yang sedang dibuka gagal (Go membuka tanpa `FILE_SHARE_DELETE`), karena itu penulisan atomik `xdns rule` mencoba ulang sebentar.
 
 Konsekuensi: pengembangan di `127.0.0.1:5300`; keputusan soal ICS diambil di Fase 3 (opsi: hentikan ICS bila Master tidak memakai Mobile Hotspot/Hyper-V/WSL, pakai perangkat lain untuk server rumah, atau uji pengikatan alamat dengan reuse) [Inferensi: Windows kemungkinan menolak bind spesifik ke port 53 selama ada bind wildcard dari proses lain; diuji, bukan diasumsikan].
@@ -460,10 +466,11 @@ Sebelum setiap commit: periksa daftar keamanan di `.claude/rules/ecc/common/secu
 
 - **Fail-open:** bila engine belum siap atau terjadi galat internal, query diteruskan (DNS tetap hidup) dan galat dicatat. Pengecualian: pelanggaran ACL tetap REFUSED, juga bila yang panic adalah pemeriksaan ACL atau handler sebelum `Before` selesai.
 - **Hulu gagal:** coba hulu berikutnya; bila semua gagal, SERVFAIL ke klien dan `Failed` mencatatnya.
+- **Hulu gagal beruntun (Fase 5, `internal/engine/health.go`):** engine menghitung query yang diteruskan dan gagal berturut-turut; hitungannya sama untuk kedua backend karena keduanya melapor lewat `After` dan `Failed`. Lima berturut-turut memicu satu peringatan per menit (jumlah dan galat terakhir); jawaban pertama sesudahnya yang menyebut hulu mencatat pemulihan. Cache hit, jawaban lokal, dan pembatalan oleh klien (`context.Canceled`) diabaikan.
 - **Daftar:** unduhan gagal → pakai cache lama; cache rusak → abaikan berkas itu, pakai yang lain, catat galat.
 - **Aturan:** baris salah dilewati; berkas hilang = tanpa aturan, bukan galat fatal.
 - **Log:** disk penuh, saluran penuh, atau batas ukuran harian tidak boleh memblokir query; catatan yang tidak tertulis dihitung.
-- **Shutdown:** `ctx` dibatalkan saat Ctrl+C; listener ditutup rapi dan log dikosongkan.
+- **Shutdown:** `ctx` dibatalkan saat Ctrl+C; listener ditutup rapi dan log dikosongkan. Diverifikasi di Fase 5 pada konsol Windows asli untuk kedua backend (kode keluar 0, "xdns berhenti", log query ditutup, port UDP dilepas), dan query yang tertahan di hulu polos yang diam dibatalkan dengan menutup koneksinya, tidak menunggu batas waktu.
 - Tidak ada galat yang ditelan diam-diam: setiap galat dibungkus konteks (`fmt.Errorf("...: %w", err)`) dan dicatat sekali pada lapisan yang menanganinya.
 
 ---
@@ -477,7 +484,7 @@ Proyek ini memakai TDD: tes ditulis dulu (merah), implementasi minimal (hijau), 
 | Unit | `engine` (pencocokan, prioritas, jawaban blokir, CNAME, nama khusus), `lists` (parser), `qlog`, `config`, `native` (cache, ACL, upstream dengan hulu palsu) | Cakupan ≥ 80% |
 | Fuzz | Parser daftar dan parser aturan (`go test -fuzz`) | Tanpa panic |
 | Benchmark | Pencarian domain pada ±250 ribu entri; memori proses | p99 < 50 µs; < 150 MB |
-| Kesesuaian | `internal/backend/conformance`: hulu palsu (`miekg/dns` di loopback) + backend yang diuji di port acak. Kasus: A/AAAA/HTTPS terblokir, lolos, `allow` mengalahkan `block`, CNAME terblokir, ACL REFUSED, log tertulis. Dijalankan untuk **kedua** backend dari satu tabel konstruktor | Hasil identik |
+| Kesesuaian | `internal/backend/conformance`: hulu palsu (`miekg/dns` di loopback) + backend yang diuji di port acak. Kasus: A/AAAA/HTTPS terblokir, lolos, `allow` mengalahkan `block`, CNAME terblokir, ACL REFUSED (tanpa bit RA), log tertulis, datagram UDP besar atau rusak tidak menghentikan server, reverse lookup alamat privat dijawab lokal (16 kasus sejak Fase 5). Dijalankan untuk **kedua** backend dari satu tabel konstruktor | Hasil identik |
 | Integrasi manual | `scripts/dnsquery.ps1` (atau `dig`) dari PC, lalu uji dari HP (Fase 3) | Kriteria S1–S3 |
 
 Perintah verifikasi tiap fase: `gofmt -l .` (kosong), `go vet ./...`, `go test ./... -cover`, dan pemindaian kerentanan `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` (yang terdampak harus 0). Detektor race (`CGO_ENABLED=1 go test -race ./...`) berjalan di PC ini lewat w64devkit. Kode konkuren dijaga lewat snapshot tak berubah, tanpa state global, dan tes beban. Mutasi sengaja pada salinan scratch dipakai untuk memastikan tes benar-benar menangkap perubahan perilaku.
@@ -506,6 +513,8 @@ Perintah verifikasi tiap fase: `gofmt -l .` (kosong), `go vet ./...`, `go test .
 | R8 | Sumber daftar mati atau berubah format | Cache disk; validasi baris; peringatan di `lists status` |
 | R9 | Domain iklan terus berganti | Pembaruan harian; daftar baru (NRD/DGA) dipertimbangkan di Fase 7 |
 | R10 | Pemicu redirect ternyata skrip domain situs sendiri | Dikatakan terus terang; pelengkap Firefox + uBO; Plan B |
+| R11 | xdns tidak naik setelah boot (Wi-Fi belum memberi `192.168.1.99`, xdns keluar dengan galat) dan "restart bila gagal" Task Scheduler tidak bekerja | Pemicu berulang tiap menit dengan `IgnoreNew` (§12). Diuji dengan tugas percobaan; boot sungguhan belum diuji |
+| R12 | Server rumah dipakai keluarga dan teman (`allowed_clients` tetap `192.168.1.0/24`, keputusan Master) | Batas per IP (laju, koneksi TCP, gerbang hulu) lebih penting daripada untuk satu HP; celahnya: tabel pembatas laju yang penuh melepas sumber baru (I2, Fase 6) |
 
 ---
 
@@ -522,5 +531,8 @@ Belum dipastikan; dibuktikan lewat tes dan bukan diasumsikan:
 8. **Terverifikasi di Fase 3:** konflik ICS pada UDP 53 terselesaikan tanpa menyentuh ICS; bind khusus `192.168.1.99:53` UDP dan TCP berhasil (bagian 12).
 9. **Terverifikasi di Fase 3:** pada HP nyata, `adblock.turtlecute.org` 95% (126/132) lalu 97% (128/132) dengan dua aturan kustom; Chrome tidak melewati xdns (tidak ada pencarian host DoH). Redirect Shopee dilacak ke `s.shopee.co.id` dan diblokir; redirect Play Store belum pernah muncul. DNS IPv6 router sebagai jalur lolos belum diperiksa langsung (`test-report.md`).
 10. **Terverifikasi di Fase 4:** suite kesesuaian (15 kasus) hijau pada `dnsproxy` dan `native` dari satu tabel; 2.000 query (1.000 nama, A dan HTTPS) memberi keputusan engine yang sama pada kedua backend (1.732 diblokir di masing-masing, 0 beda keputusan, 1 beda bentuk jawaban akibat hulu). `native` melayani DoH nyata ke 1.1.1.1 (`phase-4-report.md`).
-11. **Temuan Fase 4:** satu datagram UDP lebih besar dari buffer menghentikan loop UDP miekg di Windows; diperbaiki di `native` dan dijadikan kasus suite. Belum diverifikasi: tes HP dengan `backend: native` (menunggu Master), beban nyata/lama, DoT sebagai hulu (ditunda).
+11. **Temuan Fase 4:** satu datagram UDP lebih besar dari buffer menghentikan loop UDP miekg di Windows; diperbaiki di `native` dan dijadikan kasus suite.
+12. **Terverifikasi di Fase 5:** tes HP dengan `backend: native`: `adblock.turtlecute.org` 97%, 484 query HP dalam ±2,5 menit (322 diblokir daftar, 6 aturan kustom), hulu p50 29 ms / p95 88 ms, proses 41 MB (`test-report.md` bagian 5). Satu query terbuang oleh pembatas laju lama (100/detik) karena halaman tes mengirim ±255 query dalam setengah detik; dinaikkan ke 200/detik, burst 500.
+13. **Terverifikasi di Fase 5:** Ctrl+C anggun pada konsol asli untuk kedua backend; peringatan hulu gagal beruntun; log query pulih sesudah disk penuh (disk palsu); log operasional berbatas ukuran; tugas Task Scheduler terpasang dan menjalankan xdns tersembunyi (sesi 0) dengan DNS menjawab dan `xdns.log` bertambah.
+14. **Belum diverifikasi (sesudah Fase 5):** boot PC sungguhan dengan tugas Task Scheduler (termasuk Wi-Fi yang telat); disk penuh pada drive asli; DoH dan hulu IPv6 nyata di bawah beban lama; galat baca UDP Windows selain `WSAEMSGSIZE`; ketepatan perkiraan memori cache di bawah beban nyata; uji 7 hari S4 (Fase 6, VPS); DoT sebagai hulu (ditunda); Firefox di HP, jalur DNS IPv6 router, EDE.
 

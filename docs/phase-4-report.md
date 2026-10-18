@@ -1,6 +1,6 @@
 # Laporan Fase 4 — Backend `native` dan suite kesesuaian
 
-*2026-10-19 | Claude (Sonnet 5.5) | Status: selesai di sisi kode dan tes. Tinggal tes HP dengan `backend: native`, yang menunggu Master.*
+*2026-10-19 | Claude (Sonnet 5.5) | Status: selesai di sisi kode dan tes. Tinggal tes HP dengan `backend: native`, yang menunggu Master. (Diperbarui 2026-10-19: tes HP selesai dengan 97%, review penuh dan koreksi ada di `phase-5-report.md`.)*
 
 ## Hasil singkat
 
@@ -73,6 +73,8 @@ Satu perbedaan bentuk jawaban: `api.x.com` HTTPS, `dnsproxy` mendapat record dan
 
 **Risiko yang diterima sampai Fase 6:** (a) belum ada pemeriksaan ACL saat accept TCP, jadi satu host di luar ACL bisa memegang 8 koneksi selama batas baca 5 detik (UDP dan koneksi host lain tetap jalan); (b) tidak ada deduplikasi query identik yang sedang berjalan; (c) reverse lookup alamat privat dari klien non-privat diteruskan ke hulu (dnsproxy menjawab NXDOMAIN); (d) pembatas laju memakai alamat IPv6 penuh. Semuanya tidak berdampak untuk satu HP di LAN rumah.
 
+**Koreksi 2026-10-19 (review penuh Fase 5, `phase-5-report.md`):** (a) "5 detik" keliru: batas baca hanya berlaku sampai query pertama, sesudahnya batas menganggur 10 detik dan 100 query per koneksi, jadi satu koneksi bisa bertahan sekitar 16,5 menit (masih ditunda ke Fase 6). (c) alasannya keliru dan masalahnya berlaku hari itu juga: `native` meneruskan reverse lookup privat untuk semua klien, bahkan dari klien privat; diperbaiki di Fase 5 (`dcc5347`), kini kedua backend menjawabnya lokal.
+
 ## Review singkat
 
 Satu agent berkonteks baru (model Sonnet, hanya baca, cakupan `internal/backend/native` tanpa tes, sekitar 17 panggilan alat). Ia tidak menjalankan tes. Hasilnya saya nilai satu per satu terhadap kode; hasil: 0 Critical, 5 Important, 6 Minor. Semua yang saya anggap benar sudah diperbaiki dengan tes lebih dulu (commit `fix: harden the native backend after review`):
@@ -85,7 +87,7 @@ Satu agent berkonteks baru (model Sonnet, hanya baca, cakupan `internal/backend/
 | Batas TCP global 64 tanpa batas per alamat | Important | Diperbaiki (8 per alamat); pemeriksaan ACL saat accept belum ada (dicatat) |
 | `ShutdownContext` sebelum server sempat mulai tidak menghentikannya: `Run` bisa menggantung dan soket tetap terbuka | Important | Diperbaiki (soket ikut ditutup; tes pembatalan seketika) |
 | Hanya `WSAEMSGSIZE` yang dianggap sementara; galat baca UDP lain mengakhiri server | Minor | Diperbaiki (semua galat baca kecuali soket ditutup, dengan jeda 10 ms) |
-| Pesan rusak dijawab FORMERR oleh miekg sebelum ACL, batas laju, dan log | Minor | Diperbaiki (diabaikan; berbeda dari dnsproxy, dicatat) |
+| Pesan rusak dijawab FORMERR oleh miekg sebelum ACL, batas laju, dan log | Minor | Diperbaiki untuk pesan yang *headernya* tidak wajar (diabaikan; berbeda dari dnsproxy, dicatat). **Koreksi 2026-10-19:** pesan dengan header wajar tetapi badan rusak tetap dijawab FORMERR oleh miekg sebelum ACL, batas laju, dan log; jawabannya tidak pernah lebih besar dari request (dijaga tes `28e0769`) |
 | Hulu yang menjawab SERVFAIL atau REFUSED langsung diteruskan | Minor | Diperbaiki (pindah ke hulu berikutnya; bila semua begitu, jawaban hulu itu diteruskan) |
 | `After` yang memblokir tanpa jawaban membuka jawaban asli | Minor | Diperbaiki (SERVFAIL) |
 | Query yang dibuang (batas laju, penuh) tidak masuk log query | Minor | Sengaja; dihitung dan diperingatkan di log server paling sering sekali per 10 detik |
@@ -95,8 +97,8 @@ Yang tidak bisa diverifikasi reviewer: perilaku galat UDP Windows selain `WSAEMS
 
 ## Belum terverifikasi
 
-- Tes HP dengan `backend: native` (S1, S2): menunggu Master. Tidak ada yang perlu diubah di HP; cukup ganti `backend: native` di `xdns.yaml`, mulai ulang server, tunggu sekitar satu menit atau nyalakan mode pesawat sebentar.
-- Beban nyata dan lama (7 hari) pada `native`; Fase 5.
+- Tes HP dengan `backend: native` (S1, S2): menunggu Master. Tidak ada yang perlu diubah di HP; cukup ganti `backend: native` di `xdns.yaml`, mulai ulang server, tunggu sekitar satu menit atau nyalakan mode pesawat sebentar. *(Dikerjakan 2026-10-19: 97%, lihat `test-report.md` bagian 5.)*
+- Beban nyata dan lama (7 hari) pada `native`; Fase 5. *(Dipindah ke Fase 6 di VPS, lihat `phase-5-report.md`.)*
 - DoT sebagai hulu (ditunda). IPv6 hulu belum dicoba.
 - Hal Fase 3 yang masih terbuka tetap terbuka: Play Store, Firefox di HP, jalur DNS IPv6 router, EDE, baseline lengkap.
 
