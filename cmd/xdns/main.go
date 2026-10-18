@@ -38,7 +38,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch command {
 	case "check":
 		return runCheck(rest, stdout, stderr)
-	case "run", "log", "rule", "lists":
+	case "rule":
+		return runRule(rest, stdout, stderr)
+	case "run", "log", "lists":
 		fmt.Fprintf(stderr, "xdns %s: belum diimplementasi\n", command)
 		return exitUsage
 	default:

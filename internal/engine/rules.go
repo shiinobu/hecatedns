@@ -17,10 +17,14 @@ const (
 	RuleAllow RuleAction = "allow"
 )
 
+// MaxRulesFileBytes is the largest rules file the server reads; the rule CLI
+// refuses to rewrite a bigger one, because the server would ignore its tail.
+const MaxRulesFileBytes = 4 << 20
+
 // Limits that keep a hostile or broken rules file from exhausting memory.
 const (
 	maxRuleLineBytes  = 4096
-	maxRulesFileBytes = 4 << 20
+	maxRulesFileBytes = MaxRulesFileBytes
 	maxRuleIssues     = 100
 
 	commentMark = "#"
