@@ -6,25 +6,24 @@ Last updated: 2026-10-19 night by Claude (Sonnet 5.5) (Phase 4 closed in code; w
 
 ## Snapshot
 
-- **Phase:** 4 done in code and tests; P4-09 (phone test with `backend: native`) is open and needs Master. Next phase is 5 (`state/PHASE-5-TASKS.md`), waiting for "lanjut".
+- **Phase:** 4 done (code, tests and the phone test P4-09 with `backend: native`: turtlecute 97%, Shopee blocked, results in `docs/test-report.md` section 5). Next phase is 5 (`state/PHASE-5-TASKS.md`), waiting for "lanjut". The home server now runs `native`.
+- **Finding from P4-09, fixed:** native rate limit (100/s, burst 200) dropped 1 query during the turtlecute burst (255 queries in about 0.5 s). Raised to 200/s, burst 500 in `4361b64` (RED test first, comment corrected, `architecture.md` updated); server restarted with the new binary.
 - **Done in Phase 4:** `internal/backend/native` (cache, upstream pool with DoH/UDP/TCP and bootstrap, server, handler, rate limiter), registered in `cmd/xdns`; conformance suite (15 cases) green on both backends from one table; `scripts/compare` run on 2,000 queries: 0 decision differences (details `docs/phase-4-report.md`). Bug found and fixed: one oversized UDP datagram stopped miekg's UDP loop on Windows (`tolerantReader`, new suite case, dnsproxy passes it too).
 - **Decisions by Master (2026-10-19):** DoT as an upstream deferred; phase review is the cheap kind; the FULL review is owed (first task of Phase 5, at the latest before Phase 6).
 - **In progress:** none.
 - **Code HEAD:** see `git log` (Phase 4 commits start at `94dd73a feat: add native backend answer cache`). Nothing is pushed (no remote).
 - **Gates at the end of Phase 4 (run 2026-10-19):** `gofmt -l .` empty, `go vet ./...` and `go build ./...` clean, `go test ./... -cover -count=1` all `ok` (`native` 93.1%, `conformance` 80.9%, `dnsproxybe` 95.4%, `engine` 96.8%, `cmd/xdns` 92.2%), `CGO_ENABLED=1 go test -race ./... -count=1` all `ok`, `go mod verify` clean, `go mod tidy -diff` no diff, `govulncheck` (`GOPATH\bin\govulncheck.exe`) 0 affected + 1 uncalled advisory, `xdns check -config configs/xdns.example.yaml` passes.
 - **Review:** cheap review only (one Sonnet agent, narrow scope), see `docs/phase-4-report.md` section "Review singkat". Phase 1 finding **I1 (TCP slots shared with UDP) remains accepted for the home LAN for `dnsproxy` and MUST be fixed before Phase 6** (Q4; `native` has its own TCP limit).
-- **Live now (this PC):** a hidden `xdns run` (dnsproxy backend) on `192.168.1.99:53` (`bin\xdns.exe`, local gitignored `xdns.yaml`, rules in `data/rules.txt`: `block ad.doubleclick.net`, `block adservice.google.com`, `block s.shopee.co.id`). Stop with `Stop-Process -Name xdns`. Firewall rules: remove with `Remove-NetFirewallRule -Group xdns`. The phone keeps static IP `192.168.1.150` with DNS 1 `192.168.1.99`; if xdns is stopped the phone has no DNS (DNS 2 is empty on purpose) until the phone is set back to DHCP. The Phase 4 test servers on ports 5300-5302 were stopped; temp files are in the session scratchpad only.
+- **Live now (this PC):** a hidden `xdns run` (**native backend since 2026-10-19 00:29, PID 22184 after the rate-limit restart**; roll back by setting `backend: dnsproxy` in `xdns.yaml` and restarting) on `192.168.1.99:53` (`bin\xdns.exe` rebuilt from HEAD `4361b64`, local gitignored `xdns.yaml`, rules in `data/rules.txt`: `block ad.doubleclick.net`, `block adservice.google.com`, `block s.shopee.co.id`). Stop with `Stop-Process -Name xdns`. Firewall rules: remove with `Remove-NetFirewallRule -Group xdns`. The phone keeps static IP `192.168.1.150` with DNS 1 `192.168.1.99`; if xdns is stopped the phone has no DNS (DNS 2 is empty on purpose) until the phone is set back to DHCP. The Phase 4 test servers on ports 5300-5302 were stopped; temp files are in the session scratchpad only.
 
 ## Next
 
-1. Master decides when to do P4-09: change `backend: native` in `xdns.yaml`, restart the server (stop `xdns`, start `bin\xdns.exe run`), wait about a minute on the phone, repeat S1 (`adblock.turtlecute.org`, `canyoublockit.com` eXtreme) and the Shopee check. Record in `docs/test-report.md`.
-2. Master's "lanjut" for Phase 5 (`state/PHASE-5-TASKS.md`); P5-00 is the full Phase 4 review.
+1. Master's "lanjut" for Phase 5 (`state/PHASE-5-TASKS.md`); P5-00 is the full Phase 4 review with `xdns-reviewer`.
 
 ## Blockers / waiting for Master
 
-- P4-09 phone test with `native`.
 - Phase 5 start: Master's "lanjut". P5-02 (Task Scheduler) needs Master's approval because it changes Windows settings.
-- Optional, offered and not answered: restrict `allowed_clients` to the phone only (`192.168.1.150/32`) instead of `192.168.1.0/24`.
+- Decided by Master (2026-10-19): keep `allowed_clients` at `192.168.1.0/24` because family and friends on the home Wi-Fi may use the server. Do not narrow it to `/32`. Consequence: the per-IP limits (rate limit, TCP cap, upstream gate) are the protection against one noisy LAN host, so they matter more than for a one-phone setup.
 - Gate G1 (optional PC use): inspect `xdns log -blocked` after real browsing and tune `allow` rules if needed (the Shopee short-link block means `s.shopee.co.id/...` links do not open on Master's phone; undo with `xdns rule remove block s.shopee.co.id`).
 - Gate G3 (Phase 6): VPS provider, cost, subdomain.
 - Pushing to any remote: only with Master's explicit yes.

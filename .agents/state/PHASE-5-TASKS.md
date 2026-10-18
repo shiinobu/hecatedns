@@ -11,7 +11,7 @@ Phase 5 is done when S4 holds (`docs/architecture.md` section 1): 7 days running
 ## Owed from Phase 4 (do these first)
 
 - [ ] **P5-00 Full review of Phase 4.** Master allowed only a cheap review in Phase 4. Run `/review-phase` with the `xdns-reviewer` agent over the commit range `7fd1ac0..HEAD` (the whole `internal/backend/native/` package and `scripts/compare`), network-facing checks included. Fix Critical and Important findings with RED -> GREEN. Record in `.agents/state/reviews/phase-4-review.md`.
-- [ ] **P5-01 Phone test with `native` (P4-09), if not done yet.** Same setup, only `backend: native` changes in `xdns.yaml`; repeat S1 and the Shopee check; record in `docs/test-report.md`. Decide with Master which backend the home server runs.
+- [x] **P5-01 Phone test with `native` (P4-09), if not done yet.** Done 2026-10-19 (see `docs/test-report.md` section 5); the home server now runs `native`. The native rate limit was raised to 200/s, burst 500 (`4361b64`). Original text: Same setup, only `backend: native` changes in `xdns.yaml`; repeat S1 and the Shopee check; record in `docs/test-report.md`. Decide with Master which backend the home server runs.
 
 ## Tasks (from the roadmap)
 

@@ -190,3 +190,16 @@ Keep entries short (the full detail lives in code, tests and commits). Never rew
 - NOT done: P4-09 phone test with `native` (Master asleep). The live server on 192.168.1.99:53 still runs the dnsproxy backend (PID 5832) and was not touched.
 - Mistake worth remembering: I started a `python -` heredoc in the shell by reflex; it waits for stdin and hung the tool until I stopped it. Use Edit or sed instead.
 - Next: STOP; Master decides P4-09 and "lanjut" for Phase 5.
+
+## 2026-10-19 00:35 - Claude (Sonnet 5.5) - P4-09 phone test with `native`
+- Built `bin\xdns.exe` from HEAD (checked first with `xdns check` on a native config copy), stopped the dnsproxy server (PID 5832), set `backend: native` in `xdns.yaml`, started hidden (PID 6708) on `192.168.1.99:53`. PC smoke test: `example.com` passes, `ad.doubleclick.net` and `s.shopee.co.id` give `0.0.0.0` TTL 10.
+- Master tested on the phone: turtlecute 97%, "semua aman". Log (00:29-00:32): 484 phone queries, 322 blocked by hagezi-pro, 6 by custom rules, 12 NXDOMAIN (random names), upstream p50 29 ms / p95 88 ms / max 156 ms, 40 cache hits, process 41 MB.
+- Finding: the native rate limiter dropped 1 query at 00:30:36 (turtlecute sent 254 queries in 2 s). No visible effect. Proposal 200/s burst 500, not applied. Results in `docs/test-report.md` section 5; P4-09 and P5-01 ticked.
+- Not committed: `.agents/` state and `docs/test-report.md` wait for the milestone commit.
+- Next: wait for Master (rate limit decision, "lanjut" for Phase 5 at P5-00).
+
+## 2026-10-19 00:50 - Claude (Sonnet 5.5) - native rate limit raised
+- Master said yes. RED first: `TestLimiter_DefaultsAbsorbABrowserAdblockTestBurst` (300 queries in 500 ms; 51 dropped with 100/s burst 200). Changed `rateLimit`/`rateBurst` to 200/500 and corrected the comment; added `TestLimiter_DefaultsStillStopAFlood` (10,000 queries in 1 s allow at most 700). Commit `4361b64`.
+- Gates: `gofmt -l .` empty, `go vet`, `go build`, `go test ./... -cover -count=1` all `ok` (native 93.6%), `-race` on `internal/backend/...` ok. Docs: `architecture.md` two lines.
+- Rebuilt `bin\xdns.exe`, restarted (PID 22184, native, `192.168.1.99:53`); smoke test from the PC passes (example.com, ad.doubleclick.net and s.shopee.co.id blocked with 0.0.0.0 TTL 10). Phone not retested (change is a limit only).
+- Not committed: `.agents/` state and `docs/test-report.md` wait for the milestone commit.

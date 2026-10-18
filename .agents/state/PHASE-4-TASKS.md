@@ -2,7 +2,7 @@
 
 Derived from `docs/roadmap.md` Phase 4 and `docs/phase-3-report.md` ("Serah terima ke Fase 4"). Tick a box only when the task is verified and recorded.
 
-**Status (2026-10-19): started on Master's "lanjut"; code and tests done, only P4-09 (phone test with `native`) is left and it needs Master.** Results: `docs/phase-4-report.md`.
+**Status (2026-10-19): Phase 4 complete: code, tests and the phone test with `native` (P4-09) are done. The full review is owed in Phase 5 (P5-00).** Results: `docs/phase-4-report.md`.
 
 **Decisions by Master on 2026-10-19 (they change the plan below):**
 - DoT as an upstream is DEFERRED (P4-02 ships DoH, UDP and TCP; `tls://` is rejected with a clear error). DoT as a listener stays in Phase 6.
@@ -36,7 +36,7 @@ Phase 4 is done when ALL of these hold (from the roadmap):
 - [x] **P4-06 Conformance on both backends.** Run the same table against `dnsproxy` and `native`; fix every behavior difference (do not special-case a backend in the table unless the difference is documented and accepted).
 - [x] **P4-07 Comparison script.** About 1,000 domains (sample from `data/logs/queries-*.jsonl` and the three lists): run through both backends, compare block/pass decisions, report differences with the reason.
 - [x] **P4-08 Security pass.** Bind addresses, ACL, rate limit, answer validation (ID and question), resource limits, message size limits; fuzz the handler input where cheap.
-- [ ] **P4-09 Phone test with `native`.** Repeat S1 (`adblock.turtlecute.org`, `canyoublockit.com` eXtreme) and the Shopee check (`s.shopee.co.id` still blocked) with `backend: native` on the same setup. Ask Master to switch nothing on the phone; only the server config changes.
+- [x] **P4-09 Phone test with `native`.** Done 2026-10-19 00:29-00:32: turtlecute 97%, Shopee blocked, results in `docs/test-report.md` section 5. Finding: one query dropped by the rate limiter during the turtlecute burst (254 queries in 2 s). Original task text: Repeat S1 (`adblock.turtlecute.org`, `canyoublockit.com` eXtreme) and the Shopee check (`s.shopee.co.id` still blocked) with `backend: native` on the same setup. Ask Master to switch nothing on the phone; only the server config changes.
 - [x] **P4-10 Phase gates and review.** `/gates` (gofmt, vet, build, test with coverage, `-race`, `go mod verify`/`tidy -diff`, `govulncheck` at `GOPATH\bin\govulncheck.exe`, `xdns check`), then `/review-phase` with a fresh-context reviewer, fix Critical and Important findings with RED -> GREEN.
 
 ## Phone test (P4-09) notes
