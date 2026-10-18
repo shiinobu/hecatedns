@@ -15,7 +15,8 @@ Last updated: 2026-10-18 night by Claude Sonnet 5.5 (Phase 1 closed).
 ## Next
 
 1. Wait for Master ("lanjut"). Then start `state/PHASE-2-TASKS.md` (lists, CNAME, special names, `xdns check`).
-2. Phase 2 hand-off notes are at the top of `PHASE-2-TASKS.md`; read them first.
+2. Phase 2 hand-off notes are at the top of `PHASE-2-TASKS.md`; read them first, then `notes/phase2-facts.md` (list URLs, ETag/304 and gzip facts, exact code seams, design recommendations). Prepared 2026-10-18 for Gemini 4 Argon because Claude's usage limit ran out; baseline at `0a505f2` was green (build, vet, gofmt, tests).
+3. Still to prepare if time allows (not done): paste-ready Phase 2 prompts 13-15 (like prompts 10-12), refresh `rules/00-project-brief.md` repo map (it still says run/log/rule are stubs) and move Q1/Q2 in `notes/open-questions.md` to "Answered".
 
 ## Blockers / waiting for Master
 
