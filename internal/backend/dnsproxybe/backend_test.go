@@ -246,11 +246,30 @@ func TestRunTwiceFails(t *testing.T) {
 	}
 }
 
-func TestBindFailureEndsRunAndReleasesListeners(t *testing.T) {
-	taken, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("occupy tcp port: %v", err)
+// occupyTCPPortWithFreeUDP returns a TCP listener whose port number can still
+// be bound over UDP. dnsproxy binds UDP first, so the TCP bind is then the one
+// that fails, which is what the bind-failure test is about. Picking a TCP port
+// first does not work on Windows: its excluded UDP port ranges (Hyper-V,
+// WinNAT) can make the UDP bind fail instead.
+func occupyTCPPortWithFreeUDP(t *testing.T) net.Listener {
+	t.Helper()
+	for attempt := 0; attempt < 50; attempt++ {
+		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("pick a udp port: %v", err)
+		}
+		port := pc.LocalAddr().(*net.UDPAddr).Port
+		_ = pc.Close()
+		if ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port))); err == nil {
+			return ln
+		}
 	}
+	t.Fatal("no port is free for both tcp and udp")
+	return nil
+}
+
+func TestBindFailureEndsRunAndReleasesListeners(t *testing.T) {
+	taken := occupyTCPPortWithFreeUDP(t)
 	defer taken.Close()
 	addr := taken.Addr().String()
 	cfg := testConfig("127.0.0.1:53")
