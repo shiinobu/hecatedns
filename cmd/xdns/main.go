@@ -42,7 +42,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runRule(rest, stdout, stderr)
 	case "log":
 		return runLog(rest, stdout, stderr)
-	case "run", "lists":
+	case "run":
+		return runServer(rest, stdout, stderr)
+	case "lists":
 		fmt.Fprintf(stderr, "xdns %s: belum diimplementasi\n", command)
 		return exitUsage
 	default:
