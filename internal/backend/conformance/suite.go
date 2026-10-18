@@ -172,6 +172,9 @@ func aclRefuses(t *testing.T, factory backend.Factory) {
 		if resp.Rcode != dns.RcodeRefused || len(resp.Answer) != 0 {
 			t.Errorf("%s from a client outside allowed_clients: rcode %s with %d answers, want REFUSED", name, dns.RcodeToString[resp.Rcode], len(resp.Answer))
 		}
+		if resp.RecursionAvailable {
+			t.Errorf("%s from a client outside allowed_clients: RA is set, but such a client may not use recursion", name)
+		}
 	}
 	if got := h.upstream.queries("fine.example"); got != 0 {
 		t.Errorf("a refused client's query reached the upstream %d times", got)

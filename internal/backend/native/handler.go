@@ -134,6 +134,7 @@ func (h *handler) resolve(ctx context.Context, req *dns.Msg, client netip.Addr, 
 		h.filter.Failed(ctx, q, err)
 		return servFail(req)
 	}
+	got.RecursionAvailable = true
 	resp, stage = got, stageAnswer
 	if dec := h.filter.After(ctx, q, got, meta); dec.Verdict == engine.Block {
 		return blockReply(req, dec)
@@ -212,13 +213,14 @@ func (h *handler) write(w dns.ResponseWriter, req, resp *dns.Msg, proto string) 
 	}
 }
 
-// shapeReply makes resp a reply to req, in place.
+// shapeReply makes resp a reply to req, in place. It leaves RA as it is: the
+// engine decides it for blocked and refused answers (a client outside the ACL
+// may not use recursion), and resolve sets it on answers it resolved.
 func shapeReply(req, resp *dns.Msg) {
 	resp.Id = req.Id
 	resp.Response = true
 	resp.Opcode = req.Opcode
 	resp.RecursionDesired = req.RecursionDesired
-	resp.RecursionAvailable = true
 	resp.Authoritative = false
 	resp.CheckingDisabled = req.CheckingDisabled
 	if len(req.Question) > 0 {

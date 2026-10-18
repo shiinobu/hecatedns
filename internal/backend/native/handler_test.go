@@ -523,3 +523,42 @@ func TestHandler_BlockFromAfterWithoutAnAnswerFailsClosed(t *testing.T) {
 		t.Errorf("rcode = %s, want SERVFAIL rather than the answer the engine wanted blocked", dns.RcodeToString[got])
 	}
 }
+
+func TestHandler_RecursionAvailableOnResolvedAnswersButNotOnRefusals(t *testing.T) {
+	noRA := &fakeExchanger{fn: func(q *dns.Msg) (*dns.Msg, error) {
+		resp := aReply(q)
+		resp.RecursionAvailable = false
+		return resp, nil
+	}}
+	tests := []struct {
+		name   string
+		filter *fakeFilter
+		want   bool
+	}{
+		{"forwarded answer", &fakeFilter{}, true},
+		{"client outside the ACL", &fakeFilter{before: func(q engine.Query) engine.Decision {
+			return engine.Decision{Verdict: engine.Block, Resp: engine.Refuse(q.Req)}
+		}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newTestHandler(tt.filter, noRA)
+			w := udpWriter("192.168.1.150")
+
+			h.ServeDNS(w, queryFor("fine.example", dns.TypeA))
+
+			if got := w.only(t).RecursionAvailable; got != tt.want {
+				t.Errorf("RA = %v, want %v", got, tt.want)
+			}
+		})
+	}
+
+	h := newTestHandler(&fakeFilter{}, noRA)
+	for i := 0; i < 2; i++ {
+		w := udpWriter("192.168.1.150")
+		h.ServeDNS(w, queryFor("fine.example", dns.TypeA))
+		if !w.only(t).RecursionAvailable {
+			t.Errorf("answer %d (the second comes from the cache) has RA unset", i+1)
+		}
+	}
+}
