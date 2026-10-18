@@ -118,19 +118,37 @@ func TestRun_HealthyUpstreamsAndCachedListsPass(t *testing.T) {
 }
 
 func TestRun_SafeSearchForcedFails(t *testing.T) {
-	upstreamAddr := startFakeUpstream(t, googleSafeSearchHandler)
-	cfg := config.Default()
-	cfg.Upstreams = []string{upstreamAddr}
-	cfg.Bootstrap = nil
-	cfg.DataDir = t.TempDir()
-	cfg.Rules.File = filepath.Join(cfg.DataDir, "rules.txt")
+	for _, target := range []string{"forcesafesearch.google.com.", "sub.forcesafesearch.google.com."} {
+		upstreamAddr := startFakeUpstream(t, func(req *dns.Msg) *dns.Msg {
+			resp := new(dns.Msg).SetReply(req)
+			if len(req.Question) == 1 {
+				q := req.Question[0]
+				resp.Answer = []dns.RR{
+					&dns.CNAME{
+						Hdr:    dns.RR_Header{Name: q.Name, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: 60},
+						Target: target,
+					},
+					&dns.A{
+						Hdr: dns.RR_Header{Name: target, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+						A:   net.IPv4(216, 239, 38, 120),
+					},
+				}
+			}
+			return resp
+		})
+		cfg := config.Default()
+		cfg.Upstreams = []string{upstreamAddr}
+		cfg.Bootstrap = nil
+		cfg.DataDir = t.TempDir()
+		cfg.Rules.File = filepath.Join(cfg.DataDir, "rules.txt")
 
-	_, err := Run(context.Background(), cfg, Options{Timeout: 2 * time.Second})
-	if err == nil {
-		t.Fatal("Run succeeded when upstream forced SafeSearch, want an error")
-	}
-	if !strings.Contains(err.Error(), "forcesafesearch.google.com") || !strings.Contains(err.Error(), upstreamAddr) {
-		t.Fatalf("err = %v, want it to mention forcesafesearch.google.com and %s", err, upstreamAddr)
+		_, err := Run(context.Background(), cfg, Options{Timeout: 2 * time.Second})
+		if err == nil {
+			t.Fatalf("Run succeeded when upstream forced SafeSearch (%s), want an error", target)
+		}
+		if !strings.Contains(err.Error(), "forcesafesearch.google.com") || !strings.Contains(err.Error(), upstreamAddr) {
+			t.Fatalf("err = %v, want it to mention forcesafesearch.google.com and %s", err, upstreamAddr)
+		}
 	}
 }
 
@@ -231,11 +249,72 @@ func TestRun_PartialUpstreamFailureAndBootstrapAndModes(t *testing.T) {
 		t.Fatalf("Result = %+v, want Checked=3 OK=1 Warnings=2", res)
 	}
 
-	// If a custom allow rule overrides the block list's sample domain, selfcheck fails.
+	// If a custom allow rule overrides ALL domains in block-list, selfcheck fails.
 	if err := os.WriteFile(cfg.Rules.File, []byte("allow bad.example\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Run(context.Background(), cfg, Options{Timeout: time.Second}); err == nil {
-		t.Fatal("Run succeeded when custom allow rule unblocked the sample domain, want error")
+		t.Fatal("Run succeeded when custom allow rule unblocked all domains in block-list, want error")
 	}
 }
+
+func TestRun_SkipsAllowedFirstEntryAndPicksListOwnSample(t *testing.T) {
+	upstreamAddr := startFakeUpstream(t, googleOKHandler)
+	dataDir := t.TempDir()
+
+	// hagezi-pro has a-shared.ads.example and b-pro.ads.example.
+	// hagezi-popups has a-shared.ads.example (also in hagezi-pro!) and z-popup-only.ads.example.
+	// abpindo has a 70 KiB comment header, an allow-listed first domain (a-allowed.indo.example),
+	// and a blocked second domain (b-blocked.indo.example).
+	hugeComment := "# " + strings.Repeat("c", 70*1024) + "\n"
+	writeCachedList(t, dataDir, "hagezi-pro", "a-shared.ads.example\nb-pro.ads.example\n")
+	writeCachedList(t, dataDir, "hagezi-popups", "a-shared.ads.example\nz-popup-only.ads.example\n")
+	writeCachedList(t, dataDir, "abpindo", hugeComment+"a-allowed.indo.example\nb-blocked.indo.example\n")
+
+	rulesPath := filepath.Join(dataDir, "rules.txt")
+	if err := os.WriteFile(rulesPath, []byte("allow a-allowed.indo.example\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Default()
+	cfg.Upstreams = []string{upstreamAddr}
+	cfg.Bootstrap = nil
+	cfg.DataDir = dataDir
+	cfg.Rules.File = rulesPath
+	cfg.Lists.Sources = []config.Source{
+		{Name: "hagezi-pro", URL: "https://example.com/pro.txt", Kind: config.KindBlock, Format: config.FormatDomains, Enabled: true},
+		{Name: "hagezi-popups", URL: "https://example.com/popups.txt", Kind: config.KindBlock, Format: config.FormatDomains, Enabled: true},
+		{Name: "abpindo", URL: "https://example.com/abpindo.txt", Kind: config.KindBlock, Format: config.FormatDomains, Enabled: true},
+	}
+
+	res, err := Run(context.Background(), cfg, Options{Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatalf("Run: unexpected error: %v", err)
+	}
+	if len(res.Lists) != 3 {
+		t.Fatalf("len(res.Lists) = %d, want 3", len(res.Lists))
+	}
+	if res.Lists[1].SampleDomain != "z-popup-only.ads.example" {
+		t.Errorf("hagezi-popups SampleDomain = %q, want \"z-popup-only.ads.example\" (not the entry shared with hagezi-pro)", res.Lists[1].SampleDomain)
+	}
+	if res.Lists[2].SampleDomain != "b-blocked.indo.example" {
+		t.Errorf("abpindo SampleDomain = %q, want \"b-blocked.indo.example\" (skipping allow-listed first entry and >64KiB comment)", res.Lists[2].SampleDomain)
+	}
+
+	// If a second blocklist is a pure subset of hagezi-pro, fallback Pass 2 still verifies it blocks.
+	writeCachedList(t, dataDir, "hagezi-popups", "a-shared.ads.example\n")
+	res2, err := Run(context.Background(), cfg, Options{Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatalf("Run with subset blocklist: %v", err)
+	}
+	if res2.Lists[1].SampleDomain != "a-shared.ads.example" || res2.Lists[1].SampleAnswer != "0.0.0.0" {
+		t.Errorf("subset blocklist ListResult = %+v", res2.Lists[1])
+	}
+
+	// Unreadable rules.file (pointing to a directory) must fail selfcheck.
+	cfg.Rules.File = dataDir
+	if _, err := Run(context.Background(), cfg, Options{Timeout: time.Second}); err == nil {
+		t.Fatal("Run succeeded when cfg.Rules.File is a directory, want error")
+	}
+}
+

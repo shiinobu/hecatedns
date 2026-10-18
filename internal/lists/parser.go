@@ -56,8 +56,7 @@ func parseWithLimits(r io.Reader, format string, maxBytes int64, maxEntries int)
 	lr := &io.LimitedReader{R: r, N: maxBytes + 1}
 	br := bufio.NewReaderSize(lr, readBufSize)
 
-	seen := make(map[string]struct{})
-	var domains []string
+	builder := engine.NewDomainSetBuilder(0)
 	var rejected int
 	firstLine := true
 
@@ -75,12 +74,11 @@ func parseWithLimits(r io.Reader, format string, maxBytes int64, maxEntries int)
 			case lineErr != nil:
 				rejected++
 			case ok:
-				if _, dup := seen[domain]; !dup {
-					if len(seen) >= maxEntries {
+				if !builder.Has(domain) {
+					if builder.Len() >= maxEntries {
 						return nil, rejected, ErrTooManyEntries
 					}
-					seen[domain] = struct{}{}
-					domains = append(domains, domain)
+					builder.AddNormalized(domain)
 				}
 			}
 		}
@@ -91,8 +89,7 @@ func parseWithLimits(r io.Reader, format string, maxBytes int64, maxEntries int)
 			return nil, rejected, fmt.Errorf("read list: %w", readErr)
 		}
 	}
-	set, _ := engine.NewDomainSet(domains)
-	return set, rejected, nil
+	return builder.Build(), rejected, nil
 }
 
 // readBoundedLine reads one line from br (whose buffer is larger than

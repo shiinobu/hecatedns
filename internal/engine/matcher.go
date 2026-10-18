@@ -29,12 +29,69 @@ func NewDomainSet(raw []string) (set *DomainSet, rejected int) {
 	return &DomainSet{entries: entries}, rejected
 }
 
+// agy wrote this
+
+// DomainSetBuilder builds a DomainSet incrementally from already-validated,
+// normalized entries without allocating an intermediate slice or re-validating.
+type DomainSetBuilder struct {
+	entries map[string]struct{}
+}
+
+// NewDomainSetBuilder returns a builder pre-sized for capacity entries.
+func NewDomainSetBuilder(capacity int) *DomainSetBuilder {
+	return &DomainSetBuilder{entries: make(map[string]struct{}, capacity)}
+}
+
+// Has reports whether entry is already present in the builder.
+func (b *DomainSetBuilder) Has(entry string) bool {
+	_, ok := b.entries[entry]
+	return ok
+}
+
+// Len returns the number of distinct entries added so far.
+func (b *DomainSetBuilder) Len() int {
+	return len(b.entries)
+}
+
+// AddNormalized inserts an already-validated, normalized domain entry and
+// returns the new distinct entry count.
+func (b *DomainSetBuilder) AddNormalized(entry string) int {
+	b.entries[entry] = struct{}{}
+	return len(b.entries)
+}
+
+// Build transfers ownership of the map to an immutable DomainSet and clears
+// the builder reference so the published set can never be mutated.
+func (b *DomainSetBuilder) Build() *DomainSet {
+	entries := b.entries
+	b.entries = nil
+	return &DomainSet{entries: entries}
+}
+
 // Len returns the number of distinct entries.
 func (s *DomainSet) Len() int {
 	if s == nil {
 		return 0
 	}
 	return len(s.entries)
+}
+
+// Find returns the lexicographically smallest entry in s for which match
+// returns true, without allocating a slice.
+func (s *DomainSet) Find(match func(entry string) bool) (string, bool) {
+	if s.Len() == 0 || match == nil {
+		return "", false
+	}
+	var best string
+	for entry := range s.entries {
+		if best != "" && entry >= best {
+			continue
+		}
+		if match(entry) {
+			best = entry
+		}
+	}
+	return best, best != ""
 }
 
 // Match reports whether name equals an entry or is a subdomain of one.

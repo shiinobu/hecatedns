@@ -1,8 +1,10 @@
-// agy wrote this
+// Package selfcheck runs pre-flight checks against upstreams, SafeSearch, and
+// cached blocklists.
 package selfcheck
 
+// agy wrote this
+
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -189,8 +191,8 @@ func checkCachedLists(ctx context.Context, cfg config.Config, res *Result) error
 	var errs []error
 
 	type loadedBlock struct {
-		idx    int
-		sample string
+		idx int
+		ns  engine.NamedSet
 	}
 	var toProbe []loadedBlock
 
@@ -209,60 +211,113 @@ func checkCachedLists(ctx context.Context, cfg config.Config, res *Result) error
 			errs = append(errs, fmt.Errorf("daftar %s: %w", src.Name, err))
 			continue
 		}
-		sample := firstSampleDomain(path, src.Format)
 		idx := len(res.Lists)
 		res.Lists = append(res.Lists, ListResult{
-			Name:         src.Name,
-			Kind:         src.Kind,
-			Cached:       true,
-			Entries:      meta.Count,
-			SampleDomain: sample,
+			Name:    src.Name,
+			Kind:    src.Kind,
+			Cached:  true,
+			Entries: meta.Count,
 		})
 		ns := engine.NamedSet{Name: src.Name, Set: set}
 		if src.Kind == config.KindAllow {
 			allowSets = append(allowSets, ns)
 		} else {
 			blockSets = append(blockSets, ns)
-			if sample != "" {
-				toProbe = append(toProbe, loadedBlock{idx: idx, sample: sample})
-			}
+			toProbe = append(toProbe, loadedBlock{idx: idx, ns: ns})
 		}
+	}
+
+	eng, clientIP, err := buildProbeEngine(cfg, engine.NewListSet(allowSets, blockSets))
+	if err != nil {
+		errs = append(errs, err)
+		return errors.Join(errs...)
 	}
 	if len(errs) > 0 || len(toProbe) == 0 {
 		return errors.Join(errs...)
 	}
 
-	eng, clientIP, err := buildProbeEngine(cfg, engine.NewListSet(allowSets, blockSets))
-	if err != nil {
-		return err
-	}
+	fullListSet := engine.NewListSet(allowSets, blockSets)
 	for _, p := range toProbe {
-		req := new(dns.Msg)
-		req.SetQuestion(dns.Fqdn(p.sample), dns.TypeA)
-		dec := eng.Before(ctx, engine.Query{Req: req, Client: clientIP, Proto: "udp"})
-		if dec.Verdict != engine.Block || dec.Resp == nil {
-			errs = append(errs, fmt.Errorf("daftar %s: domain contoh %q tidak terblokir (verdict=%s reason=%s)",
-				res.Lists[p.idx].Name, p.sample, dec.Verdict, dec.Reason))
+		sample, dec, ok := pickAndProbeSample(ctx, eng, fullListSet, allowSets, p.ns, clientIP)
+		if !ok {
+			errs = append(errs, fmt.Errorf("daftar %s: semua %d domain dikecualikan oleh aturan/daftar allow (tidak ada domain yang terblokir)",
+				p.ns.Name, p.ns.Set.Len()))
 			continue
 		}
-		ans := dns.RcodeToString[dec.Resp.Rcode]
-		if cfg.Block.Mode == config.ModeNullIP {
-			if len(dec.Resp.Answer) != 1 {
-				errs = append(errs, fmt.Errorf("daftar %s: jawaban contoh %q memiliki %d rekaman, ingin 1 rekaman A 0.0.0.0",
-					res.Lists[p.idx].Name, p.sample, len(dec.Resp.Answer)))
-				continue
-			}
-			aRec, ok := dec.Resp.Answer[0].(*dns.A)
-			if !ok || aRec.A.String() != "0.0.0.0" {
-				errs = append(errs, fmt.Errorf("daftar %s: jawaban contoh %q = %v, ingin 0.0.0.0",
-					res.Lists[p.idx].Name, p.sample, dec.Resp.Answer[0]))
-				continue
-			}
-			ans = "0.0.0.0"
+		res.Lists[p.idx].SampleDomain = sample
+		ans, err := verifyBlockedAnswer(cfg.Block.Mode, p.ns.Name, sample, dec)
+		if err != nil {
+			errs = append(errs, err)
+			continue
 		}
 		res.Lists[p.idx].SampleAnswer = ans
 	}
 	return errors.Join(errs...)
+}
+
+func pickAndProbeSample(
+	ctx context.Context,
+	eng *engine.Engine,
+	fullListSet *engine.ListSet,
+	allowSets []engine.NamedSet,
+	ns engine.NamedSet,
+	clientIP netip.Addr,
+) (string, engine.Decision, bool) {
+	probeOne := func(d string) engine.Decision {
+		req := new(dns.Msg)
+		req.SetQuestion(dns.Fqdn(d), dns.TypeA)
+		return eng.Before(ctx, engine.Query{Req: req, Client: clientIP, Proto: "udp"})
+	}
+
+	// Pass 1: find an entry in ns.Set that is blocked by ns.Name in the full ListSet.
+	eng.SwapLists(fullListSet)
+	var chosenDec engine.Decision
+	sample, ok := ns.Set.Find(func(entry string) bool {
+		dec := probeOne(entry)
+		if dec.Verdict == engine.Block && dec.Reason == engine.ReasonList && dec.Source == ns.Name {
+			chosenDec = dec
+			return true
+		}
+		return false
+	})
+	if ok {
+		return sample, chosenDec, true
+	}
+
+	// Pass 2 (fallback when every entry in ns.Set also appears in an earlier blocklist):
+	// test ns as the sole blocklist alongside allowSets and custom rules.
+	eng.SwapLists(engine.NewListSet(allowSets, []engine.NamedSet{ns}))
+	defer eng.SwapLists(fullListSet)
+	sample, ok = ns.Set.Find(func(entry string) bool {
+		dec := probeOne(entry)
+		if dec.Verdict == engine.Block && dec.Reason == engine.ReasonList && dec.Source == ns.Name {
+			chosenDec = dec
+			return true
+		}
+		return false
+	})
+	return sample, chosenDec, ok
+}
+
+func verifyBlockedAnswer(mode, listName, sample string, dec engine.Decision) (string, error) {
+	if dec.Verdict != engine.Block || dec.Resp == nil {
+		return "", fmt.Errorf("daftar %s: domain contoh %q tidak terblokir (verdict=%s reason=%s)",
+			listName, sample, dec.Verdict, dec.Reason)
+	}
+	ans := dns.RcodeToString[dec.Resp.Rcode]
+	if mode == config.ModeNullIP {
+		if len(dec.Resp.Answer) != 1 {
+			return "", fmt.Errorf("daftar %s: jawaban contoh %q memiliki %d rekaman, ingin 1 rekaman A 0.0.0.0",
+				listName, sample, len(dec.Resp.Answer))
+		}
+		aRec, ok := dec.Resp.Answer[0].(*dns.A)
+		if !ok || aRec.A.String() != "0.0.0.0" {
+			return "", fmt.Errorf("daftar %s: jawaban contoh %q = %v, ingin 0.0.0.0",
+				listName, sample, dec.Resp.Answer[0])
+		}
+		ans = "0.0.0.0"
+	}
+	return ans, nil
 }
 
 func buildProbeEngine(cfg config.Config, listSet *engine.ListSet) (*engine.Engine, netip.Addr, error) {
@@ -275,7 +330,9 @@ func buildProbeEngine(cfg config.Config, listSet *engine.ListSet) (*engine.Engin
 		return nil, netip.Addr{}, err
 	}
 	rules := engine.NewRulesFile(cfg.Rules.File, nil)
-	_, _ = rules.Reload()
+	if _, err := rules.Reload(); err != nil {
+		return nil, netip.Addr{}, fmt.Errorf("muat aturan %s: %w", cfg.Rules.File, err)
+	}
 	eng, err := engine.New(engine.Options{
 		ACL:       acl,
 		Rules:     rules,
@@ -294,17 +351,3 @@ func buildProbeEngine(cfg config.Config, listSet *engine.ListSet) (*engine.Engin
 	return eng, prefix.Addr().Unmap(), nil
 }
 
-func firstSampleDomain(path, format string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer func() { _ = f.Close() }()
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		if d, ok, err := lists.ParseLine(scanner.Text(), format); err == nil && ok {
-			return d
-		}
-	}
-	return ""
-}

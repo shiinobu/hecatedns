@@ -286,3 +286,36 @@ func TestListSet_Budget250k(t *testing.T) {
 		t.Errorf("lookup p99 = %v, exceeds 50 µs budget", p99)
 	}
 }
+
+// agy wrote this
+func TestDomainSetBuilderAndFind(t *testing.T) {
+	b := NewDomainSetBuilder(4)
+	if n := b.AddNormalized("zeta.example.com"); n != 1 {
+		t.Fatalf("AddNormalized 1 = %d, want 1", n)
+	}
+	if n := b.AddNormalized("alpha.example.com"); n != 2 {
+		t.Fatalf("AddNormalized 2 = %d, want 2", n)
+	}
+	if n := b.AddNormalized("beta.example.com"); n != 3 {
+		t.Fatalf("AddNormalized 3 = %d, want 3", n)
+	}
+	set := b.Build()
+	if set.Len() != 3 || !set.Match("sub.alpha.example.com") {
+		t.Fatalf("built DomainSet Len=%d Match=%v", set.Len(), set.Match("sub.alpha.example.com"))
+	}
+
+	// Find returns the lexicographically smallest entry satisfying the predicate.
+	got, ok := set.Find(func(entry string) bool {
+		return entry != "alpha.example.com"
+	})
+	if !ok || got != "beta.example.com" {
+		t.Errorf("Find = (%q, %v), want (\"beta.example.com\", true)", got, ok)
+	}
+	if _, ok := set.Find(func(string) bool { return false }); ok {
+		t.Errorf("Find(false) = true, want false")
+	}
+	var nilSet *DomainSet
+	if _, ok := nilSet.Find(func(string) bool { return true }); ok {
+		t.Errorf("nilSet.Find = true, want false")
+	}
+}
