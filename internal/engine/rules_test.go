@@ -255,3 +255,38 @@ func FuzzParseRuleLine(f *testing.F) {
 		}
 	})
 }
+
+func TestParseRules_FileTooLargeIsReportedEvenAfterManyIssues(t *testing.T) {
+	bad := strings.Repeat("nonsense line\n", maxRuleIssues+50)
+	padding := strings.Repeat("# padding padding padding padding padding\n", MaxRulesFileBytes/42+100)
+	_, issues := parseRulesText(t, bad+padding)
+
+	var tooLarge, tooMany bool
+	for _, issue := range issues {
+		tooLarge = tooLarge || errors.Is(issue.Err, ErrFileTooLarge)
+		tooMany = tooMany || errors.Is(issue.Err, ErrTooManyIssues)
+	}
+	if !tooLarge || !tooMany {
+		t.Errorf("tooLarge = %v, tooMany = %v; the truncation of the file must never be hidden by the issue cap", tooLarge, tooMany)
+	}
+}
+
+func TestParseRules_TheLineCutByTheSizeCapIsDropped(t *testing.T) {
+	// The cap lands in the middle of "block cut.example.com": a line cut short
+	// ("block cut.example.co") would become a different, wrong rule.
+	prefix := "block first.example.com\n"
+	filler := strings.Repeat("#", MaxRulesFileBytes-len(prefix)-len("block cut.exa")-1) + "\n"
+	set, issues := parseRulesText(t, prefix+filler+"block cut.example.com\nblock after.example.com\n")
+
+	if _, ok := set.Blocked("first.example.com"); !ok {
+		t.Error("a rule before the cap was lost")
+	}
+	for _, name := range []string{"cut.example.com", "cut.exa", "after.example.com"} {
+		if _, ok := set.Blocked(name); ok {
+			t.Errorf("%s is blocked, but it lies beyond or across the size cap", name)
+		}
+	}
+	if len(issues) == 0 || !errors.Is(issues[len(issues)-1].Err, ErrFileTooLarge) {
+		t.Errorf("issues = %+v, want a final ErrFileTooLarge", issues)
+	}
+}

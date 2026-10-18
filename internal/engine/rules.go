@@ -143,7 +143,7 @@ func ParseRules(r io.Reader) (*RuleSet, []RuleIssue, error) {
 		collector.add(line, text)
 	}
 	if tooLarge {
-		collector.issue(line, ErrFileTooLarge)
+		collector.fileIssue(line, ErrFileTooLarge)
 	}
 	return collector.build(), collector.issues, nil
 }
@@ -180,6 +180,12 @@ func (c *ruleCollector) add(line int, text []byte) {
 	default:
 		c.block = append(c.block, rule.Domain)
 	}
+}
+
+// fileIssue records a problem with the file as a whole. It is never dropped by
+// the issue cap: a silently truncated rules file would be the worst outcome.
+func (c *ruleCollector) fileIssue(line int, err error) {
+	c.issues = append(c.issues, RuleIssue{Line: line, Err: err})
 }
 
 func (c *ruleCollector) issue(line int, err error) {

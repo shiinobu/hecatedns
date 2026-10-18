@@ -153,3 +153,25 @@ func FuzzACLAllows(f *testing.F) {
 		_ = acl.Allows(addr)
 	})
 }
+
+func TestNewACL_MappedPrefixBoundary(t *testing.T) {
+	tests := []struct {
+		name   string
+		cidr   string
+		client string
+		want   bool
+	}{
+		{"/96 maps the whole IPv4 space", "::ffff:0:0/96", "8.8.8.8", true},
+		{"/96 matches the mapped form too", "::ffff:0:0/96", "::ffff:8.8.8.8", true},
+		{"/97 maps to a /1", "::ffff:0.0.0.0/97", "10.0.0.1", true},
+		{"/97 maps to a /1, upper half outside", "::ffff:0.0.0.0/97", "200.0.0.1", false},
+		{"/95 stays an IPv6 prefix and cannot match IPv4", "::fffe:0:0/95", "8.8.8.8", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mustACL(t, tt.cidr).Allows(netip.MustParseAddr(tt.client)); got != tt.want {
+				t.Errorf("Allows(%s) with %s = %v, want %v", tt.client, tt.cidr, got, tt.want)
+			}
+		})
+	}
+}

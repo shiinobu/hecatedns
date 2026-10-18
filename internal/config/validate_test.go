@@ -295,3 +295,16 @@ func TestValidate_LogDailyCap(t *testing.T) {
 		t.Errorf("Validate() = %v, the cap does not matter while the log is off", err)
 	}
 }
+
+func TestValidate_MaxTTLZeroMeansNoCap(t *testing.T) {
+	cfg := Default()
+	cfg.Cache.MinTTL = 30 * time.Second
+	cfg.Cache.MaxTTL = 0
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() = %v; max_ttl 0 means no cap, so a minimum below it is fine", err)
+	}
+	cfg.Cache.MaxTTL = 10 * time.Second
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "cache.min_ttl") {
+		t.Errorf("Validate() = %v, want min_ttl above a real max_ttl to stay an error", err)
+	}
+}

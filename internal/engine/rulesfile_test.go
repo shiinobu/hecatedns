@@ -268,3 +268,28 @@ func TestRulesFile_ConcurrentReadersDuringReload(t *testing.T) {
 	close(stop)
 	readers.Wait()
 }
+
+func TestRulesFile_SameModTimeButNewSizeReloads(t *testing.T) {
+	rf, path, _ := newTestRulesFile(t)
+	writeRules(t, path, "block aaa.example.com\n")
+	frozen := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	if err := os.Chtimes(path, frozen, frozen); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rf.Reload(); err != nil {
+		t.Fatal(err)
+	}
+
+	// A file system with coarse timestamps can report the same modification
+	// time for two writes in a row; the size still tells them apart.
+	writeRules(t, path, "block aaa.example.com\nblock bbb.example.com\n")
+	if err := os.Chtimes(path, frozen, frozen); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := rf.Reload(); err != nil || !changed {
+		t.Fatalf("Reload() = %v, %v; want true, nil", changed, err)
+	}
+	if _, ok := rf.Snapshot().Blocked("bbb.example.com"); !ok {
+		t.Error("an edit with the same modification time was not picked up")
+	}
+}

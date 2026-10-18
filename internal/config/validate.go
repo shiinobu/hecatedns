@@ -171,7 +171,7 @@ func (c Config) validateCache() []error {
 	}
 	errs = append(errs, checkTTL("cache.min_ttl", c.Cache.MinTTL)...)
 	errs = append(errs, checkTTL("cache.max_ttl", c.Cache.MaxTTL)...)
-	if c.Cache.MaxTTL < c.Cache.MinTTL {
+	if c.Cache.MaxTTL > 0 && c.Cache.MaxTTL < c.Cache.MinTTL {
 		errs = append(errs, errors.New("cache.min_ttl: must not exceed cache.max_ttl"))
 	}
 	return errs
