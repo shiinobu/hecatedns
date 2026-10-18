@@ -11,7 +11,7 @@
 .EXAMPLE
   .\scripts\dnsquery.ps1 example.com
   .\scripts\dnsquery.ps1 ads.example.com -Type AAAA -Port 5300
-  .\scripts\dnsquery.ps1 www.example.com -Type HTTPS -Server 192.168.1.10 -Port 53
+  .\scripts\dnsquery.ps1 www.example.com -Type HTTPS -Server 192.168.1.99 -Port 53
 #>
 [CmdletBinding()]
 param(

@@ -1,7 +1,7 @@
 backend: dnsproxy                # dnsproxy | native
 
 listen:
-  - 127.0.0.1:5300               # pengembangan; ganti ke 192.168.1.10:53 di Fase 3
+  - 127.0.0.1:5300               # pengembangan; tes HP: ganti ke alamat LAN PC, mis. 192.168.1.99:53
 
 allowed_clients:                 # CIDR; di luar ini dijawab REFUSED
   - 127.0.0.0/8

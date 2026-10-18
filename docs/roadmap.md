@@ -1,6 +1,6 @@
 # xdns — Roadmap
 
-*Versi 1.2 | 2026-10-18 | Status: **Fase 0, Fase 1, dan Fase 2 selesai dan ditinjau** (laporan: `phase-0-report.md`, `phase-1-report.md`, `phase-2-report.md`); Fase 3 berikutnya, menunggu "lanjut" dari Master (serta Gerbang G1 dan G2).*
+*Versi 1.3 | 2026-10-18 | Status: **Fase 0, Fase 1, Fase 2, dan Fase 3 selesai** (laporan: `phase-0-report.md`, `phase-1-report.md`, `phase-2-report.md`, `phase-3-report.md`, `test-report.md`); Fase 4 berikutnya, menunggu "lanjut" dari Master.*
 
 Roadmap ini adalah alur kerja bertahap. Desain teknisnya ada di `architecture.md`, dasar risetnya di `research.md`. Kode `D#`, `S#`, `R#` merujuk ke tabel keputusan, kriteria sukses, dan risiko di `architecture.md`.
 
@@ -100,9 +100,9 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 
 ---
 
-## Fase 3 — Tes di HP (Wi-Fi rumah)
+## Fase 3 — Tes di HP (Wi-Fi rumah) — selesai 2026-10-18
 
-**Tujuan.** Mengukur kriteria S1–S3 pada perangkat nyata dan menyetel hasilnya.
+**Tujuan.** Mengukur kriteria S1–S3 pada perangkat nyata dan menyetel hasilnya. **Hasil:** S1 95% lalu 97% pada `adblock.turtlecute.org` (target ≥ 90%); S3 aman dari sisi DNS; S2 lulus untuk Shopee (`s.shopee.co.id` diblokir), redirect Play Store belum pernah muncul. Alamat PC menjadi `192.168.1.99` (bukan `.10`). Lihat `phase-3-report.md` dan `test-report.md`. Teks di bawah adalah rencana awal.
 
 **Gerbang G2 (awal fase): UDP 53 di PC ini.** Layanan Internet Connection Sharing (ICS) memegang UDP `0.0.0.0:53` (`architecture.md` §12). Android tidak bisa menentukan port DNS, jadi server harus bisa memakai UDP 53 di `192.168.1.10`. Saya memeriksa dulu apakah bind spesifik berhasil. Bila tidak, opsinya: hentikan ICS (bila Master tidak memakai Mobile Hotspot, Hyper-V, atau WSL), pakai perangkat lain untuk server rumah, atau jalankan tes lewat VPS lebih awal. **Di sini saya akan bertanya ke Master.**
 
@@ -205,5 +205,6 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 | 2026-10-18 | Fase 0 selesai. `yaml.v3` dipasang di Tugas 2 (bukan Tugas 1) karena baru dipakai di sana; nilai bawaan ada di `config.Default()`; `.gitattributes` memaksa akhir baris LF agar `gofmt` bersih di Windows |
 | 2026-10-18 | Peninjauan Fase 0 oleh agent: 0 Critical, 4 Important, semuanya diperbaiki dengan TDD (dokumen YAML ganda ditolak; argumen tak terduga pada `check` ditolak; `allowed_clients` wajib terisi; nama sumber daftar harus aman sebagai nama berkas). `govulncheck` menemukan 6 kerentanan pustaka standar, diperbaiki dengan Go 1.26.9 dan x/net v0.60.0 (0 terdampak). ACL dipindah ke engine karena dnsproxy tidak punya ACL klien. Aturan baru dari Master: tugas dulu dan dokumen di akhir; peninjauan agent sekali per fase sebelum fase berikutnya. Master memindahkan dokumen ke `docs/` |
 | 2026-10-18 | Fase 1 selesai (laporan: `phase-1-report.md`). Tinjauan oleh agent Opus berkonteks baru yang menjalankan binary dengan beban ala penyerang: 0 Critical, 4 Important (I2, I3, I4 diperbaiki dengan TDD; I1, kolam TCP bersama UDP, diterima untuk LAN dan menjadi prasyarat Fase 6), 12 Minor. Perubahan desain yang tercatat: prioritas aturan kustom di atas daftar; engine menjawab FORMERR/NOTIMP sendiri; batas harian log `log.max_mb_per_day`; `enabled:` yang dihilangkan berarti aktif; `nslookup -port` diganti `scripts/dnsquery.ps1` |
+| 2026-10-18 | Fase 3 selesai (laporan: `phase-3-report.md`, `test-report.md`). Tidak ada perubahan kode Go. G2 terjawab: ICS tidak perlu dihentikan (bind khusus `192.168.1.99:53` berhasil), dua aturan firewall sempit, PC dipesan di router pada `192.168.1.99`, HP memakai `192.168.1.150`. S1: 95% lalu 97% (126 lalu 128 dari 132) pada `adblock.turtlecute.org`; `canyoublockit.com` eXtreme terblokir semua menurut pengamatan Master. S2: pemicu redirect Shopee adalah `s.shopee.co.id` (diblokir); Play Store belum pernah muncul. Aturan kustom ditambah: `ad.doubleclick.net`, `adservice.google.com`, `s.shopee.co.id`. `AGENTS.md` ditambahkan di root |
 | 2026-10-18 | Fase 2 selesai (laporan: `phase-2-report.md`). Ketiga daftar bawaan diunduh dan termuat (`hagezi-pro` 202.297, `hagezi-popups` 47.668, `abpindo` 124 — total 250.089 entri); pemeriksaan rantai CNAME di `After` (termasuk pada cache hit); nama khusus (`use-application-dns.net` NXDOMAIN, `_dns.resolver.arpa` NODATA); `selfcheck` + `xdns check` (termasuk S3 SafeSearch dan deteksi loop Q3) + `xdns lists status|update`. Benchmark 250 ribu entri: rata-rata 215–250 ns/op (0 alokasi), p99 2,01 µs (< 50 µs), memori proses hidup WorkingSet 71,74–74,20 MiB (< 150 MB). Tinjauan berkonteks baru: 0 Critical, 2 Important (I1 failover bootstrap DNS pada pengunduh daftar, I2 pemilihan sampel per daftar di `selfcheck`), 8 Minor — seluruhnya diperbaiki dengan TDD |
 

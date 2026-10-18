@@ -1,6 +1,6 @@
 # xdns — Arsitektur
 
-*Versi 1.2 | 2026-10-18 | Status: Fase 0, Fase 1, dan Fase 2 selesai dan sudah ditinjau (lihat `phase-1-report.md`, `phase-2-report.md`); Fase 3 menunggu "lanjut" dari Master (beserta Gerbang G1 dan G2) | Penulis: Claude & Gemini 4 Argon (keputusan desain didelegasikan penuh oleh Master)*
+*Versi 1.3 | 2026-10-18 | Status: Fase 0, Fase 1, Fase 2, dan Fase 3 selesai (lihat `phase-1-report.md`, `phase-2-report.md`, `phase-3-report.md`, `test-report.md`); Fase 4 menunggu "lanjut" dari Master | Penulis: Claude & Gemini 4 Argon (keputusan desain didelegasikan penuh oleh Master)*
 
 Dokumen ini adalah spesifikasi desain xdns. Urutan kerja ada di `roadmap.md`. Dasar riset dan sumbernya ada di `research.md` (rujukan "riset §N" di bawah menunjuk ke sana).
 
@@ -341,7 +341,7 @@ Alur pelacakan redirect: picu redirect di HP → catat jam → `xdns log -around
 backend: dnsproxy                # dnsproxy | native
 
 listen:
-  - 127.0.0.1:5300               # pengembangan; ganti ke 192.168.1.10:53 di Fase 3
+  - 127.0.0.1:5300               # pengembangan; tes HP (Fase 3): ganti ke alamat LAN PC, mis. 192.168.1.99:53
 
 allowed_clients:                 # CIDR; di luar ini dijawab REFUSED
   - 127.0.0.0/8
@@ -410,8 +410,8 @@ xdns **tidak pernah** menulis ulang `www.google.com`. Syarat agar hasilnya benar
 ## 12. Lingkungan PC ini (fakta terukur 2026-10-18)
 
 - Windows 11 Pro; Go 1.26.4 terpasang, modul memakai 1.26.9 lewat `GOTOOLCHAIN=auto`; git 2.54.0; gcc tersedia lewat w64devkit sehingga `go test -race` berjalan (set `CGO_ENABLED=1` per perintah, jangan global).
-- IP LAN PC `192.168.1.10`, gateway `192.168.1.1`; ada adapter virtual `172.25.144.1` (kemungkinan Hyper-V/WSL).
-- **UDP `0.0.0.0:53` sedang dipegang layanan Internet Connection Sharing (ICS / `SharedAccess`)**; TCP 53 bebas. Android tidak bisa menentukan port DNS di pengaturan Wi-Fi, jadi tes dari HP memerlukan UDP 53 di IP LAN PC.
+- IP LAN PC `192.168.1.99` (dipesan di router ZTE F663NV3a pada 2026-10-18; sebelumnya DHCP `192.168.1.10`), gateway `192.168.1.1`; HP memakai IP statis `192.168.1.150`. Adapter virtual `172.25.144.1` adalah Hyper-V "Default Switch" (Hyper-V aktif dan WSL2 terpasang). Wi-Fi di PC berkategori Public.
+- **UDP `0.0.0.0:53` dipegang layanan Internet Connection Sharing (ICS / `SharedAccess`, svchost)**; TCP 53 bebas. Android tidak bisa menentukan port DNS di pengaturan Wi-Fi, jadi tes dari HP memerlukan UDP 53 di IP LAN PC. **Terverifikasi di Fase 3:** bind khusus ke `192.168.1.99:53` (UDP dan TCP) berhasil walau ICS memegang wildcard, jadi ICS tidak perlu dihentikan. Dua aturan firewall masuk (grup `xdns`, UDP dan TCP 53, hanya ke `192.168.1.99` dari `LocalSubnet`, program `bin\xdns.exe`).
 - UDP 5353 dipakai banyak proses (mDNS). Port 5300 dan 853 bebas.
 - **`nslookup` Windows menerima `-port` tetapi mengabaikannya** (selalu memakai port 53); pakai `scripts/dnsquery.ps1 <nama> -Port <port>` atau klien miekg/dns.
 - Rentang port yang dikecualikan Windows (Hyper-V/WinNAT, mis. UDP 49674-49973) membuat bind gagal dengan WSAEACCES; tes tidak boleh mengandaikan port TCP dan UDP yang sama selalu sama-sama bebas.
@@ -502,10 +502,11 @@ Perintah verifikasi tiap fase: `gofmt -l .` (kosong), `go vet ./...`, `go test .
 Belum dipastikan; dibuktikan lewat tes dan bukan diasumsikan:
 1. **Terverifikasi di Fase 1:** tanda tangan `proxy.Config.RequestHandler` dan perilaku cache dnsproxy (§5.3, `.agents/notes/dnsproxy-api-facts.md`).
 2. **Terverifikasi di Fase 1:** upstream DoH berupa IP tanpa bootstrap (jawaban DoH nyata dari `https://1.1.1.1/dns-query` pada binary).
-3. Perilaku `use-application-dns.net` (NXDOMAIN) dan `_dns.resolver.arpa` (NODATA) pada Firefox dan Chrome di HP (server sudah menjawab NXDOMAIN dan NODATA dengan SOA sintetis di Fase 2; reaksi browser HP diuji di Fase 3).
+3. **Sebagian terverifikasi di Fase 3:** server menjawab NXDOMAIN dan NODATA dengan SOA sintetis pada kueri dari PC; **Chrome di HP tidak pernah menanyakan** `use-application-dns.net` maupun `_dns.resolver.arpa` (0 kueri), jadi tidak ada reaksi yang bisa diamati. Reaksi Firefox di HP belum diuji.
 4. **Terverifikasi di Fase 2:** ketiga daftar bawaan diunduh dan di-parse pada binary asli (`hagezi-pro` 202.297 domain, `hagezi-popups` 47.668 domain, `abpindo` 124 domain — total 250.089 entri sebelum de-duplikasi, 0 baris ditolak).
 5. **Terverifikasi di Fase 2:** memori dan latensi pencarian dengan daftar penuh (250.000–250.089 entri): `heap_inuse_delta` = 16,15–16,29 MiB, memori proses hidup WorkingSet = 71,74–74,20 MiB / Private = 103,35–105,25 MiB (< 150 MB), rata-rata = 215–250 ns/op (0 alokasi), p95 = 1,04–1,07 µs, p99 = 2,01 µs (< 50 µs).
-6. Perilaku HP RedMagic terhadap jawaban `0.0.0.0` dibanding NODATA/NXDOMAIN (Fase 3).
-7. Apakah EDE (RFC 8914) "Filtered" pada jawaban blokir bermanfaat; ditambahkan hanya bila terbukti tidak mengganggu klien.
-8. Penyelesaian konflik ICS pada UDP 53 (Fase 3).
+6. **Sebagian terverifikasi di Fase 3 (Chrome saja):** jawaban `0.0.0.0` pada Chrome HP RedMagic tidak menimbulkan gangguan yang teramati; permintaan ke domain terblokir gagal cepat ("This site can't be reached"). Belum dibandingkan dengan NODATA atau NXDOMAIN, dan Firefox belum diuji (`test-report.md` bagian 4).
+7. Apakah EDE (RFC 8914) "Filtered" pada jawaban blokir bermanfaat; ditambahkan hanya bila terbukti tidak mengganggu klien. Belum diuji (Fase 3 tidak mencakupnya).
+8. **Terverifikasi di Fase 3:** konflik ICS pada UDP 53 terselesaikan tanpa menyentuh ICS; bind khusus `192.168.1.99:53` UDP dan TCP berhasil (bagian 12).
+9. **Terverifikasi di Fase 3:** pada HP nyata, `adblock.turtlecute.org` 95% (126/132) lalu 97% (128/132) dengan dua aturan kustom; Chrome tidak melewati xdns (tidak ada pencarian host DoH). Redirect Shopee dilacak ke `s.shopee.co.id` dan diblokir; redirect Play Store belum pernah muncul. DNS IPv6 router sebagai jalur lolos belum diperiksa langsung (`test-report.md`).
 

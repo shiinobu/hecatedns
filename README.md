@@ -2,7 +2,7 @@
 
 Server DNS pribadi yang memblokir iklan di browser (pop-up, redirect, click-redirect) tanpa memaksa Google SafeSearch dan tanpa aplikasi VPN. Dipakai sendiri, non-komersial.
 
-**Status:** Fase 0 (fondasi), Fase 1 (engine inti + backend dnsproxy), dan Fase 2 (daftar blokir, pemeriksaan rantai CNAME, nama khusus, uji mandiri) selesai. Server mengunduh dan memuat ketiga daftar bawaan (HaGeZi Multi PRO, HaGeZi Pop-Up Ads, ABPindo — ±250 ribu domain), memblokir domain iklan baik secara langsung maupun lewat rantai CNAME, menjawab nama khusus (`use-application-dns.net` NXDOMAIN, `_dns.resolver.arpa` NODATA), serta memverifikasi SafeSearch dan daftar blokir lewat `xdns check`. Lihat `docs/roadmap.md`, `docs/phase-1-report.md`, dan `docs/phase-2-report.md`.
+**Status:** Fase 0 (fondasi), Fase 1 (engine inti + backend dnsproxy), Fase 2 (daftar blokir, pemeriksaan rantai CNAME, nama khusus, uji mandiri), dan Fase 3 (tes di HP nyata lewat Wi-Fi rumah: `adblock.turtlecute.org` 95–97%, lihat `docs/test-report.md`) selesai. Server mengunduh dan memuat ketiga daftar bawaan (HaGeZi Multi PRO, HaGeZi Pop-Up Ads, ABPindo — ±250 ribu domain), memblokir domain iklan baik secara langsung maupun lewat rantai CNAME, menjawab nama khusus (`use-application-dns.net` NXDOMAIN, `_dns.resolver.arpa` NODATA), serta memverifikasi SafeSearch dan daftar blokir lewat `xdns check`. Lihat `docs/roadmap.md`, `docs/phase-1-report.md`, `docs/phase-2-report.md`, dan `docs/phase-3-report.md`.
 
 ## Perintah
 
