@@ -63,7 +63,23 @@ Latensi hulu adalah DoH ke `1.1.1.1` dan `8.8.8.8`, dari PC ke internet; bukan j
 5. **Jawaban `0.0.0.0` pada Chrome HP:** tidak ada gangguan yang teramati; permintaan ke domain terblokir gagal cepat ("This site can't be reached"). Tidak dibandingkan dengan NODATA atau NXDOMAIN.
 6. **Aplikasi biasa tetap jalan:** WhatsApp, Instagram, X, Facebook, dan Shopee (dibuka manual) lolos; hanya host pelacak mereka yang diblokir (mis. `ubt.tracking.shopee.co.id`, `www.google-analytics.com`).
 
-## 5. Belum terverifikasi
+## 5. Tes ulang dengan backend `native` (P4-09, 2026-10-19 00.29–00.32)
+
+Pengaturan sama dengan Fase 3; hanya `backend: native` di `xdns.yaml` yang berubah (biner dibangun ulang, PID 6708, `192.168.1.150` tetap memakai DNS `192.168.1.99`).
+
+| Ukuran | Nilai |
+|---|---|
+| `adblock.turtlecute.org` | 97% (laporan Master), sama dengan `dnsproxy`; Master: "semua aman" |
+| Total kueri dari HP (±2,5 menit) | 484, semuanya UDP: 322 diblokir `hagezi-pro`, 6 diblokir aturan kustom, 156 lolos |
+| Kode jawaban | 472 NOERROR, 12 NXDOMAIN (nama acak seperti `www.pgjlctmswgnwf.com` yang lolos dan memang tidak ada di hulu) |
+| Jawaban dari hulu (tanpa cache), n = 116 | median 29 ms, p95 88 ms, maks 156 ms |
+| Jawaban dari cache | 40 kueri |
+| Shopee | `s.shopee.co.id` diblokir (aturan kustom) |
+| Kesalahan | tidak ada; satu peringatan batas laju (lihat di bawah). Memori proses 41 MB |
+
+**Temuan: batas laju `native` terlalu dekat dengan lonjakan sah.** Tes turtlecute mengirim 254 kueri dalam dua detik (70 dan 184 per detik). Batas `native` 100/detik dengan burst 200 membuang 1 kueri (`dropped_total=1` pukul 00.30.36). HP mengulang kueri itu, dan hasil tes tetap 97%. Komentar di `ratelimit.go` ("jauh di atas klien nyata") ternyata keliru untuk lonjakan seperti ini. Karena `allowed_clients` tetap `192.168.1.0/24` (keluarga dan teman), batas ini tetap perlu, tetapi dinaikkan menjadi 200/detik dengan burst 500 (commit `4361b64`, dengan dua tes: batas baru menampung lonjakan itu dan tetap menahan banjir 10.000 kueri/detik). Server rumah sudah memakai biner baru.
+
+## 6. Belum terverifikasi
 
 - Redirect ke Play Store (belum pernah terjadi).
 - Firefox di HP; DNS IPv6 dari router sebagai jalur lolos (tidak diperiksa langsung; bukti tidak langsung: blokir efektif 95–97%).
