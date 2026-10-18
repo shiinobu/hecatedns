@@ -1,6 +1,6 @@
 # xdns — Roadmap
 
-*Versi 1.0 | 2026-10-18 | Status: **Fase 0 selesai**; Fase 1 berikutnya.*
+*Versi 1.1 | 2026-10-18 | Status: **Fase 0 selesai dan ditinjau** (laporan: `phase-0-report.md`); Fase 1 berikutnya.*
 
 Roadmap ini adalah alur kerja bertahap. Desain teknisnya ada di `architecture.md`, dasar risetnya di `research.md`. Kode `D#`, `S#`, `R#` merujuk ke tabel keputusan, kriteria sukses, dan risiko di `architecture.md`.
 
@@ -11,8 +11,9 @@ Roadmap ini adalah alur kerja bertahap. Desain teknisnya ada di `architecture.md
 - **Kewenangan.** Master memberi kewenangan penuh (2026-10-18): saya memutuskan semua hal teknis. Saya bertanya hanya bila (a) ragu pada hal yang mahal diubah nanti, (b) di gerbang keputusan di bawah, atau (c) menyangkut uang atau risiko keamanan. Master boleh membatalkan keputusan apa pun kapan saja.
 - **Satu agent.** Saya mengerjakan sendiri langsung di sesi ini. Agent tambahan hanya sebagai peninjau (kode dan keamanan) di akhir fase, sesuai aturan proyek.
 - **Siklus tiap tugas.** Tulis tes dulu (merah) → implementasi minimal (hijau) → rapikan. Commit kecil dengan format `feat:`, `fix:`, `test:`, `docs:`, `refactor:`, `chore:`.
-- **Penutup tiap fase.** `gofmt -l .` kosong, `go vet ./...`, `go test ./... -cover` hijau; peninjauan kode (`code-reviewer`) dan, untuk kode yang menghadap jaringan, `security-reviewer`; dokumen diperbarui bila desain berubah; ringkasan singkat untuk Master.
-- **Rencana tugas rinci.** Sebelum tiap fase saya menulis rencana tugas bite-sized (skill `writing-plans`) lalu mengeksekusinya. Roadmap ini sengaja tingkat fase saja.
+- **Urutan kerja (aturan Master, 2026-10-18).** Semua tugas satu fase dikerjakan dulu. Peninjauan oleh agent dilakukan sekali per fase, setelah semua tugas selesai dan sebelum masuk fase berikutnya. Dokumen diperbarui di akhir, setelah itu.
+- **Penutup tiap fase.** `gofmt -l .` kosong, `go vet ./...`, `go test ./... -cover` hijau, `govulncheck` tanpa kerentanan yang terdampak; peninjauan kode (`code-reviewer`) dan, untuk kode yang menghadap jaringan, `security-reviewer`; perbaikan temuan Critical dan Important dengan TDD; pembaruan dokumen; ringkasan singkat untuk Master.
+- **Rencana tugas.** Sejak Fase 1, tugas diturunkan langsung dari roadmap ini tanpa dokumen rencana terpisah (rencana Fase 0 disimpan sebagai arsip di `docs/superpowers/plans/`). Catatan kerja ada di ledger lokal `.superpowers/` yang tidak di-commit.
 - **Perubahan desain** dicatat di bagian "Riwayat perubahan" di bawah dan di `architecture.md`.
 
 ## Ringkasan fase
@@ -38,7 +39,7 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 
 **Tugas**
 1. `git init`; `.gitignore` (`data/`, `*.exe`, `*.pem`, `*.key`); commit awal berisi `architecture.md`, `roadmap.md`, `research.md`.
-2. `go mod init xdns`; `go 1.26.8`; dependensi terkunci: `github.com/miekg/dns v1.1.73`, `github.com/AdguardTeam/dnsproxy v0.86.0`, `gopkg.in/yaml.v3`; `go mod tidy` dan `go mod verify`.
+2. `go mod init xdns`; `go 1.26.9`; dependensi terkunci: `github.com/miekg/dns v1.1.73`, `github.com/AdguardTeam/dnsproxy v0.86.0`, `gopkg.in/yaml.v3`; `go mod tidy` dan `go mod verify`.
 3. Kerangka direktori sesuai `architecture.md` §4.
 4. `internal/config`: tes dulu (konfigurasi sah; kunci tak dikenal; CIDR salah; URL daftar bukan `https`; backend atau mode tak dikenal; TTL negatif), lalu pemuat ketat dan validasi.
 5. `cmd/xdns`: subperintah `check` yang memuat dan memvalidasi konfigurasi; subperintah lain berupa kerangka yang mencetak "belum diimplementasi" dan keluar dengan kode ≠ 0.
@@ -63,12 +64,14 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 6. `backend`: antarmuka dan registri. `dnsproxybe`: pemetaan konfigurasi dan handler yang memanggil engine. Verifikasi dari pkg.go.dev: tanda tangan handler, upstream DoH berupa IP (`architecture.md` §18-1,2).
 7. `conformance` v1 (blokir, lolos, `allow` mengalahkan `block`, ACL, log tertulis) dijalankan pada backend `dnsproxy`.
 8. CLI: `run`, `log`, `rule`.
-9. Peninjauan: `code-reviewer` dan `security-reviewer` (ACL, penanganan masukan).
+9. `engine/acl`: ACL `allowed_clients` sebagai langkah pertama `Before` (REFUSED di luar daftar); tes tabel IPv4/IPv6, batas CIDR, daftar satu CIDR. dnsproxy tidak punya ACL klien, jadi ini milik engine (`architecture.md` §5.3).
+10. Penguatan konfigurasi dari tinjauan Fase 0: sumber tanpa `enabled` dianggap aktif; `rules.file` dan `log.dir` wajib terisi; `listen` unik dan port ≠ 0; TTL dibatasi sebelum konversi ke uint32; `run` mencetak `Warnings()`; tambahkan `/xdns.yaml` ke `.gitignore`.
+11. Peninjauan fase (sekali, setelah semua tugas selesai): `code-reviewer` dan `security-reviewer` (ACL, penanganan masukan).
 
 **Selesai bila.**
 - `xdns run` mendengarkan di `127.0.0.1:5300` dan `nslookup -port=5300 example.com 127.0.0.1` menjawab lewat DoH;
 - `xdns rule add block contoh.test` membuat nama itu menjawab `0.0.0.0` dalam ≤ 10 detik tanpa restart (S5);
-- log memuat kedua query; suite kesesuaian hijau; cakupan `engine` ≥ 80%.
+- log memuat kedua query; klien di luar `allowed_clients` dijawab REFUSED; suite kesesuaian hijau; cakupan `engine` ≥ 80%.
 
 ---
 
@@ -85,7 +88,7 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 6. HTTPS/SVCB → NODATA untuk nama terblokir; `engine/special` (canary Firefox, DDR) dengan saklar konfigurasi.
 7. `selfcheck` dan `xdns check` (hulu terjangkau, SafeSearch, domain contoh tiap daftar → `0.0.0.0`); `xdns lists status|update`.
 8. Benchmark pencarian dan memori (`architecture.md` §7).
-9. Peninjauan kode.
+9. Peninjauan fase (sekali, setelah semua tugas selesai).
 
 **Selesai bila.**
 - ketiga daftar termuat (± 249 ribu entri sebelum de-duplikasi) dan domain contoh tiap daftar menjawab `0.0.0.0`;
@@ -110,7 +113,7 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 4. Ukur baseline di adblock.turtlecute.org dan canyoublockit.com sebelum xdns, lalu sesudahnya.
 5. Picu redirect ke Play Store/Shopee → `xdns log -around` → tambah aturan atau daftar → ulangi 10 kali.
 6. Pastikan query HP benar-benar masuk ke log (waspadai DNS IPv6 dari router dan DoH di browser).
-7. Catat hasil S1–S3, angka latensi, dan temuan di `test-report.md`.
+7. Catat hasil S1–S3, angka latensi, dan temuan di `docs/test-report.md`.
 
 **Selesai bila.** S1, S2, dan S3 terukur dan tercatat.
 
@@ -123,7 +126,7 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 **Tujuan.** Backend kedua (pendekatan 1) dengan perilaku keputusan yang sama, bisa ditukar lewat konfigurasi.
 
 **Tugas**
-1. `native/acl`, `native/cache`, `native/upstream` (DoH, DoT, plain, failover); tes dengan hulu palsu.
+1. `native/cache`, `native/upstream` (DoH, DoT, plain, failover); tes dengan hulu palsu.
 2. `native/server` (UDP dan TCP), `native/handler`, `native/ratelimit`.
 3. Daftarkan di registri; `backend: native` berfungsi.
 4. Jalankan `conformance` pada **kedua** backend dari satu tabel; samakan semua perbedaan.
@@ -198,3 +201,4 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 |---|---|
 | 2026-10-18 | Versi 1.0 dibuat. Urutan fase menaruh tes di HP (Fase 3) sebelum backend `native` (Fase 4) |
 | 2026-10-18 | Fase 0 selesai. `yaml.v3` dipasang di Tugas 2 (bukan Tugas 1) karena baru dipakai di sana; nilai bawaan ada di `config.Default()`; `.gitattributes` memaksa akhir baris LF agar `gofmt` bersih di Windows |
+| 2026-10-18 | Peninjauan Fase 0 oleh agent: 0 Critical, 4 Important, semuanya diperbaiki dengan TDD (dokumen YAML ganda ditolak; argumen tak terduga pada `check` ditolak; `allowed_clients` wajib terisi; nama sumber daftar harus aman sebagai nama berkas). `govulncheck` menemukan 6 kerentanan pustaka standar, diperbaiki dengan Go 1.26.9 dan x/net v0.60.0 (0 terdampak). ACL dipindah ke engine karena dnsproxy tidak punya ACL klien. Aturan baru dari Master: tugas dulu dan dokumen di akhir; peninjauan agent sekali per fase sebelum fase berikutnya. Master memindahkan dokumen ke `docs/` |

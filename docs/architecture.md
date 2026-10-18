@@ -1,6 +1,6 @@
 # xdns — Arsitektur
 
-*Versi 1.0 | 2026-10-18 | Status: **disetujui Master, Fase 0 selesai** | Penulis: Claude (keputusan desain didelegasikan penuh oleh Master)*
+*Versi 1.1 | 2026-10-18 | Status: Fase 0 selesai dan sudah ditinjau; Fase 1 menunggu giliran | Penulis: Claude (keputusan desain didelegasikan penuh oleh Master, yang memulai Fase 0 dengan "oke mulai fase 0")*
 
 Dokumen ini adalah spesifikasi desain xdns. Urutan kerja ada di `roadmap.md`. Dasar riset dan sumbernya ada di `research.md` (rujukan "riset §N" di bawah menunjuk ke sana).
 
@@ -38,7 +38,7 @@ Semua ditetapkan Claude atas kewenangan penuh dari Master (2026-10-18). Master b
 
 | # | Keputusan | Pilihan | Alasan |
 |---|---|---|---|
-| D1 | Bahasa | Go, `go 1.26.8` di `go.mod` | Satu binary, ekosistem DNS matang, sudah terpasang (1.26.4; toolchain naik otomatis karena `dnsproxy` v0.86.0 mensyaratkan 1.26.8) |
+| D1 | Bahasa | Go, `go 1.26.9` di `go.mod` | Satu binary, ekosistem DNS matang, sudah terpasang (1.26.4; toolchain naik otomatis). `dnsproxy` v0.86.0 mensyaratkan ≥ 1.26.8; dipakai 1.26.9 karena 1.26.8 terdampak enam kerentanan pustaka standar (GO-2026-6603, 6607, 6611, 6612, 6613, 6617) |
 | D2 | Backend | Dua, bisa ditukar lewat konfigurasi: `dnsproxy` (AdGuard dnsproxy v0.86.0, Apache-2.0) dan `native` (kode sendiri di atas `miekg/dns` v1.1.73) | Permintaan Master untuk mencoba keduanya. Engine bersama membuat hasil keputusan sama dan bisa dipakai ulang di Plan B |
 | D3 | Pencocokan domain | Peta domain, cocok sufiks (domain dan semua subdomainnya), snapshot tak berubah yang ditukar atomik | README HaGeZi: kelima format memblokir domain yang sama, dan aturan induk mencocokkan subdomain. Sederhana, cepat, aman konkuren |
 | D4 | Daftar bawaan | HaGeZi Multi PRO, HaGeZi Pop-Up Ads, ABPindo `domain.txt` | Riset §4.1. PRO direkomendasikan penulisnya; ULTIMATE berisiko salah blokir |
@@ -87,15 +87,18 @@ Prinsip: engine tidak tahu apa pun tentang jaringan, TLS, atau cache. Backend ti
 
 ```
 xdns/
-├── architecture.md  roadmap.md  research.md   # dokumen (akar proyek)
-├── test-report.md                              # hasil tes HP, dibuat di Fase 3
-├── go.mod  go.sum  .gitignore  README.md
+├── docs/                                       # dokumen proyek
+│   ├── architecture.md  roadmap.md  research.md
+│   ├── test-report.md                          # hasil tes HP, dibuat di Fase 3
+│   └── superpowers/plans/                      # rencana tugas Fase 0 (arsip)
+├── go.mod  go.sum  .gitignore  .gitattributes  README.md
 ├── cmd/xdns/
 │   └── main.go                 # titik masuk; subperintah: run, check, log, rule, lists
 ├── internal/
 │   ├── config/                 # skema YAML, pemuat ketat, validasi
 │   ├── engine/                 # filter tanpa jaringan
 │   │   ├── engine.go           #   Engine, Query, Decision; Before/After/Failed
+│   │   ├── acl.go              #   ACL klien (allowed_clients), langkah pertama Before
 │   │   ├── matcher.go          #   DomainSet (cocok sufiks) + snapshot atomik
 │   │   ├── rules.go            #   aturan kustom: parser + muat ulang
 │   │   ├── response.go         #   pembentuk jawaban blokir (4 mode)
@@ -138,7 +141,7 @@ const ( Pass Verdict = iota; Block )
 type Decision struct {
     Verdict Verdict
     Resp    *dns.Msg // terisi bila Block
-    Reason  string   // "rule" | "list" | "cname" | "special"
+    Reason  string   // "rule" | "list" | "cname" | "special" | "acl"
     Source  string   // nama daftar atau baris aturan yang cocok
     Via     string   // target CNAME yang cocok (bila Reason == "cname")
 }
@@ -177,7 +180,7 @@ var registry = map[string]Factory{ "dnsproxy": dnsproxybe.New, "native": native.
 
 ### 5.3 Adapter `dnsproxy` (pendekatan 4)
 
-Alur satu query: handler kustom dnsproxy (`proxy.Config.RequestHandler`) memanggil `Before`. Bila `Block`, jawaban sintetis diisikan ke konteks respons. Bila `Pass`, dnsproxy melakukan resolusi bawaannya (upstream + cache), lalu `After` memeriksa jawaban dan boleh menggantinya dengan jawaban blokir. Pemetaan konfigurasi: `listen`, `upstreams`, `bootstrap`, `cache`, `allowed_clients` → `proxy.Config`.
+Alur satu query: handler kustom dnsproxy (`proxy.Config.RequestHandler`) memanggil `Before`. Bila `Block`, jawaban sintetis diisikan ke konteks respons. Bila `Pass`, dnsproxy melakukan resolusi bawaannya (upstream + cache), lalu `After` memeriksa jawaban dan boleh menggantinya dengan jawaban blokir. Pemetaan konfigurasi: `listen`, `upstreams`, `bootstrap`, `cache` → `proxy.Config`. `allowed_clients` tidak dipetakan: dnsproxy tidak punya ACL klien, jadi engine menegakkannya sendiri (§6 langkah 1) dan kedua backend berperilaku sama.
 
 Tipe pesan DNS yang dipakai dnsproxy sama dengan engine (`github.com/miekg/dns`), jadi tidak ada konversi. Tanda tangan persis handler dan perilaku cache terhadap jawaban yang diubah `After` diverifikasi dari pkg.go.dev v0.86.0 saat implementasi (dokumentasinya masih memuat TODO; hook `BeforeRequestHandler` tidak ditemukan).
 
@@ -186,7 +189,6 @@ Tipe pesan DNS yang dipakai dnsproxy sama dengan engine (`github.com/miekg/dns`)
 | Berkas | Isi |
 |---|---|
 | `server.go` | Listener UDP dan TCP lewat `dns.Server`; DoT ditambahkan di Fase 6 (DoH hanya bila Master meminta) |
-| `acl.go` | Pemeriksaan `allowed_clients` (CIDR); di luar daftar dijawab REFUSED |
 | `upstream.go` | Klien DoH (`net/http`, HTTP/2, `application/dns-message`), DoT dan plain lewat `dns.Client`; failover berurutan dengan penanda gagal sementara |
 | `cache.go` | LRU berbatas ukuran; kunci (nama, tipe, kelas, bit DO); TTL dijepit `min_ttl`/`max_ttl`; cache negatif memakai SOA minimum |
 | `handler.go` | `Before` → cache → upstream → `After`; menulis `Failed` bila semua hulu gagal |
@@ -207,12 +209,13 @@ Lihat §9.
 ## 6. Alur satu query
 
 `Before`:
-1. **Validasi.** Harus satu pertanyaan dengan opcode QUERY; selain itu `Pass` (backend yang menjawab FORMERR/NOTIMP).
-2. **Normalisasi.** Huruf kecil, buang titik akhir. Nama IDN dianggap sudah dalam punycode (bentuk kawat DNS).
-3. **Nama khusus** (bila diaktifkan): `use-application-dns.net` → blokir NXDOMAIN; `_dns.resolver.arpa` → NODATA.
-4. **Izinkan?** Cocok aturan `allow` kustom, lalu daftar berjenis `allow` → `Pass` (alasan `allow`).
-5. **Blokir?** Cocok aturan `block` kustom, lalu daftar berjenis `block` → `Block` dengan `Source` terisi.
-6. Selain itu `Pass`.
+1. **ACL.** Klien di luar `allowed_clients` → `Block` dengan jawaban REFUSED (alasan `acl`), tanpa mencocokkan daftar. `allowed_clients` wajib berisi minimal satu CIDR (validasi konfigurasi), jadi daftar kosong tidak pernah berarti "izinkan semua".
+2. **Validasi.** Harus satu pertanyaan dengan opcode QUERY; selain itu `Pass` (backend yang menjawab FORMERR/NOTIMP).
+3. **Normalisasi.** Huruf kecil, buang titik akhir. Nama IDN dianggap sudah dalam punycode (bentuk kawat DNS).
+4. **Nama khusus** (bila diaktifkan): `use-application-dns.net` → blokir NXDOMAIN; `_dns.resolver.arpa` → NODATA.
+5. **Izinkan?** Cocok aturan `allow` kustom, lalu daftar berjenis `allow` → `Pass` (alasan `allow`).
+6. **Blokir?** Cocok aturan `block` kustom, lalu daftar berjenis `block` → `Block` dengan `Source` terisi.
+7. Selain itu `Pass`.
 
 Backend meneruskan query yang `Pass` ke cache/hulu. Lalu `After`:
 1. **Jawaban tidak ada atau rcode bukan NOERROR:** catat dan kembalikan apa adanya.
@@ -241,6 +244,8 @@ SOA sintetis memakai TTL dan minimum sama dengan `block.ttl` agar cache negatif 
 | `abpindo` | `https://raw.githubusercontent.com/ABPindo/indonesianadblockrules/master/subscriptions/domain.txt` | `domains` | ±125 (kecil, tetapi lokal Indonesia) |
 
 Ketiganya sudah saya unduh dan periksa: satu domain per baris, komentar berawalan `#`, tanpa spasi pada baris data. Header HaGeZi menyatakan `Expires: 8 hours`; ABPindo `4 days`.
+
+**Nama sumber** menjadi nama berkas (`data/lists/<nama>.txt`), jadi dibatasi: 1–64 karakter huruf, angka, `-`, atau `_`, diawali huruf atau angka, bukan nama perangkat Windows (CON, PRN, AUX, NUL, COM1–COM9, LPT1–LPT9), dan unik tanpa membedakan huruf besar-kecil. Sumber tanpa `enabled` dianggap aktif (diterapkan di Fase 1).
 
 **Format yang didukung versi 1:** `domains` (satu domain per baris) dan `hosts` (`0.0.0.0 domain`). Sintaks adblock penuh (`||domain^$opsi`) tidak didukung; masuk Fase 7 bila diperlukan.
 
@@ -366,7 +371,7 @@ log:
 data_dir: data
 ```
 
-Validasi saat start (kunci tak dikenal, CIDR tak sah, URL daftar bukan `https`, `mode` tak dikenal, backend tak dikenal, TTL negatif → galat dengan pesan jelas dan keluar kode ≠ 0). Jalur relatif dihitung dari lokasi berkas konfigurasi. Kunci yang tidak ditulis memakai nilai bawaan yang sama dengan contoh ini (`config.Default()`); daftar blokir tidak punya nilai bawaan, jadi tanpa sumber daftar yang aktif `xdns check` memberi peringatan.
+Validasi saat start (kunci tak dikenal atau berulang, lebih dari satu dokumen YAML, `allowed_clients` kosong (untuk mengizinkan semua tulis `0.0.0.0/0` dan `::/0`), CIDR tak sah, `listen` berupa nama host, upstream bernama host tanpa `bootstrap`, URL daftar bukan `https`, nama sumber tak aman sebagai nama berkas atau ganda, `mode` tak dikenal, backend tak dikenal, TTL negatif → galat dengan pesan jelas dan keluar kode ≠ 0; semua masalah dilaporkan sekaligus). Jalur relatif dihitung dari lokasi berkas konfigurasi. Kunci yang tidak ditulis memakai nilai bawaan yang sama dengan contoh ini (`config.Default()`); daftar blokir tidak punya nilai bawaan, jadi tanpa sumber daftar yang aktif `xdns check` memberi peringatan.
 
 ---
 
@@ -383,7 +388,7 @@ xdns **tidak pernah** menulis ulang `www.google.com`. Syarat agar hasilnya benar
 
 ## 12. Lingkungan PC ini (fakta terukur 2026-10-18)
 
-- Windows 11 Pro; Go 1.26.4 (`GOTOOLCHAIN=auto`); git 2.54.0; **tidak ada gcc**, jadi `go test -race` tidak tersedia lokal.
+- Windows 11 Pro; Go 1.26.4 terpasang, modul memakai 1.26.9 lewat `GOTOOLCHAIN=auto`; git 2.54.0; **tidak ada gcc**, jadi `go test -race` tidak tersedia lokal.
 - IP LAN PC `192.168.1.10`, gateway `192.168.1.1`; ada adapter virtual `172.25.144.1` (kemungkinan Hyper-V/WSL).
 - **UDP `0.0.0.0:53` sedang dipegang layanan Internet Connection Sharing (ICS / `SharedAccess`)**; TCP 53 bebas. Android tidak bisa menentukan port DNS di pengaturan Wi-Fi, jadi tes dari HP memerlukan UDP 53 di IP LAN PC.
 - UDP 5353 dipakai banyak proses (mDNS). Port 5300 dan 853 bebas.
@@ -436,7 +441,7 @@ Proyek ini memakai TDD: tes ditulis dulu (merah), implementasi minimal (hijau), 
 | Kesesuaian | `internal/backend/conformance`: hulu palsu (`miekg/dns` di loopback) + backend yang diuji di port acak. Kasus: A/AAAA/HTTPS terblokir, lolos, `allow` mengalahkan `block`, CNAME terblokir, ACL REFUSED, log tertulis. Dijalankan untuk **kedua** backend dari satu tabel konstruktor | Hasil identik |
 | Integrasi manual | `nslookup`/`dig` dari PC, lalu uji dari HP (Fase 3) | Kriteria S1–S3 |
 
-Perintah verifikasi tiap fase: `gofmt -l .` (kosong), `go vet ./...`, `go test ./... -cover`. Detektor race (`-race`) memerlukan cgo/gcc yang belum ada di PC ini; dijalankan bila gcc terpasang atau di Linux (VPS/WSL). Tanpa itu, kode konkuren dijaga lewat snapshot tak berubah, tidak ada state global, dan tes beban sederhana.
+Perintah verifikasi tiap fase: `gofmt -l .` (kosong), `go vet ./...`, `go test ./... -cover`, dan pemindaian kerentanan `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` (yang terdampak harus 0). Detektor race (`-race`) memerlukan cgo/gcc yang belum ada di PC ini; dijalankan bila gcc terpasang atau di Linux (VPS/WSL). Tanpa itu, kode konkuren dijaga lewat snapshot tak berubah, tidak ada state global, dan tes beban sederhana.
 
 ---
 
@@ -457,7 +462,7 @@ Perintah verifikasi tiap fase: `gofmt -l .` (kosong), `go vet ./...`, `go test .
 | R3 | Salah blokir (daftar terlalu agresif) | Mulai dari PRO; `rule add allow` berlaku ≤ 10 detik; log menunjukkan sumbernya |
 | R4 | HP lolos dari DNS kita (DNS IPv6 dari router, DoH browser, Private DNS aktif) | Periksa log apakah query HP masuk; cek setelan Secure DNS Chrome dan DoH Firefox; matikan Private DNS saat tes |
 | R5 | Dua backend berperilaku beda | Suite kesesuaian yang sama; perbandingan keputusan pada sampel domain |
-| R6 | Toolchain Go 1.26.8 diunduh otomatis (butuh internet) | Dicatat di Fase 0 |
+| R6 | Toolchain Go 1.26.9 diunduh otomatis (butuh internet) | Dicatat di Fase 0; `govulncheck` tiap penutup fase |
 | R7 | PC mati → HP tanpa DNS saat DNS Wi-Fi hanya menunjuk PC | Diterima untuk tes; DNS kedua sengaja dikosongkan agar pengukuran tidak bocor ke DNS lain. Solusi tetap: VPS (Fase 6) |
 | R8 | Sumber daftar mati atau berubah format | Cache disk; validasi baris; peringatan di `lists status` |
 | R9 | Domain iklan terus berganti | Pembaruan harian; daftar baru (NRD/DGA) dipertimbangkan di Fase 7 |

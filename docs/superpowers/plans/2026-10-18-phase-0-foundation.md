@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.26.8, `gopkg.in/yaml.v3`, stdlib `testing`. `github.com/miekg/dns` and `github.com/AdguardTeam/dnsproxy` are pinned now (blank imports) and used for real from Phase 1.
 
-**Spec:** `architecture.md` (§2 D1/D9/D13/D15/D16, §4, §10) and `roadmap.md` (Fase 0).
+**Spec:** `docs/architecture.md` (§2 D1/D9/D13/D15/D16, §4, §10) and `docs/roadmap.md` (Fase 0). Archived record: the documents moved from the repo root to `docs/` after this plan was written.
 
 ## Global Constraints
 
