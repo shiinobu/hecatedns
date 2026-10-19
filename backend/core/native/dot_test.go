@@ -46,6 +46,7 @@ func TestDoT_RefusesEveryOtherServerNameBeforeAnyQueryIsRead(t *testing.T) {
 		"the base name itself":                                dotBase,
 		"no server name at all":                               "",
 		"a name that differs by one label":                    "k7x9p2qm4t8v3w6y." + dotBase,
+		"a Kelvin sign in place of the k":                     "K" + dotName[1:],
 	}
 	for name, serverName := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -199,7 +200,7 @@ func TestDoT_RefusesToStartWithACertificateThatCannotServeTheConfiguredNames(t *
 		missing       bool
 		wantInMessage string
 	}{
-		{"certificate does not cover a name", wrongNames, wrongKey, false, dotName},
+		{"certificate does not cover a name", wrongNames, wrongKey, false, "dot.names[0]"},
 		{"certificate has expired", expired, expiredKey, false, "expired"},
 		{"key does not belong to the certificate", good, otherKey, false, "key"},
 		{"files are missing", nil, nil, true, "cert"},
@@ -218,7 +219,24 @@ func TestDoT_RefusesToStartWithACertificateThatCannotServeTheConfiguredNames(t *
 			if err == nil || !strings.Contains(err.Error(), tc.wantInMessage) {
 				t.Errorf("newServer = %v, want an error mentioning %q", err, tc.wantInMessage)
 			}
+			if err != nil && strings.Contains(err.Error(), dotName) {
+				t.Errorf("the error repeats the secret server name: %v", err)
+			}
 		})
+	}
+}
+
+func TestDoT_ReloadErrorsNeverCarryTheServerName(t *testing.T) {
+	env := startDoT(t, nil)
+	wrongNames, wrongKey := env.pki.issue(t, 2, []string{"*.other.example"}, time.Now().Add(48*time.Hour))
+
+	writePair(t, tempDirOf(env.certPath), wrongNames, wrongKey)
+
+	eventually(t, 3*time.Second, "an error about the certificate that does not cover the name", func() bool {
+		return env.logs.has(slog.LevelError, "DoT certificate could not be reloaded")
+	})
+	if env.logs.anywhere(dotName) {
+		t.Error("the secret server name was written to the log")
 	}
 }
 

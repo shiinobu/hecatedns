@@ -77,9 +77,9 @@ func validateDoTNames(names []string) []error {
 	for i, name := range names {
 		switch {
 		case !validHostName(name):
-			errs = append(errs, fmt.Errorf("dot.names[%d]: %q must be a lowercase host name of at least two labels (letters, digits and hyphens), without wildcard, trailing dot or IP address", i, name))
+			errs = append(errs, fmt.Errorf("dot.names[%d]: must be a lowercase host name of at least two labels (letters, digits and hyphens), without wildcard, trailing dot or IP address", i))
 		case seen[name]:
-			errs = append(errs, fmt.Errorf("dot.names[%d]: %q is listed twice", i, name))
+			errs = append(errs, fmt.Errorf("dot.names[%d]: is listed twice", i))
 		}
 		seen[name] = true
 	}

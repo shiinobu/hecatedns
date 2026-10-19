@@ -108,6 +108,34 @@ func TestDoT_RejectsWhatCannotWork(t *testing.T) {
 	}
 }
 
+func TestDoT_ValidationNeverRepeatsAName(t *testing.T) {
+	typo := "K7x9p2qm4t8v3w6z.example.org"
+	tests := []struct {
+		name  string
+		names []string
+		leak  string
+	}{
+		{"mistyped name", []string{typo}, typo},
+		{"duplicate name", []string{secretName, secretName}, secretName},
+		{"wildcard name", []string{"*.k7x9p2qm4t8v3w6z.example.org"}, "k7x9p2qm4t8v3w6z"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := dotConfig()
+			c.DoT.Names = tt.names
+
+			err := c.Validate()
+
+			if err == nil {
+				t.Fatal("Validate accepted the names")
+			}
+			if strings.Contains(err.Error(), tt.leak) {
+				t.Errorf("the error repeats the name: %v", err)
+			}
+		})
+	}
+}
+
 const vpsExamplePath = "../../../configs/hecate.vps.example.yaml"
 
 func TestLoad_VPSExampleConfigServesOnlyDoTWithAbsolutePaths(t *testing.T) {

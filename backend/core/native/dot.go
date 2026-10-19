@@ -100,9 +100,9 @@ func (s *certStore) load() (*loadedCert, error) {
 	case now.Before(leaf.NotBefore):
 		return nil, fmt.Errorf("dot: the certificate is not valid before %s", leaf.NotBefore.UTC().Format(time.RFC3339))
 	}
-	for _, name := range s.names {
-		if err := leaf.VerifyHostname(name); err != nil {
-			return nil, fmt.Errorf("dot: the certificate does not cover the server name %q: %w", name, err)
+	for i, name := range s.names {
+		if leaf.VerifyHostname(name) != nil {
+			return nil, fmt.Errorf("dot: the certificate does not cover dot.names[%d]", i)
 		}
 	}
 	pair.Leaf = leaf
@@ -163,7 +163,12 @@ func (s *certStore) warnIfExpiring(cur *loadedCert) {
 }
 
 func serverNameKey(name string) string {
-	return strings.TrimSuffix(strings.ToLower(name), ".")
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + 'a' - 'A'
+		}
+		return r
+	}, name)
 }
 
 func (h *handler) dotTLSConfig(store *certStore, names []string) *tls.Config {
