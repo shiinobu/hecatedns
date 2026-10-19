@@ -1,9 +1,15 @@
 # UNVERIFIED: written on Windows without a Linux machine. Check it on the VPS with
 # "systemd-analyze verify /etc/systemd/system/hecate.service" and read "journalctl -u hecate" after the first start.
+# Create the configuration directory by hand, owned by root and readable by the service group:
+#   install -d -m 0750 -o root -g hecate /etc/hecate
+# then check "sudo -u hecate cat /etc/hecate/hecate.yaml". A broken or expired certificate makes hecate exit, so the
+# restart is slow (30 s) and capped (5 tries in 5 minutes) instead of a tight loop.
 [Unit]
 Description=HecateDNS DNS-over-TLS ad blocker
-After=network-online.target
-Wants=network-online.target
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -11,16 +17,17 @@ User=hecate
 Group=hecate
 ExecStart=/opt/hecate/hecate run -config /etc/hecate/hecate.yaml
 Restart=on-failure
-RestartSec=5
+RestartSec=30
 StateDirectory=hecate
-ConfigurationDirectory=hecate
-ConfigurationDirectoryMode=0750
 
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
+ProtectProc=invisible
+ProcSubset=pid
+ProtectHostname=true
 PrivateTmp=true
 PrivateDevices=true
 ProtectKernelTunables=true
@@ -28,12 +35,16 @@ ProtectKernelModules=true
 ProtectKernelLogs=true
 ProtectControlGroups=true
 ProtectClock=true
+ReadOnlyPaths=/var/lib/hecate/lego
+InaccessiblePaths=/var/lib/hecate/lego/accounts
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 RestrictNamespaces=true
 RestrictRealtime=true
+RestrictSUIDSGID=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
+UMask=0077
 LimitNOFILE=4096
 
 [Install]
