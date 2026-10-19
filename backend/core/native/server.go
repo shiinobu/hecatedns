@@ -90,10 +90,10 @@ func (temporaryError) Timeout() bool   { return false }
 
 type acceptBackoff struct{ delay time.Duration }
 
-func (b *acceptBackoff) pause(err error, done <-chan struct{}) {
+func (b *acceptBackoff) pause(err error, done <-chan struct{}) bool {
 	var temporary interface{ Temporary() bool }
 	if !errors.As(err, &temporary) || !temporary.Temporary() {
-		return
+		return false
 	}
 	if b.delay == 0 {
 		b.delay = acceptBackoffMin
@@ -106,6 +106,7 @@ func (b *acceptBackoff) pause(err error, done <-chan struct{}) {
 	case <-timer.C:
 	case <-done:
 	}
+	return true
 }
 
 func (b *acceptBackoff) reset() { b.delay = 0 }
@@ -266,7 +267,7 @@ func servers(socks []socket, h dns.Handler, started func()) []*dns.Server {
 	return out
 }
 
-func serve(ctx context.Context, srvs []*dns.Server, closers []io.Closer, started *sync.WaitGroup, ready, stopQueries func()) error {
+func serve(ctx context.Context, srvs []runner, closers []io.Closer, started *sync.WaitGroup, ready, stopQueries func()) error {
 	failed := make(chan error, len(srvs))
 	for _, srv := range srvs {
 		go func() { failed <- srv.ActivateAndServe() }()
@@ -303,7 +304,7 @@ func awaitStop(ctx context.Context, failed <-chan error, allUp <-chan struct{}, 
 	return pending, runErr
 }
 
-func shutdownServers(ctx context.Context, srvs []*dns.Server, closers []io.Closer, failed <-chan error, pending int) error {
+func shutdownServers(ctx context.Context, srvs []runner, closers []io.Closer, failed <-chan error, pending int) error {
 	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
 	var errs []error

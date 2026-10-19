@@ -8,25 +8,16 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/netip"
 	"os"
 	"strings"
 	"sync/atomic"
 	"time"
 
-	"github.com/miekg/dns"
-
 	"github.com/shiinobu/hecatedns/backend/lib/config"
 )
 
 const (
-	maxDoTConns      = 64
-	maxDoTConnsPerIP = 8
-	maxDoTQueries    = 1000
-
-	dotIdleTimeout = 30 * time.Second
-
 	certExpiryWarning  = 14 * 24 * time.Hour
 	certExpiryLogEvery = time.Hour
 
@@ -221,36 +212,7 @@ func newDoT(cfg config.Config, now func() time.Time, log *slog.Logger) (*certSto
 	return store, addrs, nil
 }
 
-func bindDoT(addrs []netip.AddrPort, admit func(netip.Addr) bool, cfg *tls.Config) ([]net.Listener, error) {
-	var out []net.Listener
-	for _, ap := range addrs {
-		raw, err := net.Listen(networkFor("tcp", ap), ap.String())
-		if err != nil {
-			for _, l := range out {
-				_ = l.Close()
-			}
-			return nil, fmt.Errorf("listening on dot %s: %w", ap, err)
-		}
-		out = append(out, tls.NewListener(newLimitListener(raw, maxDoTConns, maxDoTConnsPerIP, admit), cfg))
-	}
-	return out, nil
-}
-
-func dotServers(listeners []net.Listener, h dns.Handler, started func()) []*dns.Server {
-	out := make([]*dns.Server, 0, len(listeners))
-	for _, l := range listeners {
-		out = append(out, &dns.Server{
-			Listener: l, Handler: h,
-			MsgAcceptFunc: acceptMsg, NotifyStartedFunc: started,
-			ReadTimeout:   tcpReadTimeout,
-			IdleTimeout:   func() time.Duration { return dotIdleTimeout },
-			MaxTCPQueries: maxDoTQueries,
-		})
-	}
-	return out
-}
-
-func closersOf(socks []socket, dots []net.Listener) []io.Closer {
+func closersOf(socks []socket, dots []*dotServer) []io.Closer {
 	var out []io.Closer
 	for _, s := range socks {
 		out = append(out, s.udp, s.tcp)

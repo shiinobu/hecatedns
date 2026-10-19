@@ -2,9 +2,12 @@ package native
 
 import (
 	"crypto/tls"
+	"log/slog"
 	"net"
 	"net/netip"
 	"testing"
+
+	"github.com/shiinobu/hecatedns/backend/lib/config"
 )
 
 func tcp6Available() bool {
@@ -48,7 +51,7 @@ func familyOf(ip string) string {
 
 func freeWildcardPort(t *testing.T) uint16 {
 	t.Helper()
-	for range 50 {
+	for range 200 {
 		probe, err := net.Listen("tcp6", "[::]:0")
 		if err != nil {
 			t.Fatal(err)
@@ -74,7 +77,7 @@ func TestBindDoT_AWildcardPairOfBothFamiliesBindsTogether(t *testing.T) {
 	if !tcp6Available() {
 		t.Skip("this host has no IPv6")
 	}
-	listeners, err := bindDoT(wildcardPair(freeWildcardPort(t)), admitAll, &tls.Config{})
+	listeners, err := bindDoT(wildcardPair(freeWildcardPort(t)), bindParams())
 	if err != nil {
 		t.Fatalf("0.0.0.0 and [::] on one port must bind together: %v", err)
 	}
@@ -108,7 +111,7 @@ func TestBindDoT_AnIPv6WildcardDoesNotAnswerOnIPv4(t *testing.T) {
 		t.Skip("this host has no IPv6")
 	}
 	port := freeWildcardPort(t)
-	listeners, err := bindDoT([]netip.AddrPort{netip.AddrPortFrom(netip.IPv6Unspecified(), port)}, admitAll, &tls.Config{})
+	listeners, err := bindDoT([]netip.AddrPort{netip.AddrPortFrom(netip.IPv6Unspecified(), port)}, bindParams())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,4 +121,9 @@ func TestBindDoT_AnIPv6WildcardDoesNotAnswerOnIPv4(t *testing.T) {
 		_ = conn.Close()
 		t.Fatal("an IPv6-only listener must not accept IPv4 connections")
 	}
+}
+
+func bindParams() dotParams {
+	owner := newHandler(&fakeFilter{}, newCache(config.Cache{Enabled: false, SizeMB: 1}), nil, newLimiter(), slog.New(slog.DiscardHandler))
+	return dotParams{tls: &tls.Config{}, admit: admitAll, owner: owner, lim: defaultDoTLimits()}
 }

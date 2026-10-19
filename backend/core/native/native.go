@@ -32,10 +32,11 @@ type server struct {
 	up      *pool
 	admit   func(netip.Addr) bool
 
-	dotAddrs []netip.AddrPort
-	dotTLS   *tls.Config
-	certs    *certStore
-	dotEvery time.Duration
+	dotAddrs  []netip.AddrPort
+	dotTLS    *tls.Config
+	certs     *certStore
+	dotEvery  time.Duration
+	dotLimits dotLimits
 
 	ready     chan struct{}
 	readyOnce sync.Once
@@ -68,7 +69,7 @@ func newServer(cfg config.Config, f Filter, log *slog.Logger, timeout time.Durat
 		return nil, fmt.Errorf("native backend: %w", err)
 	}
 	h := newHandler(f, newCache(cfg.Cache), up, newLimiter(), log)
-	s := &server{addrs: addrs, handler: h, up: up, admit: h.admitTCP(acl), ready: make(chan struct{})}
+	s := &server{addrs: addrs, handler: h, up: up, admit: h.admitTCP(acl), dotLimits: defaultDoTLimits(), ready: make(chan struct{})}
 	if store != nil {
 		s.dotAddrs, s.certs, s.dotEvery = dotAddrs, store, cfg.DoT.ReloadEvery
 		s.dotTLS = h.dotTLSConfig(store, cfg.DoT.Names)
@@ -113,20 +114,26 @@ func (s *server) Run(ctx context.Context) (err error) {
 	}
 
 	var started sync.WaitGroup
-	srvs := servers(socks, s.handler, started.Done)
-	srvs = append(srvs, dotServers(dots, s.handler.forProto(protoTLS), started.Done)...)
+	var srvs []runner
+	for _, srv := range servers(socks, s.handler, started.Done) {
+		srvs = append(srvs, srv)
+	}
+	for _, dot := range dots {
+		dot.started = started.Done
+		srvs = append(srvs, dot)
+	}
 	started.Add(len(srvs))
 	return serve(ctx, srvs, closersOf(socks, dots), &started, s.markReady, stopQueries)
 }
 
-func (s *server) bindDoT() ([]net.Listener, error) {
+func (s *server) bindDoT() ([]*dotServer, error) {
 	if s.certs == nil {
 		return nil, nil
 	}
-	return bindDoT(s.dotAddrs, s.admit, s.dotTLS)
+	return bindDoT(s.dotAddrs, dotParams{tls: s.dotTLS, admit: s.admit, owner: s.handler, lim: s.dotLimits})
 }
 
-func (s *server) storeAddrs(socks []socket, dots []net.Listener) {
+func (s *server) storeAddrs(socks []socket, dots []*dotServer) {
 	if len(socks) > 0 {
 		udp, tcp := socks[0].udp.LocalAddr(), socks[0].tcp.Addr()
 		s.udpAddr.Store(&udp)

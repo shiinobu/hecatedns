@@ -239,9 +239,17 @@ func newDoTEnv(t *testing.T, notAfter time.Time, mutate func(*config.Config)) (*
 
 func startDoT(t *testing.T, mutate func(*config.Config)) *dotEnv {
 	t.Helper()
+	return startDoTWith(t, mutate, nil)
+}
+
+func startDoTWith(t *testing.T, mutate func(*config.Config), tune func(*dotLimits)) *dotEnv {
+	t.Helper()
 	env, err := newDoTEnv(t, time.Now().Add(60*24*time.Hour), mutate)
 	if err != nil {
 		t.Fatalf("newServer: %v", err)
+	}
+	if tune != nil {
+		tune(&env.s.dotLimits)
 	}
 	runServer(t, env.s)
 	return env
