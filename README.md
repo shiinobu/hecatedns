@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/banner.jpg" alt="HecateDNS: secure and private DNS" width="100%">
+</p>
+
 # HecateDNS
 
 A personal DNS server that blocks browser ads (pop-ups, redirects, click-redirects) without a VPN app and without forcing Google SafeSearch. Written in Go. Formerly called xdns.
@@ -53,7 +57,7 @@ backend/lib/         config, operational log
 backend/test/        conformance suite and source-rule gates
 configs/             example configuration
 scripts/windows/     Task Scheduler autostart, DNS query helper
-docs/                architecture, roadmap, research, testing, operations
+docs/                architecture, roadmap, research, testing, operations, assets
 ```
 
 ## Documentation
