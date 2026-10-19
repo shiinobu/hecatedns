@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/shiinobu/hecatedns/actions/workflows/ci.yml"><img src="https://github.com/shiinobu/hecatedns/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/shiinobu/hecatedns/actions/workflows/ci.yml"><img src="https://github.com/shiinobu/hecatedns/actions/workflows/ci.yml/badge.svg?branch=main&event=push" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/shiinobu/hecatedns" alt="License: MIT"></a>
   <img src="https://img.shields.io/github/go-mod/go-version/shiinobu/hecatedns" alt="Go version">
 </p>
