@@ -3,6 +3,7 @@ package native
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -393,5 +394,44 @@ func TestDoT_InFlightQueriesAreBoundedAcrossAllConnections(t *testing.T) {
 
 	if got := peak.Load(); got > 2 {
 		t.Errorf("%d queries were in flight at once, want at most 2 across all connections", got)
+	}
+}
+
+func TestConnPool_CountsAnIPv6PrefixAsOneSource(t *testing.T) {
+	pool := newConnPool(10, 1)
+
+	_, first := pool.acquire(netip.MustParseAddr("2001:db8:1:1::1"))
+	_, samePrefix := pool.acquire(netip.MustParseAddr("2001:db8:1:1::2"))
+	_, otherPrefix := pool.acquire(netip.MustParseAddr("2001:db8:1:2::1"))
+	_, v4 := pool.acquire(netip.MustParseAddr("192.0.2.1"))
+	_, v4Mapped := pool.acquire(netip.MustParseAddr("::ffff:192.0.2.1"))
+
+	if first != "" || samePrefix != reasonTLSBusyIP || otherPrefix != "" || v4 != "" || v4Mapped != reasonTLSBusyIP {
+		t.Errorf("refusals = %q, %q, %q, %q, %q; want none, %q, none, none, %q", first, samePrefix, otherPrefix, v4, v4Mapped, reasonTLSBusyIP, reasonTLSBusyIP)
+	}
+}
+
+func TestReadFrame_ARefusedLengthEndsAtOnceWithoutWaitingForTheBody(t *testing.T) {
+	lim := defaultDoTLimits()
+	lim.frame = 3 * time.Second
+	s := &dotServer{lim: lim}
+	reader, writer := net.Pipe()
+	defer reader.Close()
+	defer writer.Close()
+	go func() { _, _ = writer.Write([]byte{0x10, 0x01}) }()
+	result := make(chan error, 1)
+
+	go func() {
+		_, err := s.readFrame(reader, time.Second)
+		result <- err
+	}()
+
+	select {
+	case err := <-result:
+		if !errors.Is(err, errBadFrame) {
+			t.Errorf("readFrame error = %v, want %v", err, errBadFrame)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("a frame announcing 4097 bytes was not refused before its body arrived")
 	}
 }
