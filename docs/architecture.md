@@ -2,7 +2,7 @@
 
 HecateDNS is a personal, non-commercial DNS server that blocks browser ads (pop-ups, auto-redirects, click-redirects) on a phone, without a VPN app and without forcing Google SafeSearch. This document is the design specification. The research behind it is in [research.md](research.md), test results in [testing.md](testing.md), and how to run it in [operations.md](operations.md).
 
-Status: both backends pass the same conformance suite and a real-phone test. The VPS deployment with DNS-over-TLS is planned next.
+Status: both backends pass the same conformance suite and a real-phone test. The `native` backend also serves DNS-over-TLS (section 13.1), tested with generated certificates and attacker-style load on loopback. Running it on a VPS and using it from a phone on mobile data has not been done yet; the deployment files in `deploy/` are drafts that have never run on Linux.
 
 ---
 
@@ -49,7 +49,7 @@ Status: both backends pass the same conformance suite and a real-phone test. The
 
 ```
  Client (phone / PC)
-      |  DNS (UDP/TCP 53; later DoT 853)
+      |  DNS (UDP/TCP 53; DoT 853 on the native backend)
       v
 +------------------------------------------------------+
 | BACKEND   backend: dnsproxy | native                 |
@@ -80,7 +80,7 @@ backend/
   controller/             CLI commands: run, check, log, rule, lists
   core/                   backend contract: Backend, Bound, Deps, Factory, Registry
     dnsproxy/             adapter around AdGuard dnsproxy
-    native/               own server, upstreams, cache, rate limiter
+    native/               own server, DoT listener, upstreams, cache, rate limiter
   engine/                 the filter: ACL, rules, matcher, CNAME check, special names, health
   service/
     lists/                download, parse, cache and schedule block lists
@@ -92,7 +92,8 @@ backend/
   test/
     conformance/          one suite run against both backends
     nocomment/            fails the build if a comment appears in Go or PowerShell sources
-configs/hecate.example.yaml
+configs/                  hecate.example.yaml (home), hecate.vps.example.yaml (DoT only)
+deploy/                   draft Linux files: systemd unit, certificate renewal, nftables rules, backup script
 scripts/windows/          autostart.ps1 (Task Scheduler), dnsquery.ps1 (query on any port)
 data/                     runtime data, git-ignored: rules.txt, lists/, logs/, tls/
 ```
@@ -138,7 +139,8 @@ type Bound interface { Ready() <-chan struct{}; Addr(network string) net.Addr }
 - dnsproxy has no client ACL, so the engine enforces `allowed_clients` and both backends behave the same.
 - dnsproxy answers some queries before the handler, without ACL or log: ANY gives NOTIMP, a question count other than 1 gives FORMERR, private ARPA from public clients gives NXDOMAIN. Other opcodes are forwarded upstream, so the engine answers them itself.
 - The package does not use `recover()`; the adapter adds it per stage (before `Before`: REFUSED; in `Resolve`: SERVFAIL; afterwards: keep the answer).
-- Every TCP connection holds one `MaxGoroutines` slot for its lifetime, shared with UDP. One LAN host can hold 256 connections and stall the service. Accepted at home, to be fixed before the server is exposed to the internet.
+- dnsproxy has no accept hook, so for a client outside `allowed_clients` the handler leaves `Res` nil over TCP and TLS, which makes the library close the connection after the first query (UDP still gets REFUSED).
+- Every TCP connection holds one `MaxGoroutines` slot for its lifetime, shared with UDP. One LAN host can hold 256 connections and stall the service, and there is no per-client rate limiter or TCP limit. Accepted at home. This is why `dnsproxy` is never exposed to the internet and why a `dot` setting is rejected with `backend: dnsproxy`.
 - On Linux dnsproxy uses `SO_REUSEPORT`, so a second instance can bind the same port silently; on Windows the second bind fails.
 
 ### 5.4 The `native` backend
@@ -148,21 +150,23 @@ Own code on `miekg/dns`, serving the home server since 2026-10-19.
 | Files | Behaviour |
 |---|---|
 | `native.go` | Factory and single-use `Run`; sockets are bound first so a bind error returns at once |
-| `server.go` | UDP and TCP listeners on every `listen` address; non-QUERY opcodes go to the engine (NOTIMP and logged); malformed headers are dropped silently; own TCP limit (64 total, 8 per client); `tolerantReader` keeps the server alive when a UDP read fails (on Windows an oversized datagram fails with `WSAEMSGSIZE`); shutdown also closes sockets |
-| `handler.go` | Rate limit, `Before`, cache, upstream, `After`; `Failed` when every upstream fails; ANY answered NOTIMP; panic recovery per stage; only the upstream exchange takes a slot (256 total, 64 per client), so cache hits and block answers keep working when upstreams are slow; 11 s per query; UDP size follows EDNS (512 to 1232) |
+| `server.go` | UDP and TCP listeners on every `listen` address, each bound on its own IP family (`tcp4`/`tcp6`, `udp4`/`udp6`, because Go binds `0.0.0.0` on network `tcp` as a dual-stack `[::]` socket and a second entry for `[::]` would fail); non-QUERY opcodes go to the engine (NOTIMP and logged); malformed headers are dropped silently; own TCP limit (64 total, 8 per client, IPv6 clients counted per `/64`); a TCP client outside `allowed_clients` is closed at accept, before it takes a slot, with no answer; every write has a 5 s deadline and a failed write closes the connection (miekg/dns declares `Server.WriteTimeout` but never applies it); a temporary accept error pauses the accept loop (5 ms doubling to 1 s); `tolerantReader` keeps the server alive when a UDP read fails (on Windows an oversized datagram fails with `WSAEMSGSIZE`); shutdown also closes sockets |
+| `handler.go` | Rate limit, `Before`, cache, de-duplication of identical in-flight queries, upstream, `After`; `Failed` when every upstream fails; ANY answered NOTIMP; panic recovery per stage; only the upstream exchange takes a slot (256 total, 64 per client), so cache hits and block answers keep working when upstreams are slow; 11 s per query; UDP size follows EDNS (512 to 1232); the "dropping queries" warning is throttled per reason (10 s) |
+| `flight.go` | De-duplication: queries with the same cache key (name, type, class, DO, CD) share one upstream exchange. Only the leader takes a gate slot; every waiter gets its own copy of the answer and its own `Failed` call, so every query is still logged, and a waiter gives up at its own deadline. A leader that panics releases its waiters |
+| `dot.go`, `dotserver.go` | DNS-over-TLS listener, described in section 13.1: TLS config with the server-name allow-list, the certificate store, and the own connection loop with its two connection pools |
 | `upstream*.go`, `bootstrap.go` | Weighted-random pool (1/srtt) with failover; plain UDP (retried over TCP when truncated), TCP, and DoH (RFC 8484 POST, ID 0, HTTP/2, no environment proxy, no redirects, body capped at 65,535 bytes). DoH host names resolve through plain-DNS bootstrap servers with a shared time budget. A reply is accepted only if QR, ID, opcode and question match. SERVFAIL or REFUSED from one upstream moves on to the next. **DoT as an upstream is not implemented** |
 | `cache.go` | Byte-bounded LRU; key is lower-cased name, type, class and the DO and CD bits; TTL clamped by `min_ttl`/`max_ttl`; negative caching; only NOERROR and NXDOMAIN without TC are stored; upstream OPT is stripped |
-| `ratelimit.go` | Token bucket per client IP (200/s, burst 500), table capped at 4,096 clients; a client over the limit gets no reply (a reply to a spoofed address would amplify) |
+| `ratelimit.go` | Token bucket per client (200/s, burst 500), IPv6 clients keyed by `/64` and IPv4-mapped addresses as IPv4 (`limitKey`, also used by the upstream gate and the TCP caps); the table holds 4,096 clients and sources that do not fit share ONE overflow bucket with the same rate, so a flood of new addresses cannot get unlimited service; a client over the limit gets no reply (a reply to a spoofed address would amplify) |
 | `localreverse.go` | PTR, SOA and NS for RFC 6303 zones answered locally with NXDOMAIN |
 
-Differences from the `dnsproxy` adapter, none relevant for private LAN clients: `native` does not deduplicate identical in-flight queries; `native` answers ANY after `Before`, so the ACL applies and the query is logged; the rate-limit table, IPv6 `/64` keys and TCP-per-address limits have known gaps to close before the server is exposed to the internet.
+Differences from the `dnsproxy` adapter: `native` answers ANY after `Before`, so the ACL applies and the query is logged; `native` has its own rate limiter and TCP caps (dnsproxy has none, see 5.3); only `native` serves DoT. The known trade-off of the overflow bucket: while a flood from more than 4,096 tracked sources keeps the table full, a legitimate NEW client shares the overflow budget with the flood.
 
 ---
 
 ## 6. Flow of one query
 
 `Before`:
-1. **ACL.** A client outside `allowed_clients` gets REFUSED (reason `acl`) before any matching. The list must hold at least one CIDR, so an empty list never means "allow all".
+1. **ACL.** A client outside `allowed_clients` gets REFUSED (reason `acl`) before any matching. The list must hold at least one CIDR, so an empty list never means "allow all". Over TCP and TLS such a client gets no answer at all: `native` closes the connection at accept and `dnsproxy` after the first query.
 2. **Validation.** Exactly one question with opcode QUERY; otherwise the engine answers FORMERR or NOTIMP and logs it.
 3. **Normalisation.** Lower case, trailing dot removed; IDNs are assumed to be in punycode.
 4. **Special names** (if enabled): `use-application-dns.net` NXDOMAIN, `_dns.resolver.arpa` NODATA.
@@ -252,7 +256,9 @@ Redirect-hunting workflow: trigger the redirect, note the time, run `hecate log 
 
 ## 10. Configuration
 
-See `configs/hecate.example.yaml` for every key with its default. Validation at start collects all problems and exits non-zero with clear messages: unknown or duplicate keys, more than one YAML document, an empty `allowed_clients` (to allow everyone write `0.0.0.0/0` and `::/0`), invalid CIDRs, host names in `listen`, host-name upstreams without `bootstrap`, non-`https` list URLs, unsafe or duplicate source names, unknown mode or backend, negative TTLs, empty `rules.file` or `log.dir`, duplicate `listen` entries, port 0, and a `log.max_mb_per_day` below 1. TTLs are capped before conversion to `uint32`; `cache.max_ttl: 0` means no upper bound. Relative paths resolve from the config file's directory. `Warnings()` flags an upstream or bootstrap that points at hecate's own listen address (a DNS loop), and `hecate check` fails on it.
+See `configs/hecate.example.yaml` for every key with its default. Validation at start collects all problems and exits non-zero with clear messages: unknown or duplicate keys, more than one YAML document, an empty `allowed_clients` (to allow everyone write `0.0.0.0/0` and `::/0`), invalid CIDRs, host names in `listen`, host-name upstreams without `bootstrap`, non-`https` list URLs, unsafe or duplicate source names, unknown mode or backend, negative TTLs, empty `rules.file` or `log.dir`, duplicate `listen` entries, port 0, and a `log.max_mb_per_day` below 1. TTLs are capped before conversion to `uint32`; `cache.max_ttl: 0` means no upper bound. Relative paths resolve from the config file's directory. `Warnings()` flags an upstream or bootstrap that points at hecate's own listen address (a DNS loop), an `allowed_clients` entry of `0.0.0.0/0` or `::/0` together with a plain listener on a public address (an open resolver), and a `dot.names` entry whose first label is under 16 characters; `hecate check` fails on the loop.
+
+The `dot` section (off by default; `configs/hecate.vps.example.yaml` is a complete DoT-only example) has `enabled`, `listen` (IP:port entries; `0.0.0.0:853` and `[::]:853` can be listed together, each is bound on its own IP family and `[::]` is IPv6 only), `cert_file`, `key_file`, `names` (see 13.1) and `reload_every` (default 10 minutes, minimum 1 second). It is validated only when enabled and is rejected with `backend: dnsproxy`. `listen` (plain DNS) may be empty when DoT is enabled. Error messages about `dot.names` name the index, never the value. `hecate check` also loads the certificate pair and fails when it is expired, not yet valid, or does not cover every name.
 
 ---
 
@@ -280,16 +286,40 @@ Main threats: an open resolver abused for amplification (once on a VPS), hostile
 |---|---|
 | Client restriction | `allowed_clients` defaults to loopback and private ranges; others get REFUSED |
 | Specific bind | Listen on a specific IP, not `0.0.0.0`, unless there is a reason |
-| Rate limit | Per client IP. `native`: active (200/s, burst 500). `dnsproxy`: its separate `ratelimit` middleware is not wired yet; required before public exposure |
-| TCP slot exhaustion | `dnsproxy`: see 5.3. `native`: own TCP limits (64 total, 8 per client) and own upstream limits (256 total, 64 per client) |
+| Rate limit | Per client (IPv6 per `/64`). `native`: active (200/s, burst 500) with an overflow bucket for sources the table cannot track. `dnsproxy`: its separate `ratelimit` middleware is not wired, which is one reason it is never exposed to the internet |
+| TCP slot exhaustion | `dnsproxy`: see 5.3. `native`: own TCP limits (64 total, 8 per client), clients outside the ACL closed at accept, write deadlines, and upstream limits (256 total, 64 per client) |
+| Query de-duplication | `native`: identical in-flight queries share one upstream exchange, so a burst of the same name costs one upstream query |
 | Oversized UDP datagram | Handled by `native` (`tolerantReader`); covered by the conformance suite for both backends |
 | Log growth | Daily size cap; ACL refusals logged one per query |
 | Untrusted lists | HTTPS only, size and time limits, per-line validation, never executed |
-| Public access (planned) | DoT on 853 with a valid certificate; clients identified by a secret host name in SNI (Android Private DNS sends no auth header); detailed design reviewed at the start of the VPS work |
+| Public access | DoT on 853 (`native` only) with a valid certificate; clients identified by a secret host name in the TLS server name (Android Private DNS sends no auth header); two connection pools, deadlines and per-source limits; details in 13.1 |
 | Secrets | TLS private keys in `data/tls/` (strict permissions, git-ignored); no secrets in the repository or example config |
 | Supply chain | Pinned module versions, `go mod verify`, `govulncheck` at the end of each milestone |
 | Error messages | Server logs may be detailed; DNS answers never carry internal detail |
 | Privileges | Run as an ordinary user (on Linux a dedicated user with the capability to bind low ports) |
+
+### 13.1 Public access with DNS-over-TLS
+
+**Threat model.** One public IPv4 address (maybe IPv6) with TCP 853 open, scanned by the whole internet all day. The users are one phone (mobile data, changing addresses, carrier NAT) and maybe family. Android Private DNS in strict mode sends only a TLS handshake with the host name as the server name (SNI): no password, no header, no client certificate, no ECH.
+
+**Identification.** `dot.names` is an allow-list of exact server names. A handshake whose SNI is not on it, or that has no SNI (someone connecting to the bare IP), is aborted before any key exchange and before any DNS message is read; nothing is answered. The comparison folds only ASCII `A-Z`, because Unicode folding maps the Kelvin sign onto `k`. This is a speed bump, not a lock: the SNI travels in clear text, and the phone also resolves the name with its ordinary resolver before it connects, so the label can appear in that resolver's logs. Accepted for a personal server. The name is a long random label (at least 16 characters from `a-z0-9`, never a dictionary word) under a domain you control; `hecate check` warns about a shorter first label. To rotate the secret without a new certificate, put a new label in `dot.names` and in the phone's Private DNS field.
+
+**Certificate.** One wildcard certificate (`<base>` and `*.<base>`, obtained with DNS-01) covers every label, so the secret label never appears in the public Certificate Transparency logs the way a certificate for the label itself would. The certificate must be valid and cover every configured name at start (checked with `VerifyHostname`); at reload a certificate that fails a check is refused and the old one stays in use. The files are re-read when their size or modification time changes (every `dot.reload_every`), so a renewal needs no restart; a half-written renewal (certificate before key) is rejected and picked up on the next check. A rejection for the validity dates is retried; a rejection for any other reason is remembered for that file stamp only. Unreadable files are reported once an hour. While the certificate expires within 14 days an hourly WARN is logged, and an ERROR once it has expired: with Private DNS in strict mode an expired certificate means the phone has no DNS at all.
+
+**No client authentication and no IP allow-list for DoT.** Android cannot do client certificates, and mobile addresses change and are shared. `allowed_clients` stays in front of the TLS handshake (`0.0.0.0/0` and `::/0` on the VPS) so a narrower list still works if it is ever wanted.
+
+**Connection handling.** DoT does not use the miekg/dns server (it serves a connection inline, applies no write deadline and takes its connection slot before the handshake). `dotserver.go` has its own accept loop and two pools, both keyed per source (IPv4 address, IPv6 `/64`):
+
+| Stage | Cap | Deadline |
+|---|---|---|
+| Waiting for the TLS handshake | 512 total, 8 per source | 4 s for the whole handshake |
+| Established | 64 total, 8 per source | first query within 5 s; 30 s idle between queries; 5 s to receive the rest of a frame; 5 s per write |
+
+A silent or slow connection can only fill the first pool, so connections that finished a handshake keep working during a flood. The waiting pool can still be filled, by about 64 sources (IPv4 addresses or IPv6 `/64` prefixes, 8 each); new connections are then refused at once until the 4 s deadline frees slots. With the per-source limits of `deploy/nftables.conf` an attacker needs about 128 sources, which IPv6 makes cheap. A cap on a wider IPv6 prefix was considered and left out. After a failed write the raw connection is closed at once (closing the TLS connection would first try to send a close alert, which blocks again on a peer that does not read). Each query runs in its own goroutine (16 in flight per connection and 256 across all connections, then reading pauses) and answers are written, framed, under a per-connection mutex as they finish, so one slow query does not delay the ones pipelined behind it (RFC 7766). A connection ends after 1,000 queries, on a failed write, or on a frame shorter than a DNS header or longer than 4,096 bytes. A message with the response bit set is ignored; a message that cannot be unpacked gets FORMERR. Refusals by a cap and failed handshakes are logged as "dropping queries" with a reason (`too many tls connections`, `too many tls connections from one address`, `unknown tls server name`, `tls handshake failed`), throttled per reason, with the client address and never the server name. The query log records protocol `tls`.
+
+**Other layers.** The per-client rate limiter and the upstream gate (section 5.4) apply to DoT queries too. On the VPS `deploy/nftables.conf` adds per-source limits on new connections and open connections for 853 and for SSH, and closes port 53; plain DNS is not served at all (`listen` is empty).
+
+**Left out on purpose:** ECH (Android does not support it), DoH, QUIC, client-IP pinning, DoT as an upstream. Restricting TLS 1.2 to AEAD cipher suites is possible but not done.
 
 ---
 
@@ -300,7 +330,8 @@ Main threats: an open resolver abused for amplification (once on a VPS), hostile
 - **Lists:** a failed download keeps the old cache; a corrupt cache file is ignored and logged.
 - **Rules:** bad lines are skipped; a missing file means no rules.
 - **Logs:** a full disk, a full channel or the daily cap never block a query.
-- **Shutdown:** Ctrl+C cancels the context; listeners close cleanly, the log is flushed, and queries stuck on a silent plain upstream are cancelled by closing their connection.
+- **Shutdown:** Ctrl+C cancels the context; listeners close cleanly, open DoT connections are closed, the log is flushed, and queries stuck on a silent plain upstream are cancelled by closing their connection.
+- **DoT certificate:** refused at start when expired, not yet valid, unreadable, not matching its key or not covering every name; at reload the old certificate stays in use and the error is logged (section 13.1).
 - Every error is wrapped with context (`%w`) and logged once, by the layer that handles it.
 
 ---
@@ -320,6 +351,11 @@ Reasoning that used to live in code comments:
 - `dnsproxy` sends nothing for a nil `dctx.Res`, so the adapter never leaves it nil. A proxy that never started is released through `close`.
 - `hecate rule` rewrites the rules file atomically (temporary file in the same directory, then rename), keeps its comments, and refuses to edit a file the server would reject, because rewriting it would hide the problem.
 - Block answers are built as copies; a block decision without an answer message is an error, because the handler shapes the message in place.
+- IPv6 clients are keyed by `/64` (the usual smallest allocation to one site) for the rate limiter, the upstream gate and the connection caps, so one host cannot multiply its budget by using many addresses of its prefix. IPv4-mapped IPv6 addresses count as the IPv4 address.
+- The query de-duplication is an own small implementation instead of `golang.org/x/sync/singleflight`: it needs a copy of the answer per waiter, a separate `Failed` call per waiter and each waiter's own deadline, and it avoids a new direct dependency.
+- Go binds `0.0.0.0` on network `tcp` as a dual-stack socket on `[::]`, so a config that lists `0.0.0.0:853` and `[::]:853` failed with "address in use" while `hecate check` called it valid. Every listener is bound with `tcp4`/`udp4` or `tcp6`/`udp6` by address family.
+- The messages and logs about `dot.names` carry the index only. The certificate error from x509 repeats the host name, so it is not wrapped.
+- When the `miekg/dns` server is reused for TCP, its `WriteTimeout` field has no effect (v1.1.73 never calls `SetWriteDeadline`); the deadline is set in the connection wrapper instead.
 
 ---
 
@@ -346,4 +382,10 @@ Reasoning that used to live in code comments:
 | R9 | Ad domains keep changing | Daily updates; newly-registered-domain lists considered later |
 | R10 | The redirect trigger is a script from the site's own domain | Said plainly; Firefox with uBlock Origin as a complement; Plan B |
 | R11 | hecate is not up after boot (Wi-Fi not ready) | Repeating Task Scheduler trigger; a real boot is not yet tested |
-| R12 | Family and friends use the home server | Per-IP limits matter more; known gap: a full rate-limit table releases new sources (to be fixed before public exposure) |
+| R12 | Family and friends use the home server | Per-client limits (IPv6 per `/64`) with an overflow bucket; while a flood of 4,096+ sources keeps the table full a new legitimate client shares the overflow budget |
+| R13 | The secret DoT name leaks (SNI in clear text, the phone's ordinary resolver logs) | It is a speed bump by design; rotate the label in `dot.names` and on the phone; limits and deadlines apply to anyone who knows it |
+| R14 | The DoT certificate expires and strict Private DNS leaves the phone without DNS | Renewal timer with a 30-day threshold, expiry warnings from 14 days, the old certificate kept if a renewal is broken |
+| R15 | `deploy/` (systemd, nftables, lego units) has never run on Linux | Marked unverified in the files; syntax checks and a safe loading procedure are in operations.md |
+| R16 | Android strict-mode handshake, ALPN and carrier NAT behaviour are untested | Planned phone tests on mobile data; fall back to opportunistic mode or to the home server |
+| R17 | A botnet of about 64+ sources (cheap with IPv6) fills the pool of connections waiting for a handshake and new clients are refused | Established connections keep working; the firewall limits per source raise the number of sources needed; a provider-level DDoS defence is out of scope for a personal server |
+| R18 | Whoever knows the secret name can hold slots or ask for large answers | Deadlines, 8 connections per source, 16 queries in flight per connection and 256 overall, 1,000 queries per connection; rotate the label |

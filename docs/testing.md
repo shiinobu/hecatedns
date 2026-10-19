@@ -6,14 +6,14 @@ The project is developed test first: a failing test, the minimum code to pass it
 
 | Layer | Content | Target |
 |---|---|---|
-| Unit | `engine` (matching, priority, block answers, CNAME, special names), `lists` (parser, fetcher, manager), `qlog`, `config`, `native` (cache, ACL, rate limiter, upstreams against fake servers), `controller` (commands) | Coverage of 80% or more |
+| Unit | `engine` (matching, priority, block answers, CNAME, special names), `lists` (parser, fetcher, manager), `qlog`, `config`, `native` (cache, ACL, rate limiter with its overflow bucket, de-duplication, upstreams against fake servers, the DoT listener with generated certificates), `controller` (commands, the certificate check) | Coverage of 80% or more |
 | Fuzz | List parser and rule parser (`go test -fuzz`) | No panic |
 | Benchmark | Lookup against about 250,000 entries; process memory | p99 under 50 microseconds; under 150 MB |
-| Conformance | `backend/test/conformance`: a fake upstream (`miekg/dns` on loopback) plus the backend under test on a random port. Cases: blocked A/AAAA/HTTPS, pass-through, `allow` beats `block`, blocked CNAME, ACL REFUSED (no RA bit), log written, oversized or malformed UDP datagrams do not stop the server, reverse lookups of private addresses answered locally. Run for **both** backends from one constructor table | Identical results |
+| Conformance | `backend/test/conformance`: a fake upstream (`miekg/dns` on loopback) plus the backend under test on a random port. Cases: blocked A/AAAA/HTTPS, pass-through, `allow` beats `block`, blocked CNAME, ACL REFUSED (no RA bit), log written, oversized or malformed UDP datagrams do not stop the server, reverse lookups of private addresses answered locally, a TCP client outside `allowed_clients` is disconnected with no answer. Run for **both** backends from one constructor table (DoT is `native` only, so its cases are unit tests) | Identical results |
 | Source rule | `backend/test/nocomment` fails if a Go or PowerShell source contains a comment | Always green |
 | Manual integration | `scripts/windows/dnsquery.ps1` (or `dig`) from the PC, then tests from a phone | Criteria S1 to S3 |
 
-Coverage at the last full run: `controller` 93.1%, `core` 100%, `core/dnsproxy` 95.4%, `core/native` 93.8%, `engine` 96.9 to 97.2%, `lib/config` 95.5%, `lib/runlog` 96.0%, `service/lists` 86.7%, `service/qlog` 90.9%, `service/selfcheck` 92.5%, `test/conformance` 80.1%.
+Coverage at the last full run: `controller` 93.4%, `core` 100%, `core/dnsproxy` 95.6%, `core/native` 92.7%, `engine` 97.2%, `lib/config` 97.0%, `lib/runlog` 96.0%, `service/lists` 86.7%, `service/qlog` 90.9%, `service/selfcheck` 92.5%, `test/conformance` 79.7%.
 
 Verification commands (all must be clean before a merge):
 
@@ -31,6 +31,33 @@ GOOS=linux GOARCH=amd64 go build ./...
 ```
 
 The race detector needs a C compiler (on Windows, w64devkit); enable cgo for that command only, never globally, because it breaks the Linux cross-build. Concurrent code relies on immutable snapshots and no global state, backed by load tests. Deliberate mutations on a scratch copy were used to confirm that the tests catch behaviour changes.
+
+---
+
+## DNS-over-TLS: attacker-style checks on loopback
+
+The DoT listener was reviewed twice by a reviewer with fresh context, who ran hostile clients against it on 127.0.0.1 with a generated certificate (several source addresses from 127.0.0.2 upwards) and measured the result. The first review found four significant problems, all measured: about 16 sources opening silent connections left a legitimate client with no answer; answers to pipelined queries came strictly in order (a 2 s query delayed the next by 2 s); a client that sent queries and never read pinned its slot until it left; the shipped VPS example (`0.0.0.0:853` plus `[::]:853`) could not start. All four were fixed test first and the experiments were run again on the fixed code. Measurements on the fixed code (a re-run by the reviewer, on the commit before the last small fixes):
+
+| Probe | Result |
+|---|---|
+| Silent connects from 8 and from 16 sources, reconnecting, while a valid client asks | Valid client answered 15 of 15 times in 7 to 29 ms (before the fix: 4.0 to 4.5 s, then 0 of 10) |
+| 100 silent connects from one address | 8 held until the 4 s handshake deadline, 92 refused at once; a valid client from another address is served |
+| Slowloris (one byte every 500 ms), a valid hello followed by silence, a handshake without a query | Closed at 4.0 s, 4.0 s and 5.0 s (the first-query deadline) |
+| Wrong, empty, 1,000, 16,000 and 60,000 character server name, a name with a newline, ALPN `h2`, TLS 1.0, TLS 1.1 | Refused in 0 to 1 ms with a 7-byte alert; the engine saw 0 queries; goroutines 7 before and after |
+| Garbage, plain DNS or an HTTP request on 853 | Connection closed at once, 0 bytes sent |
+| Pipelined `slow` (2 s upstream) then `fast` query | `fast` answered after 1 ms, `slow` after 2.001 s |
+| One connection: 1,100 pipelined and 1,001 sequential queries | 502 answered (burst 500 plus refill), the rest dropped by the rate limiter; closed after the 1,000th frame |
+| A name-holder that writes 1,000 queries and never reads | Its slot is free again after about 10 s (5 s write deadline plus a close alert that blocked again; fixed afterwards to close the raw connection at once); shutdown with that client still connected took 1 to 3 ms |
+| 64 non-reading connections asking for a 57.6 KB answer | Heap grew by 80 MB for about 10 s (fixed afterwards with a limit of 256 queries in flight across all connections) |
+| Certificate replaced six rounds under load (half-written pair, corrupt file, renewed) with 8 workers asking continuously | 7,460 queries, 0 handshake failures, 0 query failures; every serial served in turn; the old certificate stayed in use while files were broken |
+| Shutdown with 24 idle, 8 silent and 8 half-finished connections | Returned in 1 to 5 ms, no error, goroutines back to the starting value |
+| 1,000 identical queries with random case and four DO/CD combinations while the upstream hangs | 4 upstream calls; all answered SERVFAIL at 11.0 s; `Failed` called 1,000 times; goroutines back to the baseline |
+| 20,000 distinct IPv6 `/64` sources against the rate limiter | 4,096 tracked plus the shared overflow bucket; heap +405 KB |
+| Fuzzing the frame parser (header, accept check, unpack, FORMERR reply) | 3.56 million inputs in 60 s, no panic |
+
+Known limit from the same review: about 64 sources (IPv4 addresses or IPv6 `/64` prefixes, 8 each) can fill the pool of 512 connections waiting for a handshake; established connections keep working and new ones are refused at once until the 4 s deadline frees slots (measured: 63 sources hold 504, a valid query is still answered; 66 sources fill the pool and a valid query is refused).
+
+Mutation checks used to confirm that the tests notice a broken behaviour: DoT caps removed, the waiting pool shared with the established pool, queries served inline instead of in parallel, no write deadline, the cross-connection limit removed, pools keyed by the exact address instead of the `/64`, the frame length check removed, the panic release in the de-duplication removed, and a waiter that ignores its own deadline. Each makes a test fail.
 
 ---
 
@@ -104,5 +131,7 @@ Same setup; only `backend: native` changed. 484 queries from the phone: 322 bloc
 - Behaviour on a real full disk (only a fake disk was tested).
 - Real DoH providers and IPv6 upstreams under long load; Windows UDP read errors other than `WSAEMSGSIZE`; accuracy of the cache memory estimate under real load.
 - The 7-day stability run (S4), planned on the VPS.
+- DoT on a real VPS and from a real phone: the Android strict-mode handshake and ALPN against this server, a real Let's Encrypt wildcard certificate and its renewal, mobile-carrier NAT behaviour, real IPv6 `/64` sockets (loopback only has `::1`), and an external port scan.
+- Everything in `deploy/` on Linux: the nftables syntax and semantics (`ct count` with a masked IPv6 key, dynamic sets), the systemd options, the lego flags and file order, and the Linux behaviour of the dual-family bind (checked on Windows and from the Go source only).
 - DoT as an upstream (deferred).
 - Redirect to the Play Store (never appeared), Firefox on the phone, IPv6 DNS from the router as a bypass path, EDE (RFC 8914) on block answers, and a complete "without hecate" baseline.

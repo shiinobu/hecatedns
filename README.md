@@ -24,6 +24,7 @@ HecateDNS answers DNS queries for your phone or computer and drops the ones that
 - **Encrypted upstreams.** Queries leave over DNS-over-HTTPS.
 - **Safe by default.** A client ACL answers REFUSED to outsiders, and the server forwards queries instead of failing if the filter has a problem.
 - **Readable query log.** See what was blocked and what passed, with the reason.
+- **DNS-over-TLS for a phone anywhere.** The `native` backend can serve DoT on port 853 so Android's Private DNS works on mobile data; clients are identified by a secret server name, with connection limits and deadlines (see below).
 - **Two interchangeable backends, one engine.** Switch with a single config line (see below).
 
 ## How well does it work?
@@ -66,12 +67,18 @@ On Windows, use `bin\hecate.exe`, and `scripts\windows\dnsquery.ps1 example.com 
 
 The example config listens on port 5300 so it never clashes with a system resolver. Keys you leave out use defaults; unknown or duplicate keys are rejected with a clear error.
 
+## DNS-over-TLS on a VPS
+
+`configs/hecate.vps.example.yaml` serves only DoT (`backend: native`, no plain DNS). Clients are identified by a long random host name under a wildcard certificate (`dot.names`); a handshake for any other name is refused before a single DNS message is read. `hecate check` loads the certificate and warns about weak names. Android: Settings, Network, Private DNS, then the host name.
+
+The files in `deploy/` (systemd unit, certificate renewal, nftables rules, backup script) are **drafts that have never run on Linux**. The step-by-step guide, including how to load the firewall without locking yourself out, is in [operations.md](docs/operations.md); the design is in [architecture.md](docs/architecture.md), section 13.1.
+
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `hecate run` | Start the server. |
-| `hecate check` | Validate the config and run the self-check. |
+| `hecate check` | Validate the config, run the self-check, and load the DoT certificate when DoT is on. |
 | `hecate log -since 10m -blocked` | Show recent queries; filter by time or only blocked ones. |
 | `hecate rule add block example.com` | Block a domain and its subdomains. |
 | `hecate rule add allow ok.example.com` | Allow a domain (allow beats block). |
@@ -90,7 +97,8 @@ backend/engine/      the filter: ACL, rules, matcher, CNAME check
 backend/service/     lists, query log, self-check
 backend/lib/         config, operational log
 backend/test/        conformance suite and source-rule gates
-configs/             example configuration
+configs/             example configurations (home, VPS with DoT)
+deploy/              draft Linux files for a VPS (unverified)
 scripts/windows/     Task Scheduler autostart, DNS query helper
 docs/                architecture, research, testing, operations
 ```
