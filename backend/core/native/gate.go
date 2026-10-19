@@ -24,21 +24,23 @@ func newGate() *gate {
 }
 
 func (g *gate) acquire(client netip.Addr) bool {
+	key := limitKey(client)
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.total >= g.maxTotal || g.perClient[client] >= g.maxPerClient {
+	if g.total >= g.maxTotal || g.perClient[key] >= g.maxPerClient {
 		return false
 	}
 	g.total++
-	g.perClient[client]++
+	g.perClient[key]++
 	return true
 }
 
 func (g *gate) release(client netip.Addr) {
+	key := limitKey(client)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.total--
-	if g.perClient[client]--; g.perClient[client] <= 0 {
-		delete(g.perClient, client)
+	if g.perClient[key]--; g.perClient[key] <= 0 {
+		delete(g.perClient, key)
 	}
 }
