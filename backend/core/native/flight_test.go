@@ -209,3 +209,58 @@ func TestHandler_WaitersGiveUpWhenTheirDeadlineEnds(t *testing.T) {
 		}
 	}
 }
+
+type panickingUpstream struct{}
+
+func (panickingUpstream) Exchange(context.Context, *dns.Msg) (*dns.Msg, string, error) {
+	panic("upstream blew up")
+}
+
+func TestHandler_ALeaderThatPanicsReleasesItsWaitersAndLeavesNoFlightBehind(t *testing.T) {
+	h := newTestHandler(&fakeFilter{}, panickingUpstream{})
+	req := queryFor("boom.example", dns.TypeA)
+	key, _ := keyFor(req)
+	f, leader := h.flights.lead(key)
+	if !leader {
+		t.Fatal("the first caller was not the leader")
+	}
+	waited := make(chan error, 1)
+	go func() {
+		_, _, err := f.wait(context.Background())
+		waited <- err
+	}()
+
+	func() {
+		defer func() { _ = recover() }()
+		_, _, _ = h.lead(context.Background(), req, key, f)
+	}()
+
+	select {
+	case err := <-waited:
+		if !errors.Is(err, errFlightAborted) {
+			t.Errorf("waiter error = %v, want %v", err, errFlightAborted)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("a waiter stayed blocked after its leader panicked")
+	}
+	if h.flights.get(key) != nil {
+		t.Error("the flight of a panicked leader is still registered, so the next identical query would wait for nothing")
+	}
+}
+
+func TestFlightWait_ReturnsAtTheCallersOwnDeadlineWhileTheLeaderIsStillRunning(t *testing.T) {
+	g := newFlights()
+	f, _ := g.lead(cacheKey{})
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+
+	_, _, err := f.wait(ctx)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("wait error = %v, want the caller's deadline", err)
+	}
+	if took := time.Since(start); took > time.Second {
+		t.Errorf("wait took %v, want it to end at the caller's 50ms deadline", took)
+	}
+}
