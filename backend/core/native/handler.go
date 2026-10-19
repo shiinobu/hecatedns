@@ -50,6 +50,7 @@ type handler struct {
 	up      exchanger
 	limiter *limiter
 	gate    *gate
+	flights *flights
 	log     *slog.Logger
 
 	base    context.Context
@@ -61,7 +62,7 @@ type handler struct {
 
 func newHandler(f Filter, c *cache, up exchanger, l *limiter, log *slog.Logger) *handler {
 	return &handler{
-		filter: f, cache: c, up: up, limiter: l, gate: newGate(), log: log,
+		filter: f, cache: c, up: up, limiter: l, gate: newGate(), flights: newFlights(), log: log,
 		base: context.Background(), timeout: resolveTimeout,
 	}
 }
@@ -128,11 +129,44 @@ func (h *handler) lookup(ctx context.Context, req *dns.Msg, client netip.Addr) (
 	if cached, ok := h.cache.get(req); ok {
 		return cached, engine.Meta{Cached: true}, nil
 	}
+	key, shareable := keyFor(req)
+	if shareable {
+		if f := h.flights.get(key); f != nil {
+			return h.follow(ctx, f)
+		}
+	}
 	if !h.gate.acquire(client) {
 		h.drop("too many upstream queries in flight", client)
 		return nil, engine.Meta{}, errBusy
 	}
+	if !shareable {
+		defer h.gate.release(client)
+		return h.exchange(ctx, req)
+	}
+	f, leader := h.flights.lead(key)
+	if !leader {
+		h.gate.release(client)
+		return h.follow(ctx, f)
+	}
 	defer h.gate.release(client)
+	return h.lead(ctx, req, key, f)
+}
+
+func (h *handler) lead(ctx context.Context, req *dns.Msg, key cacheKey, f *flight) (resp *dns.Msg, meta engine.Meta, err error) {
+	defer func() { h.flights.finish(key, f, resp, meta.Upstream, err) }()
+	return h.exchange(ctx, req)
+}
+
+func (h *handler) follow(ctx context.Context, f *flight) (*dns.Msg, engine.Meta, error) {
+	start := time.Now()
+	resp, from, err := f.wait(ctx)
+	if err != nil {
+		return nil, engine.Meta{}, err
+	}
+	return resp, engine.Meta{Upstream: from, Latency: time.Since(start)}, nil
+}
+
+func (h *handler) exchange(ctx context.Context, req *dns.Msg) (*dns.Msg, engine.Meta, error) {
 	start := time.Now()
 	resp, from, err := h.up.Exchange(ctx, upstreamQuery(req))
 	latency := time.Since(start)
