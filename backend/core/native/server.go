@@ -176,6 +176,13 @@ type socket struct {
 	tcp *limitListener
 }
 
+func networkFor(base string, ap netip.AddrPort) string {
+	if ap.Addr().Unmap().Is4() {
+		return base + "4"
+	}
+	return base + "6"
+}
+
 func bind(addrs []netip.AddrPort, admit func(netip.Addr) bool) ([]socket, error) {
 	var socks []socket
 	closeAll := func() {
@@ -185,12 +192,12 @@ func bind(addrs []netip.AddrPort, admit func(netip.Addr) bool) ([]socket, error)
 		}
 	}
 	for _, ap := range addrs {
-		udp, err := net.ListenPacket("udp", ap.String())
+		udp, err := net.ListenPacket(networkFor("udp", ap), ap.String())
 		if err != nil {
 			closeAll()
 			return nil, fmt.Errorf("listening on udp %s: %w", ap, err)
 		}
-		tcp, err := net.Listen("tcp", ap.String())
+		tcp, err := net.Listen(networkFor("tcp", ap), ap.String())
 		if err != nil {
 			_ = udp.Close()
 			closeAll()

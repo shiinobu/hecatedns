@@ -200,7 +200,7 @@ func newDoT(cfg config.Config, now func() time.Time, log *slog.Logger) (*certSto
 func bindDoT(addrs []netip.AddrPort, admit func(netip.Addr) bool, cfg *tls.Config) ([]net.Listener, error) {
 	var out []net.Listener
 	for _, ap := range addrs {
-		raw, err := net.Listen("tcp", ap.String())
+		raw, err := net.Listen(networkFor("tcp", ap), ap.String())
 		if err != nil {
 			for _, l := range out {
 				_ = l.Close()
