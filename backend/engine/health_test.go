@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -111,6 +112,20 @@ func TestFailed_WarnsAfterFiveFailuresInARow(t *testing.T) {
 	}
 	if got := warns[0].attrs["last_error"]; got != "all upstreams failed: i/o timeout" {
 		t.Errorf("last_error = %v, want the error text of the failing query", got)
+	}
+}
+
+func TestFailed_OverloadIsNotAnUpstreamFailure(t *testing.T) {
+	e, logs, _ := newHealthEngine(t)
+	for i := 0; i < 20; i++ {
+		failQuery(e, fmt.Errorf("too many upstream queries in flight: %w", ErrOverloaded))
+	}
+	for i := 0; i < 4; i++ {
+		failQuery(e, errors.New("down"))
+	}
+
+	if got := len(logs.at(slog.LevelWarn)); got != 0 {
+		t.Fatalf("%d warnings, want none: a busy server is not a failing upstream, and 4 real failures are below the threshold", got)
 	}
 }
 

@@ -15,6 +15,8 @@ const (
 	upstreamWarnEvery = time.Minute
 )
 
+var ErrOverloaded = errors.New("the server is overloaded")
+
 type upstreamHealth struct {
 	failures atomic.Int64
 
@@ -23,7 +25,7 @@ type upstreamHealth struct {
 }
 
 func (h *upstreamHealth) failed(err error, now time.Time, log *slog.Logger) {
-	if errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, ErrOverloaded) {
 		return
 	}
 	n := h.failures.Add(1)

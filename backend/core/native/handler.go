@@ -2,7 +2,6 @@ package native
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -22,7 +21,7 @@ const (
 	dropLogEvery = 10 * time.Second
 )
 
-var errBusy = errors.New("too many upstream queries in flight")
+var errBusy = fmt.Errorf("too many upstream queries in flight: %w", engine.ErrOverloaded)
 
 type Filter interface {
 	Before(ctx context.Context, q engine.Query) engine.Decision

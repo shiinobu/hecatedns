@@ -459,6 +459,18 @@ func TestHandler_SlotsAreGivenBackAfterEveryQuery(t *testing.T) {
 	}
 }
 
+func TestHandler_TheBusyGateErrorIsMarkedAsOverloadSoItIsNotCountedAgainstTheUpstreams(t *testing.T) {
+	f := &fakeFilter{}
+	h := newTestHandler(f, okExchanger())
+	h.gate.total = h.gate.maxTotal
+
+	h.ServeDNS(udpWriter("192.168.1.150"), queryFor("fresh.example", dns.TypeA))
+
+	if len(f.failed) != 1 || !errors.Is(f.failed[0], engine.ErrOverloaded) {
+		t.Errorf("Failed got %v, want one error that wraps engine.ErrOverloaded", f.failed)
+	}
+}
+
 type hangingUpstream struct{ calls chan struct{} }
 
 func (u *hangingUpstream) Exchange(ctx context.Context, _ *dns.Msg) (*dns.Msg, string, error) {
