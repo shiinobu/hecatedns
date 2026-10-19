@@ -1,0 +1,12 @@
+# UNVERIFIED: see hecate-renew.service. Certificates last 64 days, so a daily check that renews with 30 days left
+# leaves many chances to retry; the server picks up the new files by itself (dot.reload_every).
+[Unit]
+Description=Check the HecateDNS TLS certificate every day
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

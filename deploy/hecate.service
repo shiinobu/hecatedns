@@ -1,0 +1,40 @@
+# UNVERIFIED: written on Windows without a Linux machine. Check it on the VPS with
+# "systemd-analyze verify /etc/systemd/system/hecate.service" and read "journalctl -u hecate" after the first start.
+[Unit]
+Description=HecateDNS DNS-over-TLS ad blocker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hecate
+Group=hecate
+ExecStart=/opt/hecate/hecate run -config /etc/hecate/hecate.yaml
+Restart=on-failure
+RestartSec=5
+StateDirectory=hecate
+ConfigurationDirectory=hecate
+ConfigurationDirectoryMode=0750
+
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

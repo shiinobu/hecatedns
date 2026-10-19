@@ -1,0 +1,20 @@
+# UNVERIFIED: written on Windows without a Linux machine. The first certificate is requested by hand with the same
+# lego options and "run" instead of "renew"; this unit only renews. /etc/hecate/duckdns.env holds one line,
+# DUCKDNS_TOKEN=..., owned by root with mode 0600; systemd reads it before it drops to the hecate user.
+[Unit]
+Description=Renew the HecateDNS TLS certificate
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=hecate
+Group=hecate
+StateDirectory=hecate
+EnvironmentFile=/etc/hecate/duckdns.env
+ExecStart=/opt/hecate/lego --path /var/lib/hecate/lego --accept-tos --dns duckdns --dns.resolvers 1.1.1.1:53 --dns.propagation-wait 30s --domains example.org --domains *.example.org renew --days 30
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
