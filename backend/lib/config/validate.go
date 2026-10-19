@@ -46,7 +46,7 @@ func (c Config) Warnings() []string {
 		}
 	}
 	if !hasBlockSource {
-		out = append(out, "tidak ada sumber daftar blokir yang aktif: hanya aturan kustom yang akan memblokir")
+		out = append(out, "no block list source is enabled: only custom rules will block")
 	}
 	out = append(out, c.LoopWarnings()...)
 	return out
@@ -69,7 +69,7 @@ func (c Config) LoopWarnings() []string {
 			continue
 		}
 		if matchesAnyListen(listens, target) {
-			out = append(out, fmt.Sprintf("upstream %q sama dengan alamat listen: query akan berputar kembali ke server ini sendiri", u))
+			out = append(out, fmt.Sprintf("upstream %q equals a listen address: queries would loop back to this server", u))
 		}
 	}
 	for _, b := range c.Bootstrap {
@@ -79,7 +79,7 @@ func (c Config) LoopWarnings() []string {
 		}
 		target := netip.AddrPortFrom(ip.Unmap(), defaultPortDNS)
 		if matchesAnyListen(listens, target) {
-			out = append(out, fmt.Sprintf("bootstrap %q (port 53) sama dengan alamat listen: resolusi bootstrap akan berputar kembali ke server ini sendiri", b))
+			out = append(out, fmt.Sprintf("bootstrap %q (port 53) equals a listen address: bootstrap resolution would loop back to this server", b))
 		}
 	}
 	return out

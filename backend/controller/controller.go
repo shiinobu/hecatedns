@@ -11,14 +11,14 @@ const (
 	exitUsage = 2
 )
 
-const usage = `penggunaan: hecate <perintah> [opsi]
+const usage = `usage: hecate <command> [options]
 
-perintah:
-  check   validasi berkas konfigurasi (hecate check -config hecate.yaml)
-  run     jalankan server           (hecate run -config hecate.yaml)
-  log     baca log query            (hecate log -since 10m -blocked)
-  rule    kelola aturan kustom      (hecate rule add block contoh.com)
-  lists   kelola daftar blokir      (hecate lists status | update)
+commands:
+  check   validate the configuration file (hecate check -config hecate.yaml)
+  run     run the server                  (hecate run -config hecate.yaml)
+  log     read the query log              (hecate log -since 10m -blocked)
+  rule    manage custom rules             (hecate rule add block example.com)
+  lists   manage block lists              (hecate lists status | update)
 `
 
 func Execute(args []string, stdout, stderr io.Writer) int {
@@ -39,7 +39,7 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 	case "lists":
 		return runLists(rest, stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "hecate: perintah tidak dikenal %q\n\n%s", command, usage)
+		fmt.Fprintf(stderr, "hecate: unknown command %q\n\n%s", command, usage)
 		return exitUsage
 	}
 }

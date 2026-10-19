@@ -13,9 +13,9 @@ import (
 	"github.com/shiinobu/hecatedns/backend/service/lists"
 )
 
-const listsUsage = `penggunaan:
-  hecate lists status [-config berkas]   tampilkan status cache daftar blokir
-  hecate lists update [-config berkas]   unduh ulang semua daftar blokir aktif
+const listsUsage = `usage:
+  hecate lists status [-config file]   show the block-list cache status
+  hecate lists update [-config file]   re-download all enabled block lists
 `
 
 func runLists(args []string, stdout, stderr io.Writer) int {
@@ -45,27 +45,27 @@ func runListsWith(ctx context.Context, args []string, stdout, stderr io.Writer, 
 
 func listsStatus(cfg config.Config, stdout io.Writer) int {
 	if len(cfg.Lists.Sources) == 0 {
-		fmt.Fprintln(stdout, "tidak ada sumber daftar yang dikonfigurasi")
+		fmt.Fprintln(stdout, "no list sources are configured")
 		return exitOK
 	}
 	dir := lists.Dir(cfg.DataDir)
 	for _, src := range cfg.Lists.Sources {
 		if !src.Enabled {
-			fmt.Fprintf(stdout, "%s (%s): nonaktif\n", src.Name, src.Kind)
+			fmt.Fprintf(stdout, "%s (%s): disabled\n", src.Name, src.Kind)
 			continue
 		}
 		_, meta, err := lists.LoadCached(dir, src)
 		switch {
 		case errors.Is(err, os.ErrNotExist):
-			fmt.Fprintf(stdout, "%s (%s): belum diunduh (jalankan 'hecate lists update')\n", src.Name, src.Kind)
+			fmt.Fprintf(stdout, "%s (%s): not downloaded (run 'hecate lists update')\n", src.Name, src.Kind)
 		case err != nil:
-			fmt.Fprintf(stdout, "%s (%s): rusak (%v)\n", src.Name, src.Kind, err)
+			fmt.Fprintf(stdout, "%s (%s): corrupt (%v)\n", src.Name, src.Kind, err)
 		default:
-			ts := "waktu tidak diketahui"
+			ts := "time unknown"
 			if !meta.FetchedAt.IsZero() {
 				ts = meta.FetchedAt.Local().Format(time.RFC3339)
 			}
-			fmt.Fprintf(stdout, "%s (%s): %d domain, ditolak %d, diperbarui %s\n",
+			fmt.Fprintf(stdout, "%s (%s): %d domains, %d rejected, updated %s\n",
 				src.Name, src.Kind, meta.Count, meta.Rejected, ts)
 		}
 	}
@@ -90,10 +90,10 @@ func listsUpdate(ctx context.Context, cfg config.Config, stdout, stderr io.Write
 			continue
 		}
 		if res.NotModified {
-			fmt.Fprintf(stdout, "%s: belum berubah (%d domain)\n", src.Name, res.Meta.Count)
+			fmt.Fprintf(stdout, "%s: unchanged (%d domains)\n", src.Name, res.Meta.Count)
 			continue
 		}
-		fmt.Fprintf(stdout, "%s: diperbarui, %d domain (ditolak %d)\n",
+		fmt.Fprintf(stdout, "%s: updated, %d domains (%d rejected)\n",
 			src.Name, res.Meta.Count, res.Meta.Rejected)
 	}
 	if failed {

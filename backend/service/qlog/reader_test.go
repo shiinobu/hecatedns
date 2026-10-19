@@ -202,37 +202,37 @@ func TestRecordLine(t *testing.T) {
 		{
 			"list block",
 			Record{Time: time.Date(2026, 10, 18, 14, 32, 7, 412_000_000, testZone), Client: "192.168.1.23", QType: "A", QName: "ads.contoh.com", Action: "block", Reason: "list", Source: "hagezi-popups"},
-			"2026-10-18 14:32:07.412 BLOK  192.168.1.23 A ads.contoh.com list:hagezi-popups",
+			"2026-10-18 14:32:07.412 BLOCK 192.168.1.23 A ads.contoh.com list:hagezi-popups",
 		},
 		{
 			"cname block",
 			Record{Time: time.Date(2026, 10, 18, 14, 32, 20, 0, testZone), Client: "192.168.1.23", QType: "A", QName: "smetrics.situs.com", Action: "block", Reason: "cname", Source: "hagezi-pro", Via: "x.pelacak.net"},
-			"2026-10-18 14:32:20.000 BLOK  192.168.1.23 A smetrics.situs.com cname:hagezi-pro via x.pelacak.net",
+			"2026-10-18 14:32:20.000 BLOCK 192.168.1.23 A smetrics.situs.com cname:hagezi-pro via x.pelacak.net",
 		},
 		{
 			"pass",
 			Record{Time: time.Date(2026, 10, 18, 14, 32, 8, 0, testZone), Client: "192.168.1.23", QType: "A", QName: "www.contoh.com", Action: "pass", RCode: "NOERROR", MS: 38, Upstream: "https://1.1.1.1/dns-query"},
-			"2026-10-18 14:32:08.000 LOLOS 192.168.1.23 A www.contoh.com NOERROR 38ms https://1.1.1.1/dns-query",
+			"2026-10-18 14:32:08.000 PASS  192.168.1.23 A www.contoh.com NOERROR 38ms https://1.1.1.1/dns-query",
 		},
 		{
 			"cached pass",
 			Record{Time: time.Date(2026, 10, 18, 14, 32, 9, 0, testZone), Client: "192.168.1.23", QType: "AAAA", QName: "www.contoh.com", Action: "pass", RCode: "NOERROR", Cached: boolPtr(true)},
-			"2026-10-18 14:32:09.000 LOLOS 192.168.1.23 AAAA www.contoh.com NOERROR 0ms cache",
+			"2026-10-18 14:32:09.000 PASS  192.168.1.23 AAAA www.contoh.com NOERROR 0ms cache",
 		},
 		{
 			"allowed pass",
 			Record{Time: time.Date(2026, 10, 18, 14, 32, 10, 0, testZone), Client: "192.168.1.23", QType: "A", QName: "cdn.example.com", Action: "pass", RCode: "NOERROR", MS: 5, Upstream: "u", Reason: "allow", Source: "allow cdn.example.com"},
-			"2026-10-18 14:32:10.000 LOLOS 192.168.1.23 A cdn.example.com NOERROR 5ms u allow:allow cdn.example.com",
+			"2026-10-18 14:32:10.000 PASS  192.168.1.23 A cdn.example.com NOERROR 5ms u allow:allow cdn.example.com",
 		},
 		{
 			"error",
 			Record{Time: time.Date(2026, 10, 18, 14, 32, 11, 0, testZone), Client: "192.168.1.23", QType: "A", QName: "x.example.com", Action: "error", RCode: "SERVFAIL", Error: "all upstreams failed"},
-			"2026-10-18 14:32:11.000 GALAT 192.168.1.23 A x.example.com SERVFAIL 0ms all upstreams failed",
+			"2026-10-18 14:32:11.000 ERROR 192.168.1.23 A x.example.com SERVFAIL 0ms all upstreams failed",
 		},
 		{
 			"no client",
 			Record{Time: time.Date(2026, 10, 18, 14, 32, 12, 0, testZone), QType: "A", QName: "x.example.com", Action: "pass"},
-			"2026-10-18 14:32:12.000 LOLOS - A x.example.com 0ms",
+			"2026-10-18 14:32:12.000 PASS  - A x.example.com 0ms",
 		},
 	}
 	for _, tt := range tests {

@@ -171,8 +171,8 @@ func TestWarnings(t *testing.T) {
 	t.Run("no sources", func(t *testing.T) {
 		got := Default().Warnings()
 
-		if len(got) != 1 || !strings.Contains(got[0], "daftar") {
-			t.Errorf("Warnings() = %v, want one warning mentioning daftar", got)
+		if len(got) != 1 || !strings.Contains(got[0], "list") {
+			t.Errorf("Warnings() = %v, want one warning mentioning list", got)
 		}
 	})
 	t.Run("only disabled sources", func(t *testing.T) {

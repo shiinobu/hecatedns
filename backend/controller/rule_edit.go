@@ -38,10 +38,10 @@ func readRulesText(path string) (rulesText, error) {
 		return rulesText{}, fmt.Errorf("baca %s: %w", path, err)
 	}
 	if info.IsDir() {
-		return rulesText{}, fmt.Errorf("%s adalah direktori, bukan berkas aturan", path)
+		return rulesText{}, fmt.Errorf("%s is a directory, not a rules file", path)
 	}
 	if info.Size() > engine.MaxRulesFileBytes {
-		return rulesText{}, fmt.Errorf("%s lebih besar dari %d byte, server mengabaikan sisanya; kecilkan dulu", path, engine.MaxRulesFileBytes)
+		return rulesText{}, fmt.Errorf("%s is larger than %d bytes, the server ignores the rest; shrink it first", path, engine.MaxRulesFileBytes)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -104,7 +104,7 @@ func writeFileAtomic(path string, data []byte) (err error) {
 	}
 	tmp, err := os.CreateTemp(dir, ".rules-*.tmp")
 	if err != nil {
-		return fmt.Errorf("buat berkas sementara di %s: %w", dir, err)
+		return fmt.Errorf("create temporary file in %s: %w", dir, err)
 	}
 	defer func() {
 		if err != nil {

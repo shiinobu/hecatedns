@@ -40,8 +40,8 @@ func runServer(args []string, stdout, stderr io.Writer) int {
 func runServerCtx(ctx context.Context, args []string, stdout, stderr io.Writer, registry core.Registry) int {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	path := flags.String("config", defaultConfigPath, "path ke berkas konfigurasi YAML")
-	name := flags.String("backend", "", "pilih backend (menimpa konfigurasi): dnsproxy")
+	path := flags.String("config", defaultConfigPath, "path to the YAML configuration file")
+	name := flags.String("backend", "", "select the backend (overrides the config): dnsproxy")
 	if err := flags.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -75,12 +75,12 @@ func serve(ctx context.Context, cfg config.Config, stdout, stderr io.Writer, reg
 		}
 	}()
 	for _, warning := range cfg.Warnings() {
-		fmt.Fprintf(stdout, "peringatan: %s\n", warning)
+		fmt.Fprintf(stdout, "warning: %s\n", warning)
 	}
 
 	rules := engine.NewRulesFile(cfg.Rules.File, log)
 	if _, err := rules.Reload(); err != nil {
-		fmt.Fprintf(stdout, "peringatan: aturan kustom belum bisa dibaca, server jalan tanpa aturan: %v\n", err)
+		fmt.Fprintf(stdout, "warning: custom rules could not be read, the server runs without rules: %v\n", err)
 	}
 	go rules.Run(ctx, cfg.Rules.PollInterval)
 
@@ -104,7 +104,7 @@ func serve(ctx context.Context, cfg config.Config, stdout, stderr io.Writer, reg
 		Log:            log,
 	})
 	if _, err := mgr.LoadCache(); err != nil {
-		fmt.Fprintf(stdout, "peringatan: sebagian cache daftar blokir gagal dimuat: %v\n", err)
+		fmt.Fprintf(stdout, "warning: some block-list caches failed to load: %v\n", err)
 	}
 	go mgr.Run(ctx)
 
@@ -121,7 +121,7 @@ func openRunLog(cfg config.Config, stderr, stdout io.Writer) (io.Writer, func())
 	}
 	file, err := runlog.Open(cfg.Log.Dir, runLogMaxBytes)
 	if err != nil {
-		fmt.Fprintf(stdout, "peringatan: log operasional tidak bisa ditulis ke berkas, hanya ke layar: %v\n", err)
+		fmt.Fprintf(stdout, "warning: the operational log cannot be written to a file, only to the screen: %v\n", err)
 		return stderr, func() {}
 	}
 	return runlog.Tee(stderr, file), func() { _ = file.Close() }
@@ -181,7 +181,7 @@ func announce(stdout io.Writer, name string, bound core.Bound) bool {
 	var lines []string
 	for _, network := range []string{core.NetworkUDP, core.NetworkTCP} {
 		if addr := bound.Addr(network); addr != nil {
-			lines = append(lines, fmt.Sprintf("mendengarkan: %s %s", network, addr))
+			lines = append(lines, fmt.Sprintf("listening: %s %s", network, addr))
 		}
 	}
 	if len(lines) == 0 {
@@ -191,6 +191,6 @@ func announce(stdout io.Writer, name string, bound core.Bound) bool {
 	for _, line := range lines {
 		fmt.Fprintln(stdout, line)
 	}
-	fmt.Fprintln(stdout, "tekan Ctrl+C untuk berhenti")
+	fmt.Fprintln(stdout, "press Ctrl+C to stop")
 	return true
 }

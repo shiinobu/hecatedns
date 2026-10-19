@@ -154,7 +154,7 @@ func TestRunServer_StartsTheBackendReportsItAndStopsOnCancel(t *testing.T) {
 		t.Fatalf("exit = %d, stderr = %q", code, stderr)
 	}
 	assertContains(t, "stdout", stdout, []string{
-		"hecate berjalan (backend: dnsproxy)", "mendengarkan: udp 127.0.0.1:5300", "mendengarkan: tcp 127.0.0.1:5300", "Ctrl+C", "berhenti",
+		"hecate berjalan (backend: dnsproxy)", "listening: udp 127.0.0.1:5300", "listening: tcp 127.0.0.1:5300", "Ctrl+C", "berhenti",
 	})
 }
 
@@ -310,8 +310,8 @@ func TestRunServer_PrintsConfigWarningsWithoutPhase1StubNote(t *testing.T) {
 	waitFor(t, "the banner", func() bool { return strings.Contains(h.stdout(), "Ctrl+C") })
 	_, stdout, _ := h.stop()
 
-	assertContains(t, "stdout", stdout, []string{"peringatan: tidak ada sumber daftar blokir yang aktif"})
-	if strings.Contains(stdout, "belum dimuat (Fase 2)") {
+	assertContains(t, "stdout", stdout, []string{"warning: no block list source is enabled"})
+	if strings.Contains(stdout, "not loaded yet (Phase 2)") {
 		t.Errorf("Phase 1 stub note still printed in Phase 2: %q", stdout)
 	}
 }
@@ -453,7 +453,7 @@ func TestRunServer_AnUnusableLogDirectoryWarnsAboutTheFileAndFailsOnTheQueryLog(
 	if !strings.Contains(stderr, "hecate run:") {
 		t.Errorf("stderr = %q, want the query log error", stderr)
 	}
-	if !strings.Contains(stdout, "peringatan: log operasional") {
+	if !strings.Contains(stdout, "warning: the operational log") {
 		t.Errorf("stdout = %q, want a warning that the operational log goes to the screen only", stdout)
 	}
 }

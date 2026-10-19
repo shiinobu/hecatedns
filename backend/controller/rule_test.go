@@ -62,7 +62,7 @@ func TestRuleAdd_CreatesFileAndDirectory(t *testing.T) {
 	if got := f.content(t); got != "block contoh.test\n" {
 		t.Errorf("rules file = %q", got)
 	}
-	assertContains(t, "stdout", stdout, []string{"aturan ditambahkan: block contoh.test", "tanpa restart"})
+	assertContains(t, "stdout", stdout, []string{"rule added: block contoh.test", "no restart"})
 }
 
 func TestRuleAdd_ConfigFlagMayComeAfterTheArguments(t *testing.T) {
@@ -95,7 +95,7 @@ func TestRuleAdd_ReplacesTheOldRuleOfTheSameDomain(t *testing.T) {
 	if got := f.content(t); got != want {
 		t.Errorf("rules file = %q, want %q", got, want)
 	}
-	assertContains(t, "stdout", stdout, []string{"menggantikan 1 baris"})
+	assertContains(t, "stdout", stdout, []string{"replaced 1 old line"})
 }
 
 func TestRuleAdd_KeepsCommentsBrokenLinesBOMAndCRLF(t *testing.T) {
@@ -177,12 +177,12 @@ func TestRuleAdd_RejectsBadInput(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"unknown action", []string{"add", "deny", "a.example.com"}, "block atau allow"},
-		{"single label domain", []string{"add", "block", "com"}, "ditolak"},
-		{"ip address", []string{"add", "block", "10.0.0.1"}, "ditolak"},
-		{"domain with a comment", []string{"add", "block", "a.example.com # x"}, "ditolak"},
-		{"url", []string{"add", "block", "https://a.example.com/x"}, "ditolak"},
-		{"empty domain", []string{"add", "block", ""}, "ditolak"},
+		{"unknown action", []string{"add", "deny", "a.example.com"}, "block or allow"},
+		{"single label domain", []string{"add", "block", "com"}, "rejected"},
+		{"ip address", []string{"add", "block", "10.0.0.1"}, "rejected"},
+		{"domain with a comment", []string{"add", "block", "a.example.com # x"}, "rejected"},
+		{"url", []string{"add", "block", "https://a.example.com/x"}, "rejected"},
+		{"empty domain", []string{"add", "block", ""}, "rejected"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -209,7 +209,7 @@ func TestRuleRemove(t *testing.T) {
 	if got := f.content(t); got != "# keep me\nblock b.example.com\n" {
 		t.Errorf("rules file = %q", got)
 	}
-	assertContains(t, "stdout", stdout, []string{"2 baris", "a.example.com"})
+	assertContains(t, "stdout", stdout, []string{"2 lines", "a.example.com"})
 }
 
 func TestRuleRemove_UnknownDomainFails(t *testing.T) {
@@ -218,7 +218,7 @@ func TestRuleRemove_UnknownDomainFails(t *testing.T) {
 
 	code, _, stderr := f.run(t, "-config", f.config, "remove", "zzz.example.com")
 
-	if code != exitError || !strings.Contains(stderr, "tidak ada aturan") {
+	if code != exitError || !strings.Contains(stderr, "no rule") {
 		t.Errorf("exit = %d, stderr = %q", code, stderr)
 	}
 	if got := f.content(t); got != "block a.example.com\n" {
@@ -231,7 +231,7 @@ func TestRuleRemove_MissingFileFails(t *testing.T) {
 
 	code, _, stderr := f.run(t, "-config", f.config, "remove", "a.example.com")
 
-	if code != exitError || !strings.Contains(stderr, "tidak ada aturan") {
+	if code != exitError || !strings.Contains(stderr, "no rule") {
 		t.Errorf("exit = %d, stderr = %q", code, stderr)
 	}
 }
@@ -248,7 +248,7 @@ func TestRuleList(t *testing.T) {
 	if stdout != "block a.example.com\nallow b.example.com\n" {
 		t.Errorf("stdout = %q", stdout)
 	}
-	assertContains(t, "stderr", stderr, []string{"baris 3 dilewati"})
+	assertContains(t, "stderr", stderr, []string{"line 3 skipped"})
 }
 
 func TestRuleList_EmptyAndMissing(t *testing.T) {
@@ -256,7 +256,7 @@ func TestRuleList_EmptyAndMissing(t *testing.T) {
 
 	code, stdout, stderr := f.run(t, "-config", f.config, "list")
 
-	if code != exitOK || stdout != "" || !strings.Contains(stderr, "belum ada aturan") {
+	if code != exitOK || stdout != "" || !strings.Contains(stderr, "no rules yet") {
 		t.Errorf("exit = %d, stdout = %q, stderr = %q", code, stdout, stderr)
 	}
 }
@@ -277,7 +277,7 @@ func TestRule_UsageErrors(t *testing.T) {
 	}
 	for _, args := range tests {
 		code, _, stderr := f.run(t, args...)
-		if code != exitUsage || !strings.Contains(stderr, "penggunaan") && !strings.Contains(stderr, "hecate rule") {
+		if code != exitUsage || !strings.Contains(stderr, "usage") && !strings.Contains(stderr, "hecate rule") {
 			t.Errorf("args %v: exit = %d, stderr = %q; want a usage error", args, code, stderr)
 		}
 	}
@@ -304,7 +304,7 @@ func TestRule_RefusesAFileLargerThanTheServerReads(t *testing.T) {
 
 	code, _, stderr := f.run(t, "-config", f.config, "add", "block", "a.example.com")
 
-	if code != exitError || !strings.Contains(stderr, "lebih besar") {
+	if code != exitError || !strings.Contains(stderr, "larger than") {
 		t.Errorf("exit = %d, stderr = %q", code, stderr)
 	}
 }
@@ -317,7 +317,7 @@ func TestRule_RulesPathIsADirectory(t *testing.T) {
 
 	code, _, stderr := f.run(t, "-config", f.config, "list")
 
-	if code != exitError || !strings.Contains(stderr, "direktori") {
+	if code != exitError || !strings.Contains(stderr, "directory") {
 		t.Errorf("exit = %d, stderr = %q", code, stderr)
 	}
 }
@@ -331,7 +331,7 @@ func TestRuleList_ShowsNoRuleThatTheServerWouldSkipAsTooLong(t *testing.T) {
 	if code != exitOK || stdout != "block short.example\n" {
 		t.Errorf("exit = %d, stdout = %q; the server ignores a line of %d bytes or more, so it is not an active rule", code, stdout, engine.MaxRuleLineBytes)
 	}
-	assertContains(t, "stderr", stderr, []string{"baris 2 dilewati"})
+	assertContains(t, "stderr", stderr, []string{"line 2 skipped"})
 }
 
 func TestRuleAdd_RefusesToGrowTheFileBeyondWhatTheServerReads(t *testing.T) {
@@ -342,7 +342,7 @@ func TestRuleAdd_RefusesToGrowTheFileBeyondWhatTheServerReads(t *testing.T) {
 
 	code, _, stderr := f.run(t, "-config", f.config, "add", "block", "a.example.com")
 
-	if code != exitError || !strings.Contains(stderr, "terlalu besar") {
+	if code != exitError || !strings.Contains(stderr, "too large") {
 		t.Errorf("exit = %d, stderr = %q; the new rule would land beyond the 4 MiB the server reads", code, stderr)
 	}
 	if got := f.content(t); got != body {

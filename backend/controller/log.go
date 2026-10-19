@@ -23,12 +23,12 @@ func runLog(args []string, stdout, stderr io.Writer) int {
 func runLogAt(args []string, stdout, stderr io.Writer, now time.Time) int {
 	flags := flag.NewFlagSet("log", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	path := flags.String("config", defaultConfigPath, "path ke berkas konfigurasi YAML")
-	since := flags.String("since", "", "tampilkan catatan sejak sekian lalu, mis. 10m, 2h, 3d (bawaan 10m)")
-	grep := flags.String("grep", "", "hanya catatan yang memuat teks ini (nama, klien, daftar, sumber)")
-	blocked := flags.Bool("blocked", false, "hanya query yang diblokir")
-	around := flags.String("around", "", "tampilkan sekitar jam JJ:MM, mis. 14:32")
-	window := flags.Duration("window", defaultLogWindow, "setengah lebar jendela untuk -around")
+	path := flags.String("config", defaultConfigPath, "path to the YAML configuration file")
+	since := flags.String("since", "", "show records from this long ago, e.g. 10m, 2h, 3d (default 10m)")
+	grep := flags.String("grep", "", "only records containing this text (name, client, list, source)")
+	blocked := flags.Bool("blocked", false, "only blocked queries")
+	around := flags.String("around", "", "show records around HH:MM, e.g. 14:32")
+	window := flags.Duration("window", defaultLogWindow, "half the window width for -around")
 	if err := flags.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -55,7 +55,7 @@ func buildLogFilter(now time.Time, since, around string, window time.Duration) (
 	filter := qlog.Filter{Location: now.Location()}
 	switch {
 	case since != "" && around != "":
-		return filter, errors.New("-since dan -around tidak bisa dipakai bersamaan")
+		return filter, errors.New("-since and -around cannot be used together")
 	case around != "":
 		from, until, err := qlog.ParseAround(now, around, window)
 		if err != nil {
@@ -77,7 +77,7 @@ func buildLogFilter(now time.Time, since, around string, window time.Duration) (
 
 func printLog(cfg config.Config, filter qlog.Filter, stdout, stderr io.Writer) int {
 	if !cfg.Log.Enabled {
-		fmt.Fprintln(stderr, "catatan: log dimatikan (log.enabled: false); hanya berkas lama yang ditampilkan")
+		fmt.Fprintln(stderr, "note: logging is off (log.enabled: false); only old files are shown")
 	}
 	stats, err := qlog.Read(cfg.Log.Dir, filter, func(rec qlog.Record) {
 		fmt.Fprintln(stdout, rec.Line(filter.Location))
@@ -87,12 +87,12 @@ func printLog(cfg config.Config, filter qlog.Filter, stdout, stderr io.Writer) i
 		return exitError
 	}
 	if stats.Matched == 0 {
-		fmt.Fprintf(stderr, "tidak ada catatan yang cocok di %s\n", cfg.Log.Dir)
+		fmt.Fprintf(stderr, "no matching records in %s\n", cfg.Log.Dir)
 	} else {
-		fmt.Fprintf(stderr, "%d catatan\n", stats.Matched)
+		fmt.Fprintf(stderr, "%d records\n", stats.Matched)
 	}
 	if stats.Malformed > 0 {
-		fmt.Fprintf(stderr, "%d baris rusak dilewati\n", stats.Malformed)
+		fmt.Fprintf(stderr, "malformed lines skipped: %d\n", stats.Malformed)
 	}
 	return exitOK
 }

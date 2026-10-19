@@ -67,7 +67,7 @@ lists:
 		if code != exitOK {
 			t.Fatalf("status exit = %d, stderr = %q", code, errOut.String())
 		}
-		assertContains(t, "stdout", out.String(), []string{"pro", "belum diunduh", "disabled-src", "nonaktif"})
+		assertContains(t, "stdout", out.String(), []string{"pro", "not downloaded", "disabled-src", "disabled"})
 	})
 
 	t.Run("update downloads and status reports counts", func(t *testing.T) {
@@ -76,14 +76,14 @@ lists:
 		if code != exitOK {
 			t.Fatalf("update exit = %d, stderr = %q", code, errOut.String())
 		}
-		assertContains(t, "stdout", out.String(), []string{"pro: diperbarui, 2 domain"})
+		assertContains(t, "stdout", out.String(), []string{"pro: updated, 2 domains"})
 
 		out.Reset()
 		code = runListsWith(context.Background(), []string{"update", "-config", cfgPath}, &out, &errOut, srv.Client())
 		if code != exitOK {
 			t.Fatalf("second update exit = %d, stderr = %q", code, errOut.String())
 		}
-		assertContains(t, "stdout", out.String(), []string{"pro: belum berubah (2 domain)"})
+		assertContains(t, "stdout", out.String(), []string{"pro: unchanged (2 domains)"})
 
 		out.Reset()
 		code = runListsWith(context.Background(), []string{"status", "-config", cfgPath}, &out, &errOut, srv.Client())
@@ -123,6 +123,6 @@ lists:
 		if code != exitOK {
 			t.Fatalf("status exit = %d, want %d", code, exitOK)
 		}
-		assertContains(t, "stdout", out.String(), []string{"pro (block): rusak"})
+		assertContains(t, "stdout", out.String(), []string{"pro (block): corrupt"})
 	})
 }

@@ -9,10 +9,10 @@ import (
 	"github.com/shiinobu/hecatedns/backend/lib/config"
 )
 
-const ruleUsage = `penggunaan:
-  hecate rule add block|allow <domain> [-config berkas]   tambah aturan (menggantikan aturan lama domain itu)
-  hecate rule remove <domain> [-config berkas]            hapus aturan domain itu
-  hecate rule list [-config berkas]                       tampilkan aturan
+const ruleUsage = `usage:
+  hecate rule add block|allow <domain> [-config file]   add a rule (replaces the domain's old rule)
+  hecate rule remove <domain> [-config file]            remove the domain's rule
+  hecate rule list [-config file]                       show the rules
 `
 
 func extractConfigFlag(args []string) (path string, rest []string, err error) {
@@ -26,7 +26,7 @@ func extractConfigFlag(args []string) (path string, rest []string, err error) {
 		}
 		if !hasValue {
 			if i+1 >= len(args) {
-				return "", nil, fmt.Errorf("opsi %s memerlukan nama berkas", arg)
+				return "", nil, fmt.Errorf("option %s needs a file name", arg)
 			}
 			i++
 			value = args[i]
@@ -95,27 +95,27 @@ func ruleAdd(cfg config.Config, action, domain string, stdout io.Writer) error {
 	text.add(rule)
 	data := text.bytes()
 	if len(data) > engine.MaxRulesFileBytes {
-		return fmt.Errorf("%s menjadi terlalu besar (lebih dari %d byte); server mengabaikan sisanya, jadi aturan baru tidak akan berlaku. Hapus aturan lama dulu", cfg.Rules.File, engine.MaxRulesFileBytes)
+		return fmt.Errorf("%s would become too large (over %d bytes); the server ignores the rest, so the new rule would not take effect. Remove old rules first", cfg.Rules.File, engine.MaxRulesFileBytes)
 	}
 	if err := writeFileAtomic(cfg.Rules.File, data); err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "aturan ditambahkan: %s\n", rule)
+	fmt.Fprintf(stdout, "rule added: %s\n", rule)
 	if replaced > 0 {
-		fmt.Fprintf(stdout, "menggantikan %d baris lama untuk %s\n", replaced, rule.Domain)
+		fmt.Fprintf(stdout, "replaced %d old line(s) for %s\n", replaced, rule.Domain)
 	}
-	fmt.Fprintf(stdout, "server membaca ulang %s sendiri (setiap %s), tanpa restart\n", cfg.Rules.File, cfg.Rules.PollInterval)
+	fmt.Fprintf(stdout, "the server re-reads %s by itself (every %s), no restart needed\n", cfg.Rules.File, cfg.Rules.PollInterval)
 	return nil
 }
 
 func parseRuleArgs(action, domain string) (engine.Rule, error) {
 	kind := engine.RuleAction(strings.ToLower(action))
 	if kind != engine.RuleBlock && kind != engine.RuleAllow {
-		return engine.Rule{}, fmt.Errorf("aksi %q harus block atau allow", action)
+		return engine.Rule{}, fmt.Errorf("action %q must be block or allow", action)
 	}
 	entry, err := engine.ParseEntry(domain)
 	if err != nil {
-		return engine.Rule{}, fmt.Errorf("domain %q ditolak: %w%s", truncate(domain), err, punycodeHint(domain))
+		return engine.Rule{}, fmt.Errorf("domain %q rejected: %w%s", truncate(domain), err, punycodeHint(domain))
 	}
 	return engine.Rule{Action: kind, Domain: entry}, nil
 }
@@ -123,7 +123,7 @@ func parseRuleArgs(action, domain string) (engine.Rule, error) {
 func punycodeHint(domain string) string {
 	for i := 0; i < len(domain); i++ {
 		if domain[i] >= 0x80 {
-			return " (tulis nama dengan huruf non-ASCII dalam bentuk punycode, awalan xn--)"
+			return " (write names with non-ASCII letters in punycode form, prefix xn--)"
 		}
 	}
 	return ""
@@ -140,7 +140,7 @@ func truncate(s string) string {
 func ruleRemove(cfg config.Config, domain string, stdout io.Writer) error {
 	entry, err := engine.ParseEntry(domain)
 	if err != nil {
-		return fmt.Errorf("domain %q ditolak: %w%s", truncate(domain), err, punycodeHint(domain))
+		return fmt.Errorf("domain %q rejected: %w%s", truncate(domain), err, punycodeHint(domain))
 	}
 	text, err := readRulesText(cfg.Rules.File)
 	if err != nil {
@@ -148,12 +148,12 @@ func ruleRemove(cfg config.Config, domain string, stdout io.Writer) error {
 	}
 	removed := text.remove(entry)
 	if removed == 0 {
-		return fmt.Errorf("tidak ada aturan untuk %s di %s", entry, cfg.Rules.File)
+		return fmt.Errorf("no rule for %s in %s", entry, cfg.Rules.File)
 	}
 	if err := writeFileAtomic(cfg.Rules.File, text.bytes()); err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "aturan dihapus: %d baris untuk %s\n", removed, entry)
+	fmt.Fprintf(stdout, "rule removed: %d lines for %s\n", removed, entry)
 	return nil
 }
 
@@ -170,14 +170,14 @@ func ruleList(cfg config.Config, stdout, stderr io.Writer) error {
 		rule, ok, parseErr := parseLine(line)
 		switch {
 		case parseErr != nil:
-			fmt.Fprintf(stderr, "baris %d dilewati server: %v\n", i+1, parseErr)
+			fmt.Fprintf(stderr, "line %d skipped by the server: %v\n", i+1, parseErr)
 		case ok:
 			fmt.Fprintln(stdout, rule)
 			listed++
 		}
 	}
 	if listed == 0 {
-		fmt.Fprintf(stderr, "belum ada aturan di %s\n", cfg.Rules.File)
+		fmt.Fprintf(stderr, "no rules yet in %s\n", cfg.Rules.File)
 	}
 	return nil
 }

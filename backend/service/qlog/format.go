@@ -7,9 +7,9 @@ import (
 )
 
 const (
-	tagBlock = "BLOK "
-	tagPass  = "LOLOS"
-	tagError = "GALAT"
+	tagBlock = "BLOCK"
+	tagPass  = "PASS "
+	tagError = "ERROR"
 
 	displayTimeLayout = "2006-01-02 15:04:05.000"
 	noClient          = "-"

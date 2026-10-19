@@ -28,21 +28,21 @@ function Get-HecateTask {
 
 function Install-HecateTask {
     if (-not (Test-Administrator)) {
-        throw 'Jalankan dari PowerShell Administrator: membuat tugas terjadwal mengubah Windows.'
+        throw 'Run from an elevated PowerShell (Administrator): creating a scheduled task changes Windows.'
     }
     $exe = Join-Path $Root 'bin\hecate.exe'
     $config = Join-Path $Root 'hecate.yaml'
     foreach ($path in $exe, $config) {
         if (-not (Test-Path -LiteralPath $path)) {
-            throw "Tidak ada: $path (bangun dengan: go build -o bin\hecate.exe ./cmd/hecate)"
+            throw "Not found: $path (build with: go build -o bin\hecate.exe ./cmd/hecate)"
         }
     }
     & $exe check -config $config | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        throw "hecate check gagal untuk $config; perbaiki konfigurasi dulu."
+        throw "hecate check failed for $config; fix the configuration first."
     }
     if (Get-HecateTask) {
-        throw "Tugas '$TaskName' sudah ada. Jalankan 'remove' dulu bila ingin memasangnya ulang."
+        throw "Task '$TaskName' already exists. Run 'remove' first to install it again."
     }
 
     $user = "$env:USERDOMAIN\$env:USERNAME"
@@ -56,36 +56,36 @@ function Install-HecateTask {
         -ExecutionTimeLimit ([TimeSpan]::Zero)
     Register-ScheduledTask -TaskName $TaskName -Action $taskAction -Trigger $trigger -Principal $principal `
         -Settings $settings -Description 'hecate: pemblokir iklan berbasis DNS (lihat scripts\autostart.ps1)' | Out-Null
-    Write-Output "Tugas '$TaskName' dipasang untuk $user. Jalan otomatis 30 detik setelah boot."
+    Write-Output "Task '$TaskName' installed for $user. It starts automatically 30 seconds after boot."
     Write-Output "Mulai sekarang: Start-ScheduledTask -TaskName $TaskName   Cabut: scripts\autostart.ps1 remove"
 }
 
 function Remove-HecateTask {
     if (-not (Test-Administrator)) {
-        throw 'Jalankan dari PowerShell Administrator.'
+        throw 'Run from an elevated PowerShell (Administrator).'
     }
     if (-not (Get-HecateTask)) {
-        Write-Output "Tugas '$TaskName' tidak ada; tidak ada yang dihapus."
+        Write-Output "Task '$TaskName' does not exist; nothing to remove."
         return
     }
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-    Write-Output "Tugas '$TaskName' dihapus. Proses hecate yang dijalankan tugas ikut dihentikan."
+    Write-Output "Task '$TaskName' removed. The hecate process started by the task was stopped too."
 }
 
 function Show-HecateStatus {
     $task = Get-HecateTask
     if (-not $task) {
-        Write-Output "Tugas '$TaskName': tidak terpasang."
+        Write-Output "Task '$TaskName': not installed."
     } else {
         $info = Get-ScheduledTaskInfo -TaskName $TaskName
-        Write-Output "Tugas '$TaskName': $($task.State); hasil terakhir 0x$('{0:X}' -f $info.LastTaskResult); jalan terakhir $($info.LastRunTime)"
+        Write-Output "Tugas '$TaskName': $($task.State); last result 0x$('{0:X}' -f $info.LastTaskResult); last run $($info.LastRunTime)"
     }
     $procs = Get-Process -Name hecate -ErrorAction SilentlyContinue
     if ($procs) {
         $procs | ForEach-Object { Write-Output "Proses hecate: PID $($_.Id), mulai $($_.StartTime), $([math]::Round($_.WorkingSet64 / 1MB, 1)) MB" }
     } else {
-        Write-Output 'Proses hecate: tidak berjalan.'
+        Write-Output 'hecate process: not running.'
     }
 }
 

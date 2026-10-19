@@ -111,11 +111,11 @@ func TestLog_PrintsReadableLinesAndASummary(t *testing.T) {
 
 	_, stdout, stderr := f.run(t, "-around", "14:32", "-window", "30s")
 
-	want := "2026-10-18 14:32:07.412 BLOK  192.168.1.23 A ads.contoh.com list:hagezi-popups\n"
+	want := "2026-10-18 14:32:07.412 BLOCK 192.168.1.23 A ads.contoh.com list:hagezi-popups\n"
 	if !strings.Contains(stdout, want) {
 		t.Errorf("stdout = %q, want it to contain %q", stdout, want)
 	}
-	assertContains(t, "stderr", stderr, []string{"2 catatan", "1 baris rusak"})
+	assertContains(t, "stderr", stderr, []string{"2 records", "malformed lines skipped: 1"})
 }
 
 func TestLog_NothingFound(t *testing.T) {
@@ -123,7 +123,7 @@ func TestLog_NothingFound(t *testing.T) {
 
 	code, stdout, stderr := f.run(t, "-since", "1d", "-grep", "no-such-domain")
 
-	if code != exitOK || stdout != "" || !strings.Contains(stderr, "tidak ada catatan") {
+	if code != exitOK || stdout != "" || !strings.Contains(stderr, "no matching records") {
 		t.Errorf("exit = %d, stdout = %q, stderr = %q", code, stdout, stderr)
 	}
 }
@@ -135,7 +135,7 @@ func TestLog_MissingLogDirectory(t *testing.T) {
 
 	code := runLogAt([]string{"-config", config}, &out, &errOut, time.Now())
 
-	if code != exitOK || !strings.Contains(errOut.String(), "tidak ada catatan") {
+	if code != exitOK || !strings.Contains(errOut.String(), "no matching records") {
 		t.Errorf("exit = %d, stderr = %q", code, errOut.String())
 	}
 }
@@ -159,10 +159,10 @@ func TestLog_UsageErrors(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"since and around together", []string{"-since", "1h", "-around", "14:32"}, "bersamaan"},
-		{"bad since", []string{"-since", "banyak"}, "tidak sah"},
-		{"bad around", []string{"-around", "25:99"}, "JJ:MM"},
-		{"bad window", []string{"-around", "14:32", "-window", "0s"}, "jendela"},
+		{"since and around together", []string{"-since", "1h", "-around", "14:32"}, "together"},
+		{"bad since", []string{"-since", "banyak"}, "invalid"},
+		{"bad around", []string{"-around", "25:99"}, "HH:MM"},
+		{"bad window", []string{"-around", "14:32", "-window", "0s"}, "window"},
 		{"unknown flag", []string{"-bogus"}, "bogus"},
 		{"stray argument", []string{"stray"}, "stray"},
 	}

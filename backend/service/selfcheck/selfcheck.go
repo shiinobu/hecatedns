@@ -89,15 +89,15 @@ func checkUpstreamsAndSafeSearch(ctx context.Context, cfg config.Config, timeout
 			if resp != nil {
 				rcode = dns.RcodeToString[resp.Rcode]
 			}
-			upstreamErrs = append(upstreamErrs, fmt.Errorf("upstream %s menjawab %s untuk %s", addr, rcode, safeSearchProbe))
+			upstreamErrs = append(upstreamErrs, fmt.Errorf("upstream %s answered %s for %s", addr, rcode, safeSearchProbe))
 			continue
 		}
 		if target, forced := hasSafeSearchCNAME(resp); forced {
-			safeSearchErrs = append(safeSearchErrs, fmt.Errorf("S3 gagal: upstream %s mengarahkan %s ke %s (SafeSearch dipaksa)", addr, safeSearchProbe, target))
+			safeSearchErrs = append(safeSearchErrs, fmt.Errorf("S3 failed: upstream %s redirects %s to %s (SafeSearch is forced)", addr, safeSearchProbe, target))
 			continue
 		}
 		if !hasARecord(resp) {
-			upstreamErrs = append(upstreamErrs, fmt.Errorf("upstream %s menjawab tanpa rekaman A untuk %s", addr, safeSearchProbe))
+			upstreamErrs = append(upstreamErrs, fmt.Errorf("upstream %s answered without an A record for %s", addr, safeSearchProbe))
 			continue
 		}
 		res.UpstreamsOK++
@@ -107,7 +107,7 @@ func checkUpstreamsAndSafeSearch(ctx context.Context, cfg config.Config, timeout
 		return errors.Join(safeSearchErrs...)
 	}
 	if res.UpstreamsOK == 0 {
-		return fmt.Errorf("semua upstream gagal dihubungi: %w", errors.Join(upstreamErrs...))
+		return fmt.Errorf("every upstream failed to respond: %w", errors.Join(upstreamErrs...))
 	}
 	for _, uErr := range upstreamErrs {
 		res.Warnings = append(res.Warnings, uErr.Error())
@@ -188,12 +188,12 @@ func checkCachedLists(ctx context.Context, cfg config.Config, res *Result) error
 		path := filepath.Join(dir, src.Name+".txt")
 		if _, statErr := os.Stat(path); errors.Is(statErr, os.ErrNotExist) {
 			res.Lists = append(res.Lists, ListResult{Name: src.Name, Kind: src.Kind, Cached: false})
-			res.Warnings = append(res.Warnings, fmt.Sprintf("cache daftar %q belum ada; jalankan 'hecate lists update'", src.Name))
+			res.Warnings = append(res.Warnings, fmt.Sprintf("cache for list %q does not exist yet; run 'hecate lists update'", src.Name))
 			continue
 		}
 		set, meta, err := lists.LoadCached(dir, src)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("daftar %s: %w", src.Name, err))
+			errs = append(errs, fmt.Errorf("list %s: %w", src.Name, err))
 			continue
 		}
 		idx := len(res.Lists)
@@ -225,7 +225,7 @@ func checkCachedLists(ctx context.Context, cfg config.Config, res *Result) error
 	for _, p := range toProbe {
 		sample, dec, ok := pickAndProbeSample(ctx, eng, fullListSet, allowSets, p.ns, clientIP)
 		if !ok {
-			errs = append(errs, fmt.Errorf("daftar %s: semua %d domain dikecualikan oleh aturan/daftar allow (tidak ada domain yang terblokir)",
+			errs = append(errs, fmt.Errorf("list %s: all %d domains are excluded by allow rules/lists (no domain is blocked)",
 				p.ns.Name, p.ns.Set.Len()))
 			continue
 		}
@@ -283,18 +283,18 @@ func pickAndProbeSample(
 
 func verifyBlockedAnswer(mode, listName, sample string, dec engine.Decision) (string, error) {
 	if dec.Verdict != engine.Block || dec.Resp == nil {
-		return "", fmt.Errorf("daftar %s: domain contoh %q tidak terblokir (verdict=%s reason=%s)",
+		return "", fmt.Errorf("list %s: sample domain %q is not blocked (verdict=%s reason=%s)",
 			listName, sample, dec.Verdict, dec.Reason)
 	}
 	ans := dns.RcodeToString[dec.Resp.Rcode]
 	if mode == config.ModeNullIP {
 		if len(dec.Resp.Answer) != 1 {
-			return "", fmt.Errorf("daftar %s: jawaban contoh %q memiliki %d rekaman, ingin 1 rekaman A 0.0.0.0",
+			return "", fmt.Errorf("list %s: sample answer for %q has %d records, want one A record 0.0.0.0",
 				listName, sample, len(dec.Resp.Answer))
 		}
 		aRec, ok := dec.Resp.Answer[0].(*dns.A)
 		if !ok || aRec.A.String() != "0.0.0.0" {
-			return "", fmt.Errorf("daftar %s: jawaban contoh %q = %v, ingin 0.0.0.0",
+			return "", fmt.Errorf("list %s: sample answer for %q = %v, want 0.0.0.0",
 				listName, sample, dec.Resp.Answer[0])
 		}
 		ans = "0.0.0.0"
@@ -313,7 +313,7 @@ func buildProbeEngine(cfg config.Config, listSet *engine.ListSet) (*engine.Engin
 	}
 	rules := engine.NewRulesFile(cfg.Rules.File, nil)
 	if _, err := rules.Reload(); err != nil {
-		return nil, netip.Addr{}, fmt.Errorf("muat aturan %s: %w", cfg.Rules.File, err)
+		return nil, netip.Addr{}, fmt.Errorf("load rules %s: %w", cfg.Rules.File, err)
 	}
 	eng, err := engine.New(engine.Options{
 		ACL:       acl,
