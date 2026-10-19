@@ -18,7 +18,7 @@ Do not trust the author's claims. Verify behavior by reading the code and by run
 3. Concurrency: shared state published as immutable atomic snapshots, no mutation after publish, no data races by reasoning and by running the race detector (works here: PowerShell `$env:CGO_ENABLED='1'; go test -race ./... -count=1`; never set `CGO_ENABLED=1` permanently), goroutine leaks, channel/close misuse, blocking in the query path.
 4. Policy: engine errors fail OPEN, client ACL fails CLOSED (REFUSED); empty or malformed input never panics.
 5. Security: client ACL bypasses (IPv4-mapped IPv6, CIDR boundaries, port stripping), malformed DNS messages, blocklist and rules parsing (huge lines, huge files, odd Unicode, IDN, trailing dots, case), list download (size/time limits, redirects, atomic write, TLS), path traversal and Windows device names in list or file names, file permissions, log injection, unbounded memory or goroutine growth, amplification or open-resolver risk, secrets in logs or config.
-6. Project rules: TDD evidence, immutability, files under 800 lines, functions under 50 lines, explicit error handling, no network in `internal/engine`, tests need no internet.
+6. Project rules: TDD evidence, immutability, files under 800 lines, functions under 50 lines, explicit error handling, no network in `backend/engine`, tests need no internet.
 7. Test quality: do the tests actually fail when the behavior breaks? When a test looks weak, mutate the code in a scratch COPY of the repo (outside the working tree) to see whether the test notices. Limit this to three experiments.
 
 ## Gates

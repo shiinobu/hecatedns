@@ -21,7 +21,7 @@ You implement the hard core of hecate, a personal DNS-only ad blocker written in
 - Immutability: shared state is swapped atomically as immutable snapshots; never mutate a published snapshot.
 - Engine policy: errors in the engine fail OPEN (the query is forwarded); the client ACL fails CLOSED (REFUSED).
 - Files stay under 800 lines (200-400 typical) and functions under 50 lines; no deep nesting; handle every error explicitly; no hardcoded secrets.
-- No network access inside `internal/engine`; keep it a pure, testable package. Tests must not need the internet (use `httptest` or fakes).
+- No network access inside `backend/engine`; keep it a pure, testable package. Tests must not need the internet (use `httptest` or fakes).
 - Do not write or edit documentation under `docs/` or `README.md`. Docs are written once at the end of the phase by the main session. Put anything docs-worthy in your report instead.
 - Do not run `git commit`, `git push`, or change git config. The main session commits. There is no remote.
 - Do not add dependencies unless the task requires it; if you do, say so and run `go mod tidy`.
