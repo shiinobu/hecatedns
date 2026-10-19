@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"runtime/debug"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -56,7 +57,7 @@ type handler struct {
 	timeout time.Duration
 
 	dropped  atomic.Uint64
-	lastWarn atomic.Int64
+	lastWarn sync.Map
 }
 
 func newHandler(f Filter, c *cache, up exchanger, l *limiter, log *slog.Logger) *handler {
@@ -253,12 +254,21 @@ func udpPayloadSize(req *dns.Msg) int {
 
 func (h *handler) drop(reason string, client netip.Addr) {
 	n := h.dropped.Add(1)
+	slot := h.warnSlot(reason)
 	now := time.Now().UnixNano()
-	last := h.lastWarn.Load()
-	if now-last < int64(dropLogEvery) || !h.lastWarn.CompareAndSwap(last, now) {
+	last := slot.Load()
+	if now-last < int64(dropLogEvery) || !slot.CompareAndSwap(last, now) {
 		return
 	}
 	h.log.Warn("dropping queries", "reason", reason, "client", client.String(), "dropped_total", n)
+}
+
+func (h *handler) warnSlot(reason string) *atomic.Int64 {
+	if v, ok := h.lastWarn.Load(reason); ok {
+		return v.(*atomic.Int64)
+	}
+	v, _ := h.lastWarn.LoadOrStore(reason, new(atomic.Int64))
+	return v.(*atomic.Int64)
 }
 
 func (h *handler) admitTCP(acl *engine.ACL) func(netip.Addr) bool {
