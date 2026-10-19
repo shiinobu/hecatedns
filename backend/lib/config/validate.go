@@ -25,6 +25,7 @@ func (c Config) Validate() error {
 	var errs []error
 	errs = append(errs, c.validateBackend()...)
 	errs = append(errs, c.validateListen()...)
+	errs = append(errs, c.validateDoT()...)
 	errs = append(errs, c.validateClients()...)
 	errs = append(errs, c.validateUpstreams()...)
 	errs = append(errs, c.validateBlock()...)
@@ -152,6 +153,9 @@ func (c Config) validateBackend() []error {
 
 func (c Config) validateListen() []error {
 	if len(c.Listen) == 0 {
+		if c.DoT.Enabled {
+			return nil
+		}
 		return []error{errors.New("listen: at least one address is required")}
 	}
 	var errs []error

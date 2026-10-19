@@ -40,6 +40,7 @@ const (
 	defaultPollInterval   = 2 * time.Second
 	defaultRetentionDays  = 7
 	defaultLogMaxMBPerDay = 256
+	defaultDoTReloadEvery = 10 * time.Minute
 	defaultDataDir        = "data"
 	defaultRulesFile      = "data/rules.txt"
 	defaultLogDir         = "data/logs"
@@ -59,7 +60,17 @@ type Config struct {
 	Lists          Lists        `yaml:"lists"`
 	Rules          Rules        `yaml:"rules"`
 	Log            Log          `yaml:"log"`
+	DoT            DoT          `yaml:"dot"`
 	DataDir        string       `yaml:"data_dir"`
+}
+
+type DoT struct {
+	Enabled     bool          `yaml:"enabled"`
+	Listen      []string      `yaml:"listen"`
+	CertFile    string        `yaml:"cert_file"`
+	KeyFile     string        `yaml:"key_file"`
+	Names       []string      `yaml:"names"`
+	ReloadEvery time.Duration `yaml:"reload_every"`
 }
 
 type Cache struct {
@@ -137,6 +148,7 @@ func Default() Config {
 		Lists:          Lists{UpdateInterval: defaultUpdateInterval},
 		Rules:          Rules{File: defaultRulesFile, PollInterval: defaultPollInterval},
 		Log:            Log{Enabled: true, Dir: defaultLogDir, RetentionDays: defaultRetentionDays, MaxMBPerDay: defaultLogMaxMBPerDay},
+		DoT:            DoT{ReloadEvery: defaultDoTReloadEvery},
 		DataDir:        defaultDataDir,
 	}
 }
@@ -185,6 +197,8 @@ func resolvePaths(cfg *Config, baseDir string) {
 	cfg.DataDir = absFrom(baseDir, cfg.DataDir)
 	cfg.Rules.File = absFrom(baseDir, cfg.Rules.File)
 	cfg.Log.Dir = absFrom(baseDir, cfg.Log.Dir)
+	cfg.DoT.CertFile = absFrom(baseDir, cfg.DoT.CertFile)
+	cfg.DoT.KeyFile = absFrom(baseDir, cfg.DoT.KeyFile)
 }
 
 func absFrom(base, p string) string {

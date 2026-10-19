@@ -49,4 +49,12 @@ log:
   retention_days: 7
   max_mb_per_day: 256            # daily size cap of the query log; the rest is dropped and counted
 
+dot:                             # DNS over TLS for the internet; needs backend: native
+  enabled: false
+  listen: ["0.0.0.0:853", "[::]:853"]
+  cert_file: data/tls/cert.pem   # one wildcard certificate that covers every name below
+  key_file: data/tls/key.pem
+  names: []                      # TLS server names that are served, e.g. [k7x9p2qm4t8v3w6z.example.org]; any other name is refused
+  reload_every: 10m              # how often the certificate files are checked for a renewal
+
 data_dir: data
