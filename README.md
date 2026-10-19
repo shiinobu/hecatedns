@@ -2,71 +2,108 @@
   <img src="docs/assets/banner.jpg" alt="HecateDNS: secure and private DNS" width="100%">
 </p>
 
-# HecateDNS
+<p align="center">
+  <b>A personal DNS server that blocks browser ads, with no VPN app and no forced SafeSearch.</b>
+</p>
 
-A personal DNS server that blocks browser ads (pop-ups, redirects, click-redirects) without a VPN app and without forcing Google SafeSearch. Written in Go. Formerly called xdns.
+<p align="center">
+  <a href="https://github.com/shiinobu/hecatedns/actions/workflows/ci.yml"><img src="https://github.com/shiinobu/hecatedns/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/shiinobu/hecatedns" alt="License: MIT"></a>
+  <img src="https://img.shields.io/github/go-mod/go-version/shiinobu/hecatedns" alt="Go version">
+</p>
 
-It resolves queries over encrypted upstreams (DoH), drops ad and tracker domains using the HaGeZi and ABPindo lists (about 250,000 domains), follows CNAME chains to catch cloaked trackers, and lets you add your own allow and block rules that take effect within seconds. A phone uses it as its DNS server on the home Wi-Fi, and later anywhere through Android Private DNS (DoT, planned).
+---
 
-**Status:** phases 0 to 5 are done: both backends pass the same conformance suite, and a real-phone test blocked 95 to 97% of a public ad-test page. Phase 6 (VPS + DNS-over-TLS) is next. See [docs/roadmap.md](docs/roadmap.md).
+HecateDNS answers DNS queries for your phone or computer and drops the ones that lead to ads, pop-ups, click-redirects and trackers. Everything else is forwarded over an encrypted upstream (DNS-over-HTTPS). It is written in Go and ships as a single binary.
 
-**Honest limits:** DNS cannot block everything. Ads served from the site's own domain, redirect scripts hosted on the site, and the empty boxes left behind are out of reach. Firefox with uBlock Origin is the recommended complement ([docs/research.md](docs/research.md)).
+## Features
+
+- **Large block lists.** Loads the HaGeZi and ABPindo lists, about 250,000 domains, and refreshes them on demand.
+- **Catches cloaked trackers.** Follows CNAME chains, so a harmless-looking name that points at a tracker is blocked too.
+- **Your own rules.** Block or allow any domain and its subdomains; allow always beats block. Rule and list changes apply within seconds, with no restart.
+- **Encrypted upstreams.** Queries leave over DNS-over-HTTPS.
+- **Safe by default.** A client ACL answers REFUSED to outsiders, and the server forwards queries instead of failing if the filter has a problem.
+- **Readable query log.** See what was blocked and what passed, with the reason.
+- **Two interchangeable backends, one engine.** Switch with a single config line (see below).
+
+## How well does it work?
+
+In a real-phone test on home Wi-Fi, HecateDNS blocked 95 to 97% of a public ad-test page.
+
+DNS has limits. It cannot block ads served from a site's own domain, redirect scripts hosted on the site itself, or the empty boxes left behind. For the rest, pair it with a browser blocker such as uBlock Origin on Firefox. The research behind this is in [docs/research.md](docs/research.md).
 
 ## Two backends, one engine
 
-One shared filter engine runs under two interchangeable servers, chosen by `backend:` in the config:
+One shared filter engine runs under two servers. Pick one with `backend:` in the config:
 
-- `dnsproxy`: a thin adapter around [AdGuard dnsproxy](https://github.com/AdguardTeam/dnsproxy).
-- `native`: own server, cache, rate limiter and upstream pool on [`miekg/dns`](https://github.com/miekg/dns).
+| Backend | What it is |
+|---|---|
+| `dnsproxy` | A thin adapter around [AdGuard dnsproxy](https://github.com/AdguardTeam/dnsproxy). |
+| `native` | An own server, cache, rate limiter and upstream pool built on [`miekg/dns`](https://github.com/miekg/dns). |
+
+Both pass the same conformance suite and make identical decisions.
 
 ## Quick start
+
+You need Go 1.26 or newer.
 
 ```
 go build -o bin/hecate ./cmd/hecate
 cp configs/hecate.example.yaml hecate.yaml
+
 ./bin/hecate check -config hecate.yaml          # validate the config, run the self-check
 ./bin/hecate lists update -config hecate.yaml   # download the block lists
 ./bin/hecate run -config hecate.yaml            # serve on 127.0.0.1:5300
 ```
 
-On Windows use `bin\hecate.exe` and `scripts\windows\dnsquery.ps1 example.com -Port 5300` to test a query (Windows `nslookup` ignores `-port`).
+Test a query from another terminal:
+
+```
+dig @127.0.0.1 -p 5300 example.com
+```
+
+On Windows, use `bin\hecate.exe`, and `scripts\windows\dnsquery.ps1 example.com -Port 5300` instead of `dig` (Windows `nslookup` ignores `-port`).
+
+The example config listens on port 5300 so it never clashes with a system resolver. Keys you leave out use defaults; unknown or duplicate keys are rejected with a clear error.
 
 ## Commands
 
-```
-hecate run   -config hecate.yaml
-hecate check -config hecate.yaml
-hecate log   -since 10m -blocked -config hecate.yaml
-hecate rule add block example.com -config hecate.yaml      # blocks the domain and its subdomains
-hecate rule add allow ok.example.com -config hecate.yaml   # allow beats block
-hecate rule list | remove example.com -config hecate.yaml
-hecate lists status | update -config hecate.yaml
-```
+| Command | What it does |
+|---|---|
+| `hecate run` | Start the server. |
+| `hecate check` | Validate the config and run the self-check. |
+| `hecate log -since 10m -blocked` | Show recent queries; filter by time or only blocked ones. |
+| `hecate rule add block example.com` | Block a domain and its subdomains. |
+| `hecate rule add allow ok.example.com` | Allow a domain (allow beats block). |
+| `hecate rule list` / `hecate rule remove example.com` | Show or remove rules. |
+| `hecate lists status` / `hecate lists update` | Show the list cache or re-download the lists. |
 
-Keys left out of the config use defaults; unknown or duplicate keys are rejected with a clear error. The server re-reads the rules file and the list cache by itself, so rule and list changes need no restart.
+Every command takes `-config hecate.yaml`.
 
-## Layout
+## Project layout
 
 ```
 cmd/hecate/          entry point
 backend/controller/  CLI commands
 backend/core/        backend contract, dnsproxy adapter, native server
-backend/engine/      the filter (ACL, rules, matcher, CNAME check)
+backend/engine/      the filter: ACL, rules, matcher, CNAME check
 backend/service/     lists, query log, self-check
 backend/lib/         config, operational log
 backend/test/        conformance suite and source-rule gates
 configs/             example configuration
 scripts/windows/     Task Scheduler autostart, DNS query helper
-docs/                architecture, roadmap, research, testing, operations, assets
+docs/                architecture, roadmap, research, testing, operations
 ```
 
 ## Documentation
 
-- [docs/architecture.md](docs/architecture.md): design, decisions, security
-- [docs/roadmap.md](docs/roadmap.md): phases and what is next
-- [docs/research.md](docs/research.md): the research behind the design, with sources
-- [docs/testing.md](docs/testing.md): automated tests and real-phone results
-- [docs/operations.md](docs/operations.md): running it, autostart, deployment
+| Document | Contents |
+|---|---|
+| [architecture.md](docs/architecture.md) | Design, decisions and security |
+| [operations.md](docs/operations.md) | Running it, autostart, deployment |
+| [testing.md](docs/testing.md) | Automated tests and real-phone results |
+| [research.md](docs/research.md) | The research behind the design, with sources |
+| [roadmap.md](docs/roadmap.md) | What is done and what is planned |
 
 ## Development
 
@@ -77,8 +114,8 @@ go test ./... -cover
 CGO_ENABLED=1 go test -race ./...
 ```
 
-Source files carry no comments (enforced by a test in `backend/test/nocomment`); the reasoning lives in `docs/`.
+Source files carry no comments, enforced by a test in `backend/test/nocomment`; the reasoning lives in [docs/](docs/).
 
 ## License
 
-[MIT](LICENSE). The block lists it downloads (HaGeZi, ABPindo) have their own licenses and are not part of this repository.
+[MIT](LICENSE). The block lists HecateDNS downloads (HaGeZi, ABPindo) have their own licenses and are not part of this repository.
