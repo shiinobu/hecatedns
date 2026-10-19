@@ -238,7 +238,7 @@ func TestWriter_FullBufferDropsAndCounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The consumer is not started yet, so nothing drains the queue.
+
 	for i := 0; i < 5; i++ {
 		w.Record(blockEntry(at))
 	}
@@ -386,8 +386,6 @@ func TestWriter_RecordsBecomeReadableWithoutClose(t *testing.T) {
 	w := openWriter(t, opts)
 	w.Record(blockEntry(at))
 
-	// `hecate log` reads the file while the server is still running, so an idle
-	// writer must flush by itself.
 	path := filepath.Join(opts.Dir, "queries-20261018.jsonl")
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -532,9 +530,6 @@ func TestWriter_RecordsAfterCloseAreCounted(t *testing.T) {
 }
 
 func TestOpen_ArmsTheMidnightTimerBeforeItReturns(t *testing.T) {
-	// Regression for the flaky midnight purge: the first delay must be measured
-	// from the clock at Open, not from whenever the writer goroutine is
-	// scheduled, so the timer has to exist as soon as Open returns.
 	at := time.Date(2026, 10, 18, 23, 59, 59, 0, testZone)
 	w := openWriter(t, testOptions(t, newFakeClock(at)))
 	if w.midnight == nil {

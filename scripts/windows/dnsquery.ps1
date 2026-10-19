@@ -1,18 +1,3 @@
-<#
-.SYNOPSIS
-  Sends one DNS query to a server on any port and prints the answer.
-
-.DESCRIPTION
-  Windows nslookup accepts -port but ignores it (checked on 2026-10-18), and
-  Resolve-DnsName has no port option, so neither can test hecate on 127.0.0.1:5300.
-  This script builds a plain UDP query by hand. It prints the response code, the
-  answer records it understands (A, AAAA, CNAME) and the number of other records.
-
-.EXAMPLE
-  .\scripts\dnsquery.ps1 example.com
-  .\scripts\dnsquery.ps1 ads.example.com -Type AAAA -Port 5300
-  .\scripts\dnsquery.ps1 www.example.com -Type HTTPS -Server 192.168.1.99 -Port 53
-#>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory, Position = 0)][string]$Name,
@@ -38,7 +23,6 @@ function New-Query([string]$qname, [int]$qtype) {
     , $bytes.ToArray()
 }
 
-# Returns the offset just after a (possibly compressed) name that starts at $pos.
 function Skip-Name([byte[]]$msg, [int]$pos) {
     while ($true) {
         if ($pos -ge $msg.Length) { throw 'malformed reply: a name runs past the end of the message' }

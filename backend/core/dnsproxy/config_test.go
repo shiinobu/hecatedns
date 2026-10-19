@@ -90,8 +90,6 @@ func TestProxyConfigRequiresListenAndUpstreams(t *testing.T) {
 	}
 }
 
-// TestDoHByIPBuildsWithoutBootstrap proves the facts-file item: an IP DoH
-// upstream needs no bootstrap. Only construction is done, no exchange.
 func TestDoHByIPBuildsWithoutBootstrap(t *testing.T) {
 	cfg := config.Default()
 	cfg.Listen = []string{"127.0.0.1:0"}
@@ -115,8 +113,6 @@ func TestDoHByIPBuildsWithoutBootstrap(t *testing.T) {
 	}
 }
 
-// TestProxyStartTwice proves the facts-file item about Start: a second Start
-// is an error, the first keeps serving.
 func TestProxyStartTwice(t *testing.T) {
 	up := startFakeUpstream(t, 300)
 	conf, res, err := buildProxyConfig(testConfig(up.addr), proxy.DefaultHandler{}, discardLog, UpstreamTimeout)

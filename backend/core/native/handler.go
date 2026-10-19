@@ -17,22 +17,13 @@ import (
 )
 
 const (
-	// resolveTimeout bounds one query from the moment it is accepted: the pool
-	// asks its upstreams one after the other, upstreamTimeout each. Without it a
-	// blackholed upstream would hold an in-flight slot for the whole run.
 	resolveTimeout = 2*upstreamTimeout + time.Second
 
-	// dropLogEvery is the shortest time between two warnings about dropped
-	// queries.
 	dropLogEvery = 10 * time.Second
 )
 
-// errBusy is the reason a query is answered SERVFAIL when no upstream slot is
-// free for it.
 var errBusy = errors.New("too many upstream queries in flight")
 
-// Filter is the part of the engine the handler calls. *engine.Engine satisfies
-// it; tests substitute fakes.
 type Filter interface {
 	Before(ctx context.Context, q engine.Query) engine.Decision
 	After(ctx context.Context, q engine.Query, resp *dns.Msg, m engine.Meta) engine.Decision
@@ -41,23 +32,18 @@ type Filter interface {
 
 var _ Filter = (*engine.Engine)(nil)
 
-// exchanger resolves a query against the upstreams. *pool satisfies it.
 type exchanger interface {
 	Exchange(ctx context.Context, q *dns.Msg) (resp *dns.Msg, from string, err error)
 }
 
-// handlerStage is how far a query got, which decides what a panic means.
 type handlerStage string
 
 const (
-	stageFilter  handlerStage = "filter"  // before the engine passed the query
-	stageResolve handlerStage = "resolve" // cache and upstream
-	stageAnswer  handlerStage = "answer"  // the engine looks at the answer
+	stageFilter  handlerStage = "filter"
+	stageResolve handlerStage = "resolve"
+	stageAnswer  handlerStage = "answer"
 )
 
-// handler is the dns.Handler of the native backend: rate limit, engine Before,
-// cache, upstream, engine After. The engine decides; the handler only moves
-// messages. The cache holds the upstream answer, so After runs on every hit.
 type handler struct {
 	filter  Filter
 	cache   *cache
@@ -66,14 +52,11 @@ type handler struct {
 	gate    *gate
 	log     *slog.Logger
 
-	// base is the parent of every query's context; the backend cancels it at
-	// shutdown so queries in flight do not hold the shutdown up. timeout bounds
-	// one query.
 	base    context.Context
 	timeout time.Duration
 
 	dropped  atomic.Uint64
-	lastWarn atomic.Int64 // unix nanoseconds of the last drop warning
+	lastWarn atomic.Int64
 }
 
 func newHandler(f Filter, c *cache, up exchanger, l *limiter, log *slog.Logger) *handler {
@@ -85,9 +68,6 @@ func newHandler(f Filter, c *cache, up exchanger, l *limiter, log *slog.Logger) 
 
 var _ dns.Handler = (*handler)(nil)
 
-// ServeDNS implements dns.Handler. A rate-limited query is dropped without an
-// answer: an answer to a spoofed source address would be an amplifier. The
-// rate limiter runs before the engine, so it also covers clients outside the ACL.
 func (h *handler) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	client, proto := clientOf(w)
 	if !h.limiter.allow(client) {
@@ -99,8 +79,6 @@ func (h *handler) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	h.write(w, req, h.resolve(ctx, req, client, proto), proto)
 }
 
-// clientOf returns the client address (IPv4-mapped IPv6 unmapped) and the
-// transport of a request.
 func clientOf(w dns.ResponseWriter) (netip.Addr, string) {
 	proto := "udp"
 	if _, ok := w.RemoteAddr().(*net.TCPAddr); ok {
@@ -112,8 +90,6 @@ func clientOf(w dns.ResponseWriter) (netip.Addr, string) {
 	return netip.Addr{}, proto
 }
 
-// resolve produces the answer for one query. Whatever happens, it returns a
-// message: a panic is recovered by stage, and a nil answer becomes SERVFAIL.
 func (h *handler) resolve(ctx context.Context, req *dns.Msg, client netip.Addr, proto string) (resp *dns.Msg) {
 	stage := stageFilter
 	defer func() {
@@ -142,10 +118,6 @@ func (h *handler) resolve(ctx context.Context, req *dns.Msg, client netip.Addr, 
 	return got
 }
 
-// lookup answers from the cache or the upstreams. A reverse lookup of a private
-// address is answered locally (see isLocalReverse). An ANY query is answered
-// NOTIMP, as the dnsproxy backend does, because ANY answers are large and make
-// good amplification. Only the upstream exchange takes a slot of the gate.
 func (h *handler) lookup(ctx context.Context, req *dns.Msg, client netip.Addr) (*dns.Msg, engine.Meta, error) {
 	if req.Question[0].Qtype == dns.TypeANY {
 		return new(dns.Msg).SetRcode(req, dns.RcodeNotImplemented), engine.Meta{}, nil
@@ -171,9 +143,6 @@ func (h *handler) lookup(ctx context.Context, req *dns.Msg, client netip.Addr) (
 	return resp, engine.Meta{Upstream: from, Latency: latency}, nil
 }
 
-// upstreamQuery builds the query sent upstream from the client's: the same
-// question, recursion desired, and a fresh EDNS section. Nothing else of the
-// client's message (cookies, client subnet, padding) leaves the machine.
 func upstreamQuery(req *dns.Msg) *dns.Msg {
 	q := new(dns.Msg)
 	q.Question = []dns.Question{req.Question[0]}
@@ -188,10 +157,6 @@ func dnssecOK(req *dns.Msg) bool {
 	return opt != nil && opt.Do()
 }
 
-// recovered turns a panic into an answer by stage. A panic before the engine
-// passed the query leaves it unknown whether the client passed the ACL, so the
-// answer is REFUSED (fail closed). A panic in the cache or upstream code leaves
-// no answer, so SERVFAIL. A panic after the answer was resolved keeps the answer.
 func (h *handler) recovered(ctx context.Context, req *dns.Msg, stage handlerStage, resp *dns.Msg, r any) *dns.Msg {
 	h.log.ErrorContext(ctx, "dns handler recovered from a panic",
 		"stage", string(stage), "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
@@ -204,9 +169,6 @@ func (h *handler) recovered(ctx context.Context, req *dns.Msg, stage handlerStag
 	return servFail(req)
 }
 
-// write sends resp to the client, shaped for it: the client's ID, recursion
-// flags and spelling of the name, an OPT record only if the client sent one, and
-// on UDP a size the client can take.
 func (h *handler) write(w dns.ResponseWriter, req, resp *dns.Msg, proto string) {
 	shapeReply(req, resp)
 	if proto == "udp" {
@@ -217,9 +179,6 @@ func (h *handler) write(w dns.ResponseWriter, req, resp *dns.Msg, proto string) 
 	}
 }
 
-// shapeReply makes resp a reply to req, in place. It leaves RA as it is: the
-// engine decides it for blocked and refused answers (a client outside the ACL
-// may not use recursion), and resolve sets it on answers it resolved.
 func shapeReply(req, resp *dns.Msg) {
 	resp.Id = req.Id
 	resp.Response = true
@@ -240,8 +199,6 @@ func shapeReply(req, resp *dns.Msg) {
 	}
 }
 
-// udpPayloadSize is the largest UDP answer the client accepts and we send: its
-// EDNS size, at least the classic 512 and at most our own 1232.
 func udpPayloadSize(req *dns.Msg) int {
 	size := dns.MinMsgSize
 	if opt := req.IsEdns0(); opt != nil {
@@ -250,8 +207,6 @@ func udpPayloadSize(req *dns.Msg) int {
 	return min(max(size, dns.MinMsgSize), ednsBufferSize)
 }
 
-// drop counts a query that was not served and warns at most once per
-// dropLogEvery, so a flood cannot fill the log.
 func (h *handler) drop(reason string, client netip.Addr) {
 	n := h.dropped.Add(1)
 	now := time.Now().UnixNano()
@@ -262,7 +217,6 @@ func (h *handler) drop(reason string, client netip.Addr) {
 	h.log.Warn("dropping queries", "reason", reason, "client", client.String(), "dropped_total", n)
 }
 
-// servFail returns a SERVFAIL reply to req; req may be nil.
 func servFail(req *dns.Msg) *dns.Msg {
 	if req == nil {
 		return &dns.Msg{MsgHdr: dns.MsgHdr{Response: true, RecursionAvailable: true, Rcode: dns.RcodeServerFailure}}
@@ -272,9 +226,6 @@ func servFail(req *dns.Msg) *dns.Msg {
 	return resp
 }
 
-// blockReply returns the engine's answer for a blocked query as a private copy,
-// because the handler shapes the message in place. A block decision without an
-// answer is an engine bug and becomes SERVFAIL rather than a crash.
 func blockReply(req *dns.Msg, dec engine.Decision) *dns.Msg {
 	if dec.Resp == nil {
 		return servFail(req)

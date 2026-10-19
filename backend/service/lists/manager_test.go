@@ -1,7 +1,5 @@
 package lists
 
-// agy wrote this
-
 import (
 	"bytes"
 	"context"
@@ -31,7 +29,7 @@ func (r *recordingSwapper) SwapLists(set *engine.ListSet) {
 
 func TestManager_LoadCacheIgnoresCorruptAndPublishesValid(t *testing.T) {
 	dir := t.TempDir()
-	// Write a valid block list, a valid allow list, and a corrupt block list.
+
 	if err := os.WriteFile(filepath.Join(dir, "good-block.txt"), []byte("ads.example.com\n"), 0o600); err != nil {
 		t.Fatalf("write good-block: %v", err)
 	}
@@ -99,7 +97,7 @@ func TestManager_RefreshUpdatesAndKeepsOldCacheOnFailure(t *testing.T) {
 	})
 
 	dir := t.TempDir()
-	// Seed list2 in cache before refresh fails.
+
 	if err := os.WriteFile(filepath.Join(dir, "list2.txt"), []byte("cached2.example.com\n"), 0o600); err != nil {
 		t.Fatalf("seed list2: %v", err)
 	}
@@ -118,7 +116,6 @@ func TestManager_RefreshUpdatesAndKeepsOldCacheOnFailure(t *testing.T) {
 	})
 	_, _ = mgr.LoadCache()
 
-	// Make list2 fail during Refresh; list1 must update and list2 must keep cached2.example.com.
 	failSecond.Store(true)
 	if err := mgr.Refresh(context.Background()); err == nil {
 		t.Fatalf("expected Refresh to return error when list2 fails")
@@ -149,13 +146,11 @@ func TestManager_ReloadCacheDetectsDiskChange(t *testing.T) {
 		t.Fatalf("LoadCache: %v", err)
 	}
 
-	// Unchanged disk -> ReloadCache returns changed=false.
 	changed, err := mgr.ReloadCache()
 	if err != nil || changed {
 		t.Fatalf("ReloadCache unchanged = (%v, %v), want (false, nil)", changed, err)
 	}
 
-	// Simulate rewriting list1.txt with the exact same byte length (15 bytes) and a newer mtime.
 	if err := writeFileAtomic(p, []byte("v2.example.com\n")); err != nil {
 		t.Fatalf("writeFileAtomic v2: %v", err)
 	}
@@ -199,7 +194,6 @@ func TestManager_Refresh304ReusesInMemorySetAndOfflineRefreshSkipsPublish(t *tes
 		Fetcher: &Fetcher{Dir: dir, Client: client},
 	})
 
-	// Initial Refresh populates disk cache with ETag "etag-1".
 	if err := mgr.Refresh(context.Background()); err != nil {
 		t.Fatalf("initial Refresh: %v", err)
 	}
@@ -207,7 +201,6 @@ func TestManager_Refresh304ReusesInMemorySetAndOfflineRefreshSkipsPublish(t *tes
 	setBefore := mgr.sets["list1"]
 	mgr.mu.Unlock()
 
-	// Second Refresh gets 304 Not Modified and must reuse the in-memory *engine.DomainSet without re-parsing disk.
 	if err := mgr.Refresh(context.Background()); err != nil {
 		t.Fatalf("304 Refresh: %v", err)
 	}
@@ -218,7 +211,6 @@ func TestManager_Refresh304ReusesInMemorySetAndOfflineRefreshSkipsPublish(t *tes
 		t.Errorf("expected 304 Refresh to reuse in-memory DomainSet pointer (%p vs %p)", setBefore, setAfter)
 	}
 
-	// Offline Refresh (all sources fail) must not re-publish an unchanged snapshot.
 	snapBefore := mgr.Snapshot()
 	failAll.Store(true)
 	if err := mgr.Refresh(context.Background()); err == nil {
@@ -259,7 +251,6 @@ func TestManager_RunBackgroundRefreshAndConcurrentReads(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Hammer Snapshot() from reader goroutines while Run refreshes in the background.
 	var wg sync.WaitGroup
 	for i := 0; i < 6; i++ {
 		wg.Add(1)

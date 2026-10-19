@@ -17,7 +17,6 @@ import (
 	"github.com/shiinobu/hecatedns/backend/lib/config"
 )
 
-// fakeWriter is a dns.ResponseWriter that keeps what is written.
 type fakeWriter struct {
 	remote net.Addr
 	mu     sync.Mutex
@@ -62,7 +61,6 @@ func (w *fakeWriter) count() int {
 	return len(w.sent)
 }
 
-// fakeFilter is an engine stand-in; unset hooks pass the query.
 type fakeFilter struct {
 	before func(engine.Query) engine.Decision
 	after  func(engine.Query, *dns.Msg, engine.Meta) engine.Decision
@@ -99,7 +97,6 @@ func (f *fakeFilter) Failed(_ context.Context, _ engine.Query, err error) {
 	f.failed = append(f.failed, err)
 }
 
-// fakeExchanger answers every query from fn and keeps what it was asked.
 type fakeExchanger struct {
 	fn func(q *dns.Msg) (*dns.Msg, error)
 
@@ -304,7 +301,6 @@ func TestHandler_RateLimitedQueriesAreDroppedWithoutAnAnswer(t *testing.T) {
 	}
 }
 
-// bigExchanger answers with n A records, enough to overflow a classic UDP packet.
 func bigExchanger(n int) *fakeExchanger {
 	return &fakeExchanger{fn: func(q *dns.Msg) (*dns.Msg, error) {
 		resp := new(dns.Msg).SetReply(q)

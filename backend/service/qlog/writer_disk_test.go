@@ -14,8 +14,6 @@ import (
 
 var errDiskFull = errors.New("There is not enough space on the disk.")
 
-// fakeDisk is a file system with a byte capacity. A write that does not fit
-// stores what fits and fails, as a full disk does.
 type fakeDisk struct {
 	mu       sync.Mutex
 	data     bytes.Buffer

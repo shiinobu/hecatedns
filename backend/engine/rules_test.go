@@ -272,8 +272,6 @@ func TestParseRules_FileTooLargeIsReportedEvenAfterManyIssues(t *testing.T) {
 }
 
 func TestParseRules_TheLineCutByTheSizeCapIsDropped(t *testing.T) {
-	// The cap lands in the middle of "block cut.example.com": a line cut short
-	// ("block cut.example.co") would become a different, wrong rule.
 	prefix := "block first.example.com\n"
 	filler := strings.Repeat("#", MaxRulesFileBytes-len(prefix)-len("block cut.exa")-1) + "\n"
 	set, issues := parseRulesText(t, prefix+filler+"block cut.example.com\nblock after.example.com\n")

@@ -7,37 +7,21 @@ import (
 )
 
 const (
-	// A client may send a burst of rateBurst queries and then rateLimit per
-	// second. A phone opening a busy page sends a few dozen at once, and an
-	// ad-block test page such as adblock.turtlecute.org sends about 255 within
-	// half a second (A and HTTPS for every host), so the burst leaves room for
-	// that; only a flood reaches the sustained rate.
 	rateLimit = 200.0
 	rateBurst = 500.0
 
-	// maxTrackedClients bounds the table, which spoofed UDP source addresses
-	// could otherwise grow without limit.
 	maxTrackedClients = 4096
 
-	// idleAfter is how long a client may be silent before it is forgotten when
-	// the table is full.
 	idleAfter = time.Minute
 
-	// sweepEvery is the shortest time between two scans of a full table. A scan
-	// visits every entry under the lock, so scanning for every new source would let
-	// a flood of spoofed addresses serialise all queries.
 	sweepEvery = time.Second
 )
 
-// bucket is one client's token bucket.
 type bucket struct {
 	tokens float64
 	last   time.Time
 }
 
-// limiter is a per-client token bucket limiter. A nil *limiter allows
-// everything. When the table is full of busy clients, a new client is served
-// without being tracked: refusing it would let a flood lock out legitimate users.
 type limiter struct {
 	mu      sync.Mutex
 	buckets map[netip.Addr]*bucket
@@ -46,7 +30,7 @@ type limiter struct {
 	max     int
 
 	lastSweep time.Time
-	sweeps    int // number of sweeps so far, for tests
+	sweeps    int
 	now       func() time.Time
 }
 
@@ -58,7 +42,6 @@ func newLimiterAt(rate, burst float64, maxClients int, now func() time.Time) *li
 	return &limiter{buckets: make(map[netip.Addr]*bucket), rate: rate, burst: burst, max: maxClients, now: now}
 }
 
-// allow takes one token from client's bucket and reports whether one was there.
 func (l *limiter) allow(client netip.Addr) bool {
 	if l == nil {
 		return true
@@ -88,8 +71,6 @@ func (l *limiter) allow(client netip.Addr) bool {
 	return true
 }
 
-// forgetIdleLocked drops clients that have been silent for idleAfter; the
-// caller holds l.mu.
 func (l *limiter) forgetIdleLocked(now time.Time) {
 	for addr, b := range l.buckets {
 		if now.Sub(b.last) >= idleAfter {
@@ -98,7 +79,6 @@ func (l *limiter) forgetIdleLocked(now time.Time) {
 	}
 }
 
-// tracked reports how many clients the limiter currently tracks.
 func (l *limiter) tracked() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()

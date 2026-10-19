@@ -11,8 +11,6 @@ import (
 	"time"
 )
 
-// logDay returns the day a file name stands for, or false when name is not
-// exactly queries-YYYYMMDD.jsonl. Anything else in the directory is not ours.
 func logDay(name string, loc *time.Location) (time.Time, bool) {
 	rest, ok := strings.CutPrefix(name, filePrefix)
 	if !ok {
@@ -31,12 +29,6 @@ func logDay(name string, loc *time.Location) (time.Time, bool) {
 	return day, err == nil
 }
 
-// purgeOld deletes query-log files older than the last keepDays calendar days
-// (today counts as one) and returns how many it removed. Only regular files
-// named exactly queries-YYYYMMDD.jsonl are candidates. A missing directory is
-// not an error; files that cannot be removed (for example one a reader still
-// has open on Windows) are reported together and do not stop the sweep. log
-// may be nil.
 func purgeOld(dir string, now time.Time, keepDays int, loc *time.Location, log *slog.Logger) (removed int, err error) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {

@@ -16,13 +16,8 @@ import (
 
 const testTimeout = 2 * time.Second
 
-// maxPortAttempts is how many UDP ports startFakeDNS tries for one whose TCP
-// twin is also free. Windows excludes blocks of 100 TCP ports (Hyper-V, WinNAT)
-// that are not excluded for UDP, and neighbouring blocks can make 200 in a row.
 const maxPortAttempts = 1000
 
-// fakeDNS is a plain DNS server on one loopback port, reachable over UDP and
-// TCP. Its handler decides every answer; it also keeps what it was asked.
 type fakeDNS struct {
 	addr string
 
@@ -43,12 +38,9 @@ func (f *fakeDNS) networks() []string {
 	return append([]string(nil), f.nets...)
 }
 
-// startFakeDNS listens on the same loopback port for UDP and TCP. handler gets
-// the request and the network it arrived on.
 func startFakeDNS(t *testing.T, handler func(req *dns.Msg, network string) *dns.Msg) *fakeDNS {
 	t.Helper()
-	// A UDP socket whose TCP twin cannot be bound is kept open until the test
-	// ends: closing it would hand the same port to the next attempt.
+
 	var skipped []net.PacketConn
 	t.Cleanup(func() {
 		for _, pc := range skipped {
@@ -74,7 +66,7 @@ func startFakeDNS(t *testing.T, handler func(req *dns.Msg, network string) *dns.
 				f.mu.Unlock()
 				resp := handler(req, network)
 				if resp == nil {
-					return // say nothing: a timeout for the client
+					return
 				}
 				_ = w.WriteMsg(resp)
 			}
@@ -94,7 +86,6 @@ func startFakeDNS(t *testing.T, handler func(req *dns.Msg, network string) *dns.
 	return nil
 }
 
-// aReply answers req with one A record for 192.0.2.1.
 func aReply(req *dns.Msg) *dns.Msg {
 	resp := new(dns.Msg).SetReply(req)
 	if len(req.Question) == 1 {
@@ -106,13 +97,11 @@ func aReply(req *dns.Msg) *dns.Msg {
 	return resp
 }
 
-// goodDNS is a fake server that always answers correctly.
 func goodDNS(t *testing.T) *fakeDNS {
 	t.Helper()
 	return startFakeDNS(t, func(req *dns.Msg, _ string) *dns.Msg { return aReply(req) })
 }
 
-// fakeDoH is a TLS server speaking DNS over HTTPS on loopback.
 type fakeDoH struct {
 	*httptest.Server
 	mu       sync.Mutex
@@ -126,21 +115,17 @@ func (f *fakeDoH) seen() ([]*dns.Msg, []string) {
 	return append([]*dns.Msg(nil), f.requests...), append([]string(nil), f.methods...)
 }
 
-// pool returns a certificate pool that trusts the server.
 func (f *fakeDoH) trust() *x509.CertPool {
 	pool := x509.NewCertPool()
 	pool.AddCert(f.Certificate())
 	return pool
 }
 
-// port returns the port the server listens on.
 func (f *fakeDoH) port() string {
 	_, port, _ := net.SplitHostPort(f.Listener.Addr().String())
 	return port
 }
 
-// startFakeDoH serves /dns-query. reply builds the HTTP answer from the decoded
-// request; it may write anything, so tests can break the protocol.
 func startFakeDoH(t *testing.T, reply func(w http.ResponseWriter, r *http.Request, req *dns.Msg)) *fakeDoH {
 	t.Helper()
 	f := &fakeDoH{}
@@ -163,7 +148,6 @@ func startFakeDoH(t *testing.T, reply func(w http.ResponseWriter, r *http.Reques
 	return f
 }
 
-// writeDNS sends msg as a DNS-over-HTTPS answer.
 func writeDNS(w http.ResponseWriter, msg *dns.Msg) {
 	wire, err := msg.Pack()
 	if err != nil {
@@ -174,7 +158,6 @@ func writeDNS(w http.ResponseWriter, msg *dns.Msg) {
 	_, _ = w.Write(wire)
 }
 
-// newTestDoH builds a DoH upstream for url that trusts only the fake server.
 func newTestDoH(t *testing.T, f *fakeDoH, rawURL string, boot *bootstrap) *dohUpstream {
 	t.Helper()
 	tlsCfg := &tls.Config{RootCAs: f.trust(), MinVersion: tls.VersionTLS12}
@@ -186,13 +169,10 @@ func newTestDoH(t *testing.T, f *fakeDoH, rawURL string, boot *bootstrap) *dohUp
 	return u
 }
 
-// loopbackURL is the DoH endpoint of f addressed by IP, as the default
-// upstreams (https://1.1.1.1/dns-query) are.
 func loopbackURL(f *fakeDoH) string {
 	return "https://127.0.0.1:" + f.port() + "/dns-query"
 }
 
-// queryMsg builds a query message for name and type with a fixed ID.
 func queryMsg(name string, qtype uint16) *dns.Msg {
 	q := new(dns.Msg)
 	q.SetQuestion(dns.Fqdn(name), qtype)

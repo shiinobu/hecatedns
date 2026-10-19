@@ -1,16 +1,11 @@
 package engine
 
-// agy wrote this
-
 import (
 	"context"
 
 	"github.com/miekg/dns"
 )
 
-// inspectAnswer checks whether a resolved upstream answer contains a CNAME
-// chain pointing to a blocked domain. It never mutates q.Req or resp, and
-// fails open (returns Pass) if an unexpected panic occurs.
 func (e *Engine) inspectAnswer(ctx context.Context, q Query, resp *dns.Msg) (dec Decision) {
 	defer e.failOpen(ctx, "after", &dec)
 	if _, ok := questionName(q.Req); !ok {
@@ -24,10 +19,6 @@ func (e *Engine) inspectAnswer(ctx context.Context, q Query, resp *dns.Msg) (dec
 	return dec
 }
 
-// checkCNAME walks every CNAME record in resp.Answer in order. Targets matched
-// by an allow rule or allow list are skipped; the first target matched by a
-// block rule or block list produces a Block decision with ReasonCNAME and Via
-// set to the normalized target.
 func checkCNAME(rules *RuleSet, lists *ListSet, resp *dns.Msg) (Decision, bool) {
 	if resp == nil || resp.Rcode != dns.RcodeSuccess || len(resp.Answer) == 0 {
 		return Decision{Verdict: Pass}, false

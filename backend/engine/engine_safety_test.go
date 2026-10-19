@@ -15,12 +15,10 @@ import (
 	"github.com/shiinobu/hecatedns/backend/lib/config"
 )
 
-// panicRules is a RuleSource whose Snapshot always panics.
 type panicRules struct{}
 
 func (panicRules) Snapshot() *RuleSet { panic("rules exploded") }
 
-// panicRecorder counts the calls and then panics.
 type panicRecorder struct{ calls atomic.Int64 }
 
 func (r *panicRecorder) Record(Entry) {
@@ -28,8 +26,6 @@ func (r *panicRecorder) Record(Entry) {
 	panic("recorder exploded")
 }
 
-// swapRules is a RuleSource that publishes snapshots atomically, like
-// RulesFile, but without touching the file system.
 type swapRules struct{ current atomic.Pointer[RuleSet] }
 
 func (s *swapRules) Snapshot() *RuleSet { return s.current.Load() }
@@ -122,8 +118,6 @@ func TestPanickingClockKeepsDecisions(t *testing.T) {
 	e.Failed(ctx, q, errors.New("down"))
 }
 
-// concurrencyCase is one query of the concurrency test with the decision that
-// must hold whatever rules and lists snapshot is current.
 type concurrencyCase struct {
 	name    string
 	verdict Verdict
@@ -169,7 +163,7 @@ func TestEngineConcurrentQueriesWithReloads(t *testing.T) {
 		{"x.stable-list.example", Block, ReasonList},
 		{"keep.example", Pass, ReasonAllow},
 		{"nothing.example", Pass, ""},
-		{"flip.example", Pass, ""}, // any verdict is fine, it must just be consistent
+		{"flip.example", Pass, ""},
 	}
 	var queries atomic.Int64
 	var wg sync.WaitGroup
@@ -185,7 +179,6 @@ func TestEngineConcurrentQueriesWithReloads(t *testing.T) {
 	}
 }
 
-// churn calls swap with an increasing counter until stop is closed.
 func churn(stop <-chan struct{}, swap func(int)) {
 	for i := 0; ; i++ {
 		select {
@@ -197,8 +190,6 @@ func churn(stop <-chan struct{}, swap func(int)) {
 	}
 }
 
-// runWorker plays the backend for perWorker queries: Before, then After or
-// Failed for the forwarded ones.
 func runWorker(t *testing.T, e *Engine, cases []concurrencyCase, w, perWorker int, queries *atomic.Int64) {
 	ctx := context.Background()
 	clients := []string{"127.0.0.1", "::ffff:127.0.0.2", "::1"}
@@ -219,7 +210,6 @@ func runWorker(t *testing.T, e *Engine, cases []concurrencyCase, w, perWorker in
 	}
 }
 
-// checkConcurrentDecision checks the parts of dec that no reload can change.
 func checkConcurrentDecision(t *testing.T, c concurrencyCase, dec Decision) {
 	if dec.Verdict == Block && dec.Resp == nil {
 		t.Errorf("%s: Block without Resp", c.name)

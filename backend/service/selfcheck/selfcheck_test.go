@@ -1,7 +1,5 @@
 package selfcheck
 
-// agy wrote this
-
 import (
 	"context"
 	"net"
@@ -48,24 +46,6 @@ func googleOKHandler(req *dns.Msg) *dns.Msg {
 			&dns.A{
 				Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
 				A:   net.IPv4(142, 250, 4, 100),
-			},
-		}
-	}
-	return resp
-}
-
-func googleSafeSearchHandler(req *dns.Msg) *dns.Msg {
-	resp := new(dns.Msg).SetReply(req)
-	if len(req.Question) == 1 {
-		q := req.Question[0]
-		resp.Answer = []dns.RR{
-			&dns.CNAME{
-				Hdr:    dns.RR_Header{Name: q.Name, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: 60},
-				Target: "forcesafesearch.google.com.",
-			},
-			&dns.A{
-				Hdr: dns.RR_Header{Name: "forcesafesearch.google.com.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
-				A:   net.IPv4(216, 239, 38, 120),
 			},
 		}
 	}
@@ -190,7 +170,7 @@ func TestRun_UnreachableUpstreamFails(t *testing.T) {
 func TestRun_CorruptCachedListFailsAndMissingCachedListWarns(t *testing.T) {
 	upstreamAddr := startFakeUpstream(t, googleOKHandler)
 	dataDir := t.TempDir()
-	// Missing cached list produces a warning, not an error.
+
 	cfg := config.Default()
 	cfg.Upstreams = []string{upstreamAddr}
 	cfg.Bootstrap = nil
@@ -208,7 +188,6 @@ func TestRun_CorruptCachedListFailsAndMissingCachedListWarns(t *testing.T) {
 		t.Fatal("expected warning for missing cached list, got none")
 	}
 
-	// Empty/corrupt cached list on disk fails.
 	writeCachedList(t, dataDir, "missing-list", "# only comments, no domains\n")
 	if _, err := Run(context.Background(), cfg, Options{Timeout: 2 * time.Second}); err == nil {
 		t.Fatal("Run with empty/corrupt cached list on disk succeeded, want error")
@@ -250,7 +229,6 @@ func TestRun_PartialUpstreamFailureAndBootstrapAndModes(t *testing.T) {
 		t.Fatalf("Result = %+v, want Checked=3 OK=1 Warnings=2", res)
 	}
 
-	// If a custom allow rule overrides ALL domains in block-list, selfcheck fails.
 	if err := os.WriteFile(cfg.Rules.File, []byte("allow bad.example\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -263,10 +241,6 @@ func TestRun_SkipsAllowedFirstEntryAndPicksListOwnSample(t *testing.T) {
 	upstreamAddr := startFakeUpstream(t, googleOKHandler)
 	dataDir := t.TempDir()
 
-	// hagezi-pro has a-shared.ads.example and b-pro.ads.example.
-	// hagezi-popups has a-shared.ads.example (also in hagezi-pro!) and z-popup-only.ads.example.
-	// abpindo has a 70 KiB comment header, an allow-listed first domain (a-allowed.indo.example),
-	// and a blocked second domain (b-blocked.indo.example).
 	hugeComment := "# " + strings.Repeat("c", 70*1024) + "\n"
 	writeCachedList(t, dataDir, "hagezi-pro", "a-shared.ads.example\nb-pro.ads.example\n")
 	writeCachedList(t, dataDir, "hagezi-popups", "a-shared.ads.example\nz-popup-only.ads.example\n")
@@ -302,7 +276,6 @@ func TestRun_SkipsAllowedFirstEntryAndPicksListOwnSample(t *testing.T) {
 		t.Errorf("abpindo SampleDomain = %q, want \"b-blocked.indo.example\" (skipping allow-listed first entry and >64KiB comment)", res.Lists[2].SampleDomain)
 	}
 
-	// If a second blocklist is a pure subset of hagezi-pro, fallback Pass 2 still verifies it blocks.
 	writeCachedList(t, dataDir, "hagezi-popups", "a-shared.ads.example\n")
 	res2, err := Run(context.Background(), cfg, Options{Timeout: 2 * time.Second})
 	if err != nil {
@@ -312,7 +285,6 @@ func TestRun_SkipsAllowedFirstEntryAndPicksListOwnSample(t *testing.T) {
 		t.Errorf("subset blocklist ListResult = %+v", res2.Lists[1])
 	}
 
-	// Unreadable rules.file (pointing to a directory) must fail selfcheck.
 	cfg.Rules.File = dataDir
 	if _, err := Run(context.Background(), cfg, Options{Timeout: time.Second}); err == nil {
 		t.Fatal("Run succeeded when cfg.Rules.File is a directory, want error")

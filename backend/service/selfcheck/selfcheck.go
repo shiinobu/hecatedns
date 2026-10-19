@@ -1,8 +1,4 @@
-// Package selfcheck runs pre-flight checks against upstreams, SafeSearch, and
-// cached blocklists.
 package selfcheck
-
-// agy wrote this
 
 import (
 	"context"
@@ -23,20 +19,16 @@ import (
 )
 
 const (
-	// DefaultTimeout bounds each upstream exchange during self-check.
 	DefaultTimeout = 5 * time.Second
 
 	safeSearchProbe  = "www.google.com."
 	safeSearchTarget = "forcesafesearch.google.com"
 )
 
-// Options configures Run.
 type Options struct {
-	// Timeout bounds each upstream exchange; zero means DefaultTimeout.
 	Timeout time.Duration
 }
 
-// ListResult summarizes the check of one enabled blocklist source.
 type ListResult struct {
 	Name         string
 	Kind         string
@@ -46,7 +38,6 @@ type ListResult struct {
 	SampleAnswer string
 }
 
-// Result holds the outcome of Run.
 type Result struct {
 	UpstreamsChecked int
 	UpstreamsOK      int
@@ -55,12 +46,6 @@ type Result struct {
 	Warnings         []string
 }
 
-// Run executes the self-check suite against cfg:
-//  1. Verifies no upstream or bootstrap loops back to a listen address (Q3).
-//  2. Queries www.google.com (A) through the configured upstreams and verifies
-//     that at least one upstream answers and none chains to forcesafesearch.google.com (S3).
-//  3. Loads cached lists from disk and verifies that one sample domain from each
-//     cached blocklist is blocked by the engine (S1).
 func Run(ctx context.Context, cfg config.Config, opts Options) (Result, error) {
 	timeout := opts.Timeout
 	if timeout <= 0 {
@@ -269,7 +254,6 @@ func pickAndProbeSample(
 		return eng.Before(ctx, engine.Query{Req: req, Client: clientIP, Proto: "udp"})
 	}
 
-	// Pass 1: find an entry in ns.Set that is blocked by ns.Name in the full ListSet.
 	eng.SwapLists(fullListSet)
 	var chosenDec engine.Decision
 	sample, ok := ns.Set.Find(func(entry string) bool {
@@ -284,8 +268,6 @@ func pickAndProbeSample(
 		return sample, chosenDec, true
 	}
 
-	// Pass 2 (fallback when every entry in ns.Set also appears in an earlier blocklist):
-	// test ns as the sole blocklist alongside allowSets and custom rules.
 	eng.SwapLists(engine.NewListSet(allowSets, []engine.NamedSet{ns}))
 	defer eng.SwapLists(fullListSet)
 	sample, ok = ns.Set.Find(func(entry string) bool {

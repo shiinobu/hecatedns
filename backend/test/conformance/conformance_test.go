@@ -7,8 +7,6 @@ import (
 	"github.com/shiinobu/hecatedns/backend/core/native"
 )
 
-// constructors lists every backend under test. Each must pass the same suite
-// unchanged.
 func constructors() []Constructor {
 	return []Constructor{
 		{Name: dnsproxy.Name, Factory: dnsproxy.New},

@@ -1,7 +1,5 @@
 package controller
 
-// agy wrote this
-
 import (
 	"context"
 	"errors"
@@ -20,7 +18,6 @@ const listsUsage = `penggunaan:
   hecate lists update [-config berkas]   unduh ulang semua daftar blokir aktif
 `
 
-// runLists implements `hecate lists status` and `hecate lists update`.
 func runLists(args []string, stdout, stderr io.Writer) int {
 	return runListsWith(context.Background(), args, stdout, stderr, nil)
 }

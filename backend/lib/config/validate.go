@@ -11,23 +11,16 @@ import (
 	"time"
 )
 
-// maxTTLSeconds is the largest TTL accepted in seconds (RFC 2181 section 8: a
-// TTL is an unsigned 31-bit number). It keeps every conversion to the uint32
-// that DNS libraries use safe.
 const maxTTLSeconds = math.MaxInt32
 
-// maxSourceNameLen bounds a list source name, which becomes a file name.
 const maxSourceNameLen = 64
 
-// Default upstream ports per scheme when none is written.
 const (
 	defaultPortDNS = 53
 	defaultPortDoT = 853
 	defaultPortDoH = 443
 )
 
-// Validate checks the whole configuration and reports every problem found,
-// joined into one error. Each message starts with the offending field path.
 func (c Config) Validate() error {
 	var errs []error
 	errs = append(errs, c.validateBackend()...)
@@ -43,10 +36,7 @@ func (c Config) Validate() error {
 	return errors.Join(errs...)
 }
 
-// Warnings lists conditions that are valid but probably not what the user
-// intends. The messages are shown by `hecate check` and `hecate run`.
 func (c Config) Warnings() []string {
-	// agy wrote this
 	var out []string
 	hasBlockSource := false
 	for _, s := range c.Lists.Sources {
@@ -62,9 +52,6 @@ func (c Config) Warnings() []string {
 	return out
 }
 
-// agy wrote this
-// LoopWarnings reports any upstream or bootstrap address that resolves to one
-// of the server's own listen addresses, which would cause DNS queries to loop.
 func (c Config) LoopWarnings() []string {
 	var listens []netip.AddrPort
 	for _, l := range c.Listen {
@@ -98,7 +85,6 @@ func (c Config) LoopWarnings() []string {
 	return out
 }
 
-// agy wrote this
 func matchesAnyListen(listens []netip.AddrPort, target netip.AddrPort) bool {
 	for _, l := range listens {
 		if l.Port() != target.Port() {
@@ -115,7 +101,6 @@ func matchesAnyListen(listens []netip.AddrPort, target netip.AddrPort) bool {
 	return false
 }
 
-// agy wrote this
 func upstreamAddrPort(u string) (netip.AddrPort, bool) {
 	if ip, err := netip.ParseAddr(u); err == nil {
 		return netip.AddrPortFrom(ip.Unmap(), defaultPortDNS), true
@@ -224,8 +209,6 @@ func (c Config) validateUpstreams() []error {
 	return errs
 }
 
-// checkUpstream accepts a bare IP, ip:port, or a udp/tcp/tls/https URL. It
-// reports whether the upstream names its host, which then needs bootstrap IPs.
 func checkUpstream(u string) (named bool, err error) {
 	if _, err := netip.ParseAddr(u); err == nil {
 		return false, nil
@@ -262,7 +245,6 @@ func (c Config) validateBlock() []error {
 	return errs
 }
 
-// checkTTL rejects a negative duration or one that does not fit a DNS TTL.
 func checkTTL(field string, ttl time.Duration) []error {
 	switch {
 	case ttl < 0:
@@ -362,10 +344,6 @@ func (c Config) validateDataDir() []error {
 	return nil
 }
 
-// validSourceName reports whether name is safe to use as a file name on every
-// supported OS: it starts with a letter or digit, continues with letters,
-// digits, '-' or '_', fits in maxSourceNameLen bytes, and is not a reserved
-// Windows device name.
 func validSourceName(name string) bool {
 	if name == "" || len(name) > maxSourceNameLen {
 		return false
@@ -380,8 +358,6 @@ func validSourceName(name string) bool {
 	return !isWindowsDeviceName(name)
 }
 
-// isWindowsDeviceName reports the names Windows reserves for devices, with or
-// without an extension: CON, PRN, AUX, NUL, COM1-COM9 and LPT1-LPT9.
 func isWindowsDeviceName(name string) bool {
 	upper := strings.ToUpper(name)
 	switch upper {

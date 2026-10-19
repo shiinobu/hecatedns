@@ -14,36 +14,24 @@ import (
 	"time"
 )
 
-// maxLineBytes bounds one log line the reader will decode. Lines we write are
-// far shorter; a longer one is damage or tampering and is skipped.
 const maxLineBytes = 64 << 10
 
-// Filter selects the records Read returns. A zero field does not filter.
 type Filter struct {
-	// Since and Until bound the record time, both inclusive.
 	Since, Until time.Time
-	// Grep keeps records whose name, client, list, CNAME target, upstream or
-	// reason contains this text, ignoring case.
+
 	Grep string
-	// BlockedOnly keeps only records whose action is block.
+
 	BlockedOnly bool
-	// Location decides which file names belong to Since and Until; it must
-	// match the writer's. Nil means time.Local.
+
 	Location *time.Location
 }
 
-// ReadStats summarizes one Read.
 type ReadStats struct {
-	// Matched is the number of records passed to the callback.
 	Matched int
-	// Malformed counts lines that could not be decoded (not JSON, no valid
-	// timestamp, or longer than the line limit).
+
 	Malformed int
 }
 
-// Read passes the matching records of the query logs in dir to emit, oldest
-// first. Only files whose day can hold a match are opened. A missing directory
-// is an empty log. A damaged line is counted and skipped, never fatal.
 func Read(dir string, f Filter, emit func(Record)) (ReadStats, error) {
 	loc := cmpLocation(f.Location)
 	files, err := dayFiles(dir, f, loc)
@@ -59,8 +47,6 @@ func Read(dir string, f Filter, emit func(Record)) (ReadStats, error) {
 	return stats, nil
 }
 
-// dayFiles lists the log files that may hold records in the filter's time
-// window, oldest day first.
 func dayFiles(dir string, f Filter, loc *time.Location) ([]string, error) {
 	info, err := os.Stat(dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -92,8 +78,6 @@ func dayFiles(dir string, f Filter, loc *time.Location) ([]string, error) {
 	return names, nil
 }
 
-// dayBounds returns the first and last local day (midnight) that can hold a
-// record of the filter; a zero value means unbounded on that side.
 func dayBounds(f Filter, loc *time.Location) (first, last time.Time) {
 	if !f.Since.IsZero() {
 		s := f.Since.In(loc)
@@ -142,8 +126,6 @@ func readFile(path string, f Filter, emit func(Record), stats *ReadStats) error 
 	}
 }
 
-// nextLogLine returns the next line without its terminator. A line longer than
-// the buffer is consumed completely and reported as tooLong.
 func nextLogLine(r *bufio.Reader) (line []byte, tooLong bool, err error) {
 	chunk, prefix, err := r.ReadLine()
 	if err != nil {
@@ -161,8 +143,6 @@ func nextLogLine(r *bufio.Reader) (line []byte, tooLong bool, err error) {
 	return nil, true, nil
 }
 
-// decodeRecord parses one JSON line and sanitizes its text fields, because a
-// log file on disk is not trusted either.
 func decodeRecord(line []byte) (Record, bool) {
 	var rec Record
 	if err := json.Unmarshal(line, &rec); err != nil {
@@ -181,7 +161,6 @@ func decodeRecord(line []byte) (Record, bool) {
 	return rec, true
 }
 
-// matches applies the filter to a decoded record. want is the lower-cased grep.
 func matches(rec Record, f Filter, want string) bool {
 	if !f.Since.IsZero() && rec.Time.Before(f.Since) {
 		return false

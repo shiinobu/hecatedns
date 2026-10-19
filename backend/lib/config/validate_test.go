@@ -309,7 +309,6 @@ func TestValidate_MaxTTLZeroMeansNoCap(t *testing.T) {
 	}
 }
 
-// agy wrote this
 func TestWarnings_DetectsLoopingUpstreamAndBootstrap(t *testing.T) {
 	tests := []struct {
 		name      string

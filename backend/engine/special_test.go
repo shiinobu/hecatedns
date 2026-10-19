@@ -1,7 +1,5 @@
 package engine
 
-// agy wrote this
-
 import (
 	"context"
 	"testing"

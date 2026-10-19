@@ -19,23 +19,15 @@ const (
 	dohMediaType  = "application/dns-message"
 	dohDefaultURI = "/dns-query"
 
-	// maxDNSMessage is the largest DNS message there is; a longer HTTP body is
-	// not an answer.
 	maxDNSMessage = 65535
 )
 
-// dohUpstream speaks DNS over HTTPS (RFC 8484, POST). It keeps connections
-// alive, so a hostname is resolved through the bootstrap resolver only when a
-// new connection is made.
 type dohUpstream struct {
 	endpoint string
 	client   *http.Client
 	timeout  time.Duration
 }
 
-// newDoH builds a DoH upstream for an https URL. boot resolves a hostname and
-// may be nil when the URL holds an IP address. tlsCfg may be nil for the system
-// roots.
 func newDoH(rawURL string, boot *bootstrap, timeout time.Duration, tlsCfg *tls.Config) (*dohUpstream, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -48,7 +40,6 @@ func newDoH(rawURL string, boot *bootstrap, timeout time.Duration, tlsCfg *tls.C
 		tlsCfg = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
 	transport := &http.Transport{
-		// Never the environment proxy: DNS must not leave through one.
 		Proxy:                 nil,
 		DialContext:           boot.dialContext(timeout),
 		TLSClientConfig:       tlsCfg,
@@ -61,7 +52,7 @@ func newDoH(rawURL string, boot *bootstrap, timeout time.Duration, tlsCfg *tls.C
 	}
 	client := &http.Client{
 		Transport: transport,
-		// A DoH endpoint that redirects is misconfigured or hostile.
+
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	return &dohUpstream{endpoint: u.String(), client: client, timeout: timeout}, nil
@@ -74,8 +65,6 @@ func (u *dohUpstream) Close() error {
 	return nil
 }
 
-// Exchange implements upstream. RFC 8484 asks for ID 0 so that identical
-// queries are cacheable; the caller's ID is restored on the reply.
 func (u *dohUpstream) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
 	ctx, cancel := context.WithTimeout(ctx, u.timeout)
 	defer cancel()
@@ -101,7 +90,6 @@ func (u *dohUpstream) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, error
 	return resp, nil
 }
 
-// post sends wire and returns the body of a 200 reply of the DNS media type.
 func (u *dohUpstream) post(ctx context.Context, wire []byte) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.endpoint, bytes.NewReader(wire))
 	if err != nil {

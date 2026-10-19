@@ -1,14 +1,11 @@
 package engine
 
-// agy wrote this
-
 import (
 	"strings"
 
 	"github.com/miekg/dns"
 )
 
-// Special-name domain suffixes and their Decision.Source values.
 const (
 	domainFirefoxCanary = "use-application-dns.net"
 	domainDDR           = "_dns.resolver.arpa"
@@ -17,10 +14,6 @@ const (
 	SourceDDR           = "ddr"
 )
 
-// checkSpecial answers queries for built-in client-steering domains when their
-// respective switch in SpecialNames is enabled:
-//   - use-application-dns.net -> NXDOMAIN (disables Firefox DoH auto-upgrade)
-//   - _dns.resolver.arpa      -> NODATA   (disables Discovery of Designated Resolvers)
 func (e *Engine) checkSpecial(req *dns.Msg, name string) (Decision, bool) {
 	if e.special.FirefoxCanary && matchesDomain(name, domainFirefoxCanary) {
 		return Decision{
@@ -41,8 +34,6 @@ func (e *Engine) checkSpecial(req *dns.Msg, name string) (Decision, bool) {
 	return Decision{}, false
 }
 
-// matchesDomain reports whether name is equal to domain or is a subdomain of it
-// on a label boundary. Both name and domain must already be normalized.
 func matchesDomain(name, domain string) bool {
 	if name == domain {
 		return true

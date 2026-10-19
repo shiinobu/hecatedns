@@ -10,19 +10,11 @@ import (
 )
 
 const (
-	// upstreamWarnAfter is how many forwarded queries must fail in a row
-	// before the engine says so. A single timeout is normal; five in a row
-	// with no answer in between means the upstreams or the network are down.
 	upstreamWarnAfter = 5
 
-	// upstreamWarnEvery is the shortest time between two warnings, so a dead
-	// upstream cannot flood the log.
 	upstreamWarnEvery = time.Minute
 )
 
-// upstreamHealth counts forwarded queries that failed in a row. Both backends
-// report to the engine through After and Failed, so the count and the warning
-// are the same for both.
 type upstreamHealth struct {
 	failures atomic.Int64
 
@@ -30,8 +22,6 @@ type upstreamHealth struct {
 	lastWarn time.Time
 }
 
-// failed counts one failed forward and warns when the run is long enough. A
-// query the client gave up on is not the upstreams' fault and is ignored.
 func (h *upstreamHealth) failed(err error, now time.Time, log *slog.Logger) {
 	if errors.Is(err, context.Canceled) {
 		return
@@ -53,8 +43,6 @@ func (h *upstreamHealth) failed(err error, now time.Time, log *slog.Logger) {
 	log.Warn("upstream servers keep failing, clients get SERVFAIL", attrs...)
 }
 
-// answered ends the run of failures; if the run was long enough to have been
-// reported, it says that the upstreams are back.
 func (h *upstreamHealth) answered(log *slog.Logger) {
 	if h.failures.Load() == 0 {
 		return

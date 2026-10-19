@@ -1,7 +1,5 @@
 package controller
 
-// agy wrote this
-
 import (
 	"bytes"
 	"context"
@@ -80,7 +78,6 @@ lists:
 		}
 		assertContains(t, "stdout", out.String(), []string{"pro: diperbarui, 2 domain"})
 
-		// Second update hits 304 Not Modified.
 		out.Reset()
 		code = runListsWith(context.Background(), []string{"update", "-config", cfgPath}, &out, &errOut, srv.Client())
 		if code != exitOK {

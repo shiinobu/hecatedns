@@ -15,9 +15,6 @@ const ruleUsage = `penggunaan:
   hecate rule list [-config berkas]                       tampilkan aturan
 `
 
-// extractConfigFlag removes "-config <file>" (or "--config", "-config=file")
-// from args wherever it stands, so it works before and after the words of the
-// subcommand. The default path is used when the flag is absent.
 func extractConfigFlag(args []string) (path string, rest []string, err error) {
 	path = defaultConfigPath
 	for i := 0; i < len(args); i++ {
@@ -39,7 +36,6 @@ func extractConfigFlag(args []string) (path string, rest []string, err error) {
 	return path, rest, nil
 }
 
-// runRule dispatches the rule subcommands: add, remove and list.
 func runRule(args []string, stdout, stderr io.Writer) int {
 	configPath, rest, err := extractConfigFlag(args)
 	if err != nil {
@@ -71,8 +67,6 @@ func runRule(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// validRuleArgs reports whether args is "add <action> <domain>", "remove
-// <domain>" or "list".
 func validRuleArgs(args []string) bool {
 	if len(args) == 0 {
 		return false
@@ -114,8 +108,6 @@ func ruleAdd(cfg config.Config, action, domain string, stdout io.Writer) error {
 	return nil
 }
 
-// parseRuleArgs validates the action word and the domain typed on the command
-// line. The domain goes through the same checks as a rules file line.
 func parseRuleArgs(action, domain string) (engine.Rule, error) {
 	kind := engine.RuleAction(strings.ToLower(action))
 	if kind != engine.RuleBlock && kind != engine.RuleAllow {
@@ -128,8 +120,6 @@ func parseRuleArgs(action, domain string) (engine.Rule, error) {
 	return engine.Rule{Action: kind, Domain: entry}, nil
 }
 
-// punycodeHint explains how to write a name with non-ASCII letters, which
-// rules and blocklists only accept in their xn-- form.
 func punycodeHint(domain string) string {
 	for i := 0; i < len(domain); i++ {
 		if domain[i] >= 0x80 {
@@ -139,7 +129,6 @@ func punycodeHint(domain string) string {
 	return ""
 }
 
-// truncate keeps an echoed command-line value short in an error message.
 func truncate(s string) string {
 	const limit = 80
 	if len(s) > limit {

@@ -23,41 +23,29 @@ const (
 	dirMode           = 0o700
 	fileMode          = 0o600
 
-	// midnightMargin delays the nightly purge a little past 00:00 so that the
-	// clock is certainly on the new day when it runs.
 	midnightMargin = 50 * time.Millisecond
 
 	dropReportInterval = 30 * time.Second
 )
 
-// Options configures a Writer.
 type Options struct {
-	// Dir is the log directory; it is created if missing.
 	Dir string
-	// RetentionDays is how many calendar days to keep, today included. It
-	// must be at least 1.
+
 	RetentionDays int
-	// MaxBytesPerDay caps one day file. Records that would pass it are dropped
-	// and counted, so a client that sends queries as fast as it can (or a
-	// flood of refused ones) cannot fill the disk. Zero means no cap.
+
 	MaxBytesPerDay int64
-	// BufferSize is the capacity of the queue between the resolver and the
-	// disk writer. Zero means 4096.
+
 	BufferSize int
-	// Now is the clock; nil means time.Now.
+
 	Now func() time.Time
-	// Location decides which local day a record belongs to and the offset in
-	// its timestamp; nil means time.Local.
+
 	Location *time.Location
-	// Log receives operational messages; nil discards them.
+
 	Log *slog.Logger
 
-	// open creates or appends to a day file; tests replace it to simulate a
-	// full disk. Nil means the real file system.
 	open func(path string) (logFile, error)
 }
 
-// logFile is the part of *os.File the Writer uses.
 type logFile interface {
 	io.Writer
 	io.Closer
@@ -68,9 +56,6 @@ func openLogFile(path string) (logFile, error) {
 	return os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, fileMode)
 }
 
-// Writer appends engine.Entry records to the daily JSONL files. Record never
-// blocks: a full queue drops the record and counts it. One goroutine owns the
-// files. A Writer is an engine.Recorder.
 type Writer struct {
 	opts Options
 	loc  *time.Location
@@ -89,15 +74,14 @@ type Writer struct {
 	written atomic.Uint64
 	dropped atomic.Uint64
 
-	// Owned by the writing goroutine (or by Close once that has finished).
 	file          logFile
 	out           *bufio.Writer
 	day           string
 	dayBytes      int64
 	capWarnedDay  string
 	encoded       bytes.Buffer
-	pending       uint64 // records in out that a flush has not yet confirmed
-	torn          bool   // a failed write may have left half a record at the end of the file
+	pending       uint64
+	torn          bool
 	reported      uint64
 	lastWriteErr  string
 	lastWriteErrT time.Time
@@ -105,8 +89,6 @@ type Writer struct {
 
 var _ engine.Recorder = (*Writer)(nil)
 
-// Open creates the log directory, removes logs outside the retention window
-// and starts the background writer. Close it to flush the queue.
 func Open(opts Options) (*Writer, error) {
 	w, err := newWriter(opts)
 	if err != nil {
@@ -116,8 +98,6 @@ func Open(opts Options) (*Writer, error) {
 	return w, nil
 }
 
-// newWriter validates opts, prepares the directory and purges old files, but
-// does not start the goroutine.
 func newWriter(opts Options) (*Writer, error) {
 	if opts.Dir == "" {
 		return nil, errors.New("query log: directory is empty")
@@ -161,16 +141,11 @@ func cmpLocation(loc *time.Location) *time.Location {
 
 func (w *Writer) start() {
 	if w.started.CompareAndSwap(false, true) {
-		// The timer is armed here, not in the goroutine, so its first delay is
-		// measured from the clock at Open and not from whenever the goroutine
-		// happens to get scheduled.
 		w.midnight = time.NewTimer(w.untilMidnight())
 		go w.run()
 	}
 }
 
-// Record queues e for writing. It never blocks and never fails: when the queue
-// is full, or the Writer is closed, the record is dropped and counted.
 func (w *Writer) Record(e engine.Entry) {
 	if w.closed.Load() {
 		w.dropped.Add(1)
@@ -183,15 +158,10 @@ func (w *Writer) Record(e engine.Entry) {
 	}
 }
 
-// Written returns the number of records written to disk so far.
 func (w *Writer) Written() uint64 { return w.written.Load() }
 
-// Dropped returns the number of records lost to a full queue, a closed Writer
-// or a disk error.
 func (w *Writer) Dropped() uint64 { return w.dropped.Load() }
 
-// Close stops accepting records, writes what is queued, flushes and closes the
-// file. It is safe to call more than once; later calls return the first result.
 func (w *Writer) Close() error {
 	w.closeOnce.Do(func() {
 		w.closed.Store(true)
@@ -229,14 +199,12 @@ func (w *Writer) run() {
 	}
 }
 
-// shutdown drains the queue and closes the current file.
 func (w *Writer) shutdown() {
 	w.drain()
 	w.closeErr = errors.Join(w.flush(), w.closeFile())
 	w.log.Info("query log closed", "written", w.written.Load(), "dropped", w.dropped.Load())
 }
 
-// drain writes every record still queued.
 func (w *Writer) drain() {
 	for {
 		select {
@@ -271,7 +239,6 @@ func (w *Writer) reportDrops() {
 	}
 }
 
-// write encodes one entry and appends it to the file of its day.
 func (w *Writer) write(e engine.Entry) {
 	rec := newRecord(e, w.loc, w.opts.Now())
 	if err := w.encode(rec); err != nil {
@@ -298,19 +265,12 @@ func (w *Writer) write(e engine.Entry) {
 		return
 	}
 	if w.out.Buffered() < buffered+added+n {
-		// The buffer filled and bufio flushed it by itself: every record before
-		// this one is on disk.
 		w.pending = 0
 	}
 	w.written.Add(1)
 	w.pending++
 }
 
-// discardBuffered gives up the records still in the buffer after a failed
-// write or flush and counts them as dropped, not written. bufio.Writer keeps
-// its first error and refuses everything after it, so without the reset one
-// full-disk moment would end the log for the rest of the day. The failed write
-// may have left half a record on disk, so the next record starts a new line.
 func (w *Writer) discardBuffered() {
 	w.out.Reset(w.file)
 	w.torn = true
@@ -332,8 +292,6 @@ func (w *Writer) encode(rec Record) error {
 	return nil
 }
 
-// overCap reports whether the record just encoded would push today's file over
-// the byte cap; it then counts the drop and announces the cap once per day.
 func (w *Writer) overCap(day string) bool {
 	limit := w.opts.MaxBytesPerDay
 	if limit <= 0 || w.dayBytes+int64(w.encoded.Len()) <= limit {
@@ -347,7 +305,6 @@ func (w *Writer) overCap(day string) bool {
 	return true
 }
 
-// selectFile makes the file of day the current one, rotating if needed.
 func (w *Writer) selectFile(day string) error {
 	if w.file != nil && w.day == day {
 		return nil
@@ -370,8 +327,6 @@ func (w *Writer) selectFile(day string) error {
 	return nil
 }
 
-// existingSize returns the bytes already in an appended-to file, so a restart
-// does not forget what was written earlier the same day.
 func existingSize(file logFile) int64 {
 	if info, err := file.Stat(); err == nil {
 		return info.Size()
@@ -404,14 +359,11 @@ func (w *Writer) closeFile() error {
 	return nil
 }
 
-// fail counts a lost record and logs the error, but not the same error more
-// than once a minute, so a full disk cannot flood the server log.
 func (w *Writer) fail(err error) {
 	w.dropped.Add(1)
 	w.reportFailure(err)
 }
 
-// reportFailure logs err, but not the same error more than once a minute.
 func (w *Writer) reportFailure(err error) {
 	now := w.opts.Now()
 	if msg := err.Error(); msg != w.lastWriteErr || now.Sub(w.lastWriteErrT) > time.Minute {

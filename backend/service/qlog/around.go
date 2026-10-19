@@ -15,10 +15,6 @@ const (
 	day          = 24 * time.Hour
 )
 
-// ParseAround turns a wall-clock time "HH:MM" and a half-width window into the
-// time range [HH:MM - window, HH:MM + window]. HH:MM means its most recent
-// occurrence not after now: earlier today, or yesterday if that time has not
-// come yet today. The range is in now's location.
 func ParseAround(now time.Time, hhmm string, window time.Duration) (since, until time.Time, err error) {
 	clock, err := time.Parse(aroundLayout, hhmm)
 	if err != nil {
@@ -34,9 +30,6 @@ func ParseAround(now time.Time, hhmm string, window time.Duration) (since, until
 	return center.Add(-window), center.Add(window), nil
 }
 
-// ParseSince turns a look-back such as "10m", "2h", "1h30m" or "3d" into the
-// point in time that long before now. Days are accepted as a whole number
-// followed by "d".
 func ParseSince(now time.Time, text string) (time.Time, error) {
 	if text == "" {
 		return time.Time{}, errors.New("lama waktu kosong, contoh: 10m, 2h, 1d")

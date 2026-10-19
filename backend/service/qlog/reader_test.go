@@ -130,7 +130,7 @@ func TestRead_OnlyOpensFilesInsideTheWindow(t *testing.T) {
 	dir := t.TempDir()
 	writeLog(t, dir, "queries-20261016.jsonl", jsonLine("2026-10-16T10:00:00.000+07:00", "old.example.com", "pass", ""))
 	writeLog(t, dir, "queries-20261018.jsonl", jsonLine("2026-10-18T10:00:00.000+07:00", "new.example.com", "pass", ""))
-	// A file named like a day inside the window but unreadable as a log must not matter for other days.
+
 	got, _ := collect(t, dir, Filter{Since: time.Date(2026, 10, 18, 0, 0, 0, 0, testZone)})
 	if !sameNames(qnames(got), []string{"new.example.com"}) {
 		t.Errorf("records = %v", qnames(got))

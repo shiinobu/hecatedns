@@ -12,14 +12,8 @@ import (
 	"time"
 )
 
-// fallbackPollInterval is used when Run gets a non-positive interval, which
-// time.NewTicker would turn into a panic.
 const fallbackPollInterval = 2 * time.Second
 
-// RulesFile keeps the custom rules of one file up to date. The file is polled
-// by modification time and size, so the CLI (a separate process) can change it
-// with an atomic rename and the server picks it up without a restart or a
-// socket (decision D11). Readers call Snapshot and never block.
 type RulesFile struct {
 	path    string
 	log     *slog.Logger
@@ -30,15 +24,12 @@ type RulesFile struct {
 	stamp  fileStamp
 }
 
-// fileStamp identifies one version of the rules file.
 type fileStamp struct {
 	exists  bool
 	size    int64
 	modTime time.Time
 }
 
-// NewRulesFile returns a RulesFile for path. Nothing is read until Reload or
-// Run. A nil log discards the messages.
 func NewRulesFile(path string, log *slog.Logger) *RulesFile {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
@@ -46,18 +37,10 @@ func NewRulesFile(path string, log *slog.Logger) *RulesFile {
 	return &RulesFile{path: path, log: log}
 }
 
-// Snapshot returns the current rules. It is never modified after it is
-// returned; a reload publishes a new RuleSet. It may be nil before the first
-// Reload, which behaves as an empty set.
 func (f *RulesFile) Snapshot() *RuleSet {
 	return f.current.Load()
 }
 
-// Reload re-reads the file if it changed since the last successful load and
-// reports whether a new snapshot was published. The first call always
-// publishes. A missing file means no rules. If the file cannot be read, the
-// previous rules stay in force and the error is returned, so the next call
-// tries again.
 func (f *RulesFile) Reload() (changed bool, err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -80,7 +63,6 @@ func (f *RulesFile) Reload() (changed bool, err error) {
 	return true, nil
 }
 
-// statRules stats path, mapping "does not exist" to a stamp without a file.
 func statRules(path string) (fileStamp, error) {
 	info, err := os.Stat(path)
 	switch {
@@ -94,7 +76,6 @@ func statRules(path string) (fileStamp, error) {
 	return fileStamp{exists: true, size: info.Size(), modTime: info.ModTime()}, nil
 }
 
-// read parses the rules file and logs what was skipped.
 func (f *RulesFile) read() (*RuleSet, error) {
 	file, err := os.Open(f.path)
 	if err != nil {
@@ -113,8 +94,6 @@ func (f *RulesFile) read() (*RuleSet, error) {
 	return set, nil
 }
 
-// Run reloads the file every interval until ctx ends. It logs a reload error
-// once per distinct message, not on every tick.
 func (f *RulesFile) Run(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = fallbackPollInterval
@@ -134,7 +113,6 @@ func (f *RulesFile) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// noteError logs err unless it repeats prev and returns the text to remember.
 func (f *RulesFile) noteError(err error, prev string) string {
 	if err == nil {
 		return ""

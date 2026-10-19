@@ -9,11 +9,9 @@ import (
 	"github.com/miekg/dns"
 )
 
-// plainUpstream speaks classic DNS over UDP, or over TCP. A UDP exchange whose
-// reply is truncated is repeated over TCP.
 type plainUpstream struct {
-	network string // "udp" or "tcp"
-	addr    string // ip:port
+	network string
+	addr    string
 	timeout time.Duration
 }
 
@@ -24,8 +22,6 @@ func newPlain(network, addr string, timeout time.Duration) *plainUpstream {
 func (u *plainUpstream) Address() string { return u.addr }
 func (u *plainUpstream) Close() error    { return nil }
 
-// Exchange implements upstream. The query goes out under a fresh random ID, so
-// a spoofer who cannot read the query cannot guess it.
 func (u *plainUpstream) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, error) {
 	ctx, cancel := context.WithTimeout(ctx, u.timeout)
 	defer cancel()
@@ -53,9 +49,7 @@ func (u *plainUpstream) send(ctx context.Context, network string, sent *dns.Msg)
 		return nil, fmt.Errorf("%s %s: %w", network, u.addr, err)
 	}
 	defer conn.Close()
-	// miekg obeys the deadline of ctx but not its cancellation, so a query stuck
-	// at a silent server would outlive the shutdown. Closing the connection wakes
-	// the blocked read.
+
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 	resp, _, err := client.ExchangeWithConnContext(ctx, sent, conn)

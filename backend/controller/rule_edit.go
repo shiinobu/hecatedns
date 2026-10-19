@@ -16,8 +16,6 @@ const (
 	rulesFileMode = 0o600
 	rulesDirMode  = 0o700
 
-	// A reader (the server) may have the rules file open for a moment; on
-	// Windows a rename over an open file fails, so it is retried briefly.
 	renameAttempts = 5
 	renameWait     = 40 * time.Millisecond
 
@@ -26,15 +24,11 @@ const (
 	crlf          = "\r\n"
 )
 
-// rulesText is the rules file as lines, so that edits keep every comment and
-// even the lines the server skips exactly as the user wrote them.
 type rulesText struct {
 	lines []string
 	eol   string
 }
 
-// readRulesText reads path. A missing file is an empty file. A file larger than
-// the server reads is refused, because rewriting it would hide the problem.
 func readRulesText(path string) (rulesText, error) {
 	info, err := os.Stat(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -68,8 +62,6 @@ func parseRulesText(text string) rulesText {
 	return t
 }
 
-// parseLine parses one rules file line exactly as the server does, including
-// the rule that a line of MaxRuleLineBytes or more is ignored.
 func parseLine(line string) (engine.Rule, bool, error) {
 	if len(line) >= engine.MaxRuleLineBytes {
 		return engine.Rule{}, false, engine.ErrLineTooLong
@@ -77,8 +69,6 @@ func parseLine(line string) (engine.Rule, bool, error) {
 	return engine.ParseRuleLine(line)
 }
 
-// remove drops every line that holds a rule for domain, whatever its action,
-// and returns how many it dropped.
 func (t *rulesText) remove(domain string) int {
 	kept := t.lines[:0:0]
 	for i, line := range t.lines {
@@ -107,9 +97,6 @@ func (t rulesText) bytes() []byte {
 	return []byte(strings.Join(t.lines, t.eol) + t.eol)
 }
 
-// writeFileAtomic replaces path with data: write a temporary file in the same
-// directory, flush it to disk, then rename it over the target, so the server
-// never reads a half-written file.
 func writeFileAtomic(path string, data []byte) (err error) {
 	dir := filepath.Dir(path)
 	if err = os.MkdirAll(dir, rulesDirMode); err != nil {

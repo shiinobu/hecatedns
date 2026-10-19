@@ -1,7 +1,5 @@
 package lists
 
-// agy wrote this
-
 import (
 	"errors"
 	"strings"
@@ -109,12 +107,12 @@ func TestParse_DomainsAndCounts(t *testing.T) {
 		"; another comment",
 		"",
 		"ads.example.com",
-		"ADS.EXAMPLE.COM.", // duplicate after normalization
+		"ADS.EXAMPLE.COM.",
 		"*.popups.example.net # trailing comment",
-		"com",                // rejected: single label
-		"10.0.0.1",           // rejected: IP
-		"||bad.example.org^", // rejected: adblock syntax
-		"tracker.example.id", // valid
+		"com",
+		"10.0.0.1",
+		"||bad.example.org^",
+		"tracker.example.id",
 	}, "\r\n")
 
 	set, rejected, err := Parse(strings.NewReader(input), config.FormatDomains)
@@ -156,9 +154,9 @@ func TestParse_HostsPreambleAndRejections(t *testing.T) {
 		"0.0.0.0 0.0.0.0",
 		"0.0.0.0 ad1.example.com",
 		"127.0.0.1 ad2.example.org ; comment",
-		"0.0.0.0",                     // rejected
-		"8.8.8.8 dns.google",          // rejected
-		"0.0.0.0 a.example b.example", // rejected
+		"0.0.0.0",
+		"8.8.8.8 dns.google",
+		"0.0.0.0 a.example b.example",
 	}, "\n")
 
 	set, rejected, err := Parse(strings.NewReader(input), config.FormatHosts)
@@ -180,7 +178,6 @@ func TestParse_HostsPreambleAndRejections(t *testing.T) {
 }
 
 func TestParse_OverlongLineSkippedAndCounted(t *testing.T) {
-	// Include both a >4 KiB line (< readBufSize) and a >64 KiB line (> readBufSize).
 	over4k := "#" + strings.Repeat("x", MaxLineBytes+500)
 	over64k := strings.Repeat("y", (64<<10)+500)
 	input := "first.example.com\n" + over4k + "\n" + over64k + "\nsecond.example.com"
@@ -216,20 +213,17 @@ func TestParse_BoundsAndUnknownFormat(t *testing.T) {
 		t.Fatalf("ParseLine unknown format err = %v, want %v", err, ErrUnknownFormat)
 	}
 
-	// Entry count bound via parseWithLimits.
 	many := "a.example.com\nb.example.com\nc.example.com\n"
 	if _, _, err := parseWithLimits(strings.NewReader(many), config.FormatDomains, MaxListBytes, 2); !errors.Is(err, ErrTooManyEntries) {
 		t.Fatalf("parseWithLimits entry cap err = %v, want %v", err, ErrTooManyEntries)
 	}
 
-	// Duplicate entries within the cap must not trigger ErrTooManyEntries.
 	dups := "a.example.com\na.example.com\nb.example.com\n"
 	set, _, err := parseWithLimits(strings.NewReader(dups), config.FormatDomains, MaxListBytes, 2)
 	if err != nil || set.Len() != 2 {
 		t.Fatalf("parseWithLimits duplicates = (len %d, %v), want (2, nil)", set.Len(), err)
 	}
 
-	// Stream size bound via parseWithLimits.
 	if _, _, err := parseWithLimits(strings.NewReader(many), config.FormatDomains, 10, MaxEntries); !errors.Is(err, ErrListTooLarge) {
 		t.Fatalf("parseWithLimits byte cap err = %v, want %v", err, ErrListTooLarge)
 	}

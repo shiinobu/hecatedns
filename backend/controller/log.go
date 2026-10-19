@@ -16,13 +16,10 @@ const (
 	defaultLogWindow = 30 * time.Second
 )
 
-// runLog implements `hecate log`: print the query log, newest part of it.
 func runLog(args []string, stdout, stderr io.Writer) int {
 	return runLogAt(args, stdout, stderr, time.Now())
 }
 
-// runLogAt is runLog with an explicit clock, so tests can fix "now". The local
-// zone of now decides the day files and the printed times.
 func runLogAt(args []string, stdout, stderr io.Writer, now time.Time) int {
 	flags := flag.NewFlagSet("log", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -54,8 +51,6 @@ func runLogAt(args []string, stdout, stderr io.Writer, now time.Time) int {
 	return printLog(cfg, filter, stdout, stderr)
 }
 
-// buildLogFilter turns -since or -around into a time window. They exclude each
-// other; with neither, the last defaultLogSince is shown.
 func buildLogFilter(now time.Time, since, around string, window time.Duration) (qlog.Filter, error) {
 	filter := qlog.Filter{Location: now.Location()}
 	switch {

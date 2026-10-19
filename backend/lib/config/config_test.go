@@ -13,8 +13,6 @@ import (
 
 const exampleConfigPath = "../../../configs/hecate.example.yaml"
 
-// writeConfig writes content to a fresh temp directory and returns the file
-// path and the directory.
 func writeConfig(t *testing.T, content string) (path, dir string) {
 	t.Helper()
 	dir = t.TempDir()

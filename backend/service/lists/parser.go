@@ -1,7 +1,5 @@
 package lists
 
-// agy wrote this
-
 import (
 	"bufio"
 	"bytes"
@@ -14,16 +12,11 @@ import (
 	"github.com/shiinobu/hecatedns/backend/lib/config"
 )
 
-// Limits applied when parsing an untrusted blocklist stream.
 const (
-	// MaxLineBytes is the byte length from which a single list line is
-	// rejected without allocating a larger buffer.
 	MaxLineBytes = 4096
 
-	// MaxListBytes is the maximum decoded byte size of one list (64 MiB).
 	MaxListBytes = 64 << 20
 
-	// MaxEntries is the maximum number of distinct domains accepted from one list.
 	MaxEntries = 1_000_000
 
 	readBufSize  = 32 << 10
@@ -31,7 +24,6 @@ const (
 	utf8BOM      = "\xef\xbb\xbf"
 )
 
-// Errors returned by Parse and ParseLine. Messages never echo untrusted input.
 var (
 	ErrUnknownFormat  = errors.New("unknown list format, want domains or hosts")
 	ErrLineTooLong    = errors.New("list line is longer than 4096 bytes")
@@ -40,11 +32,6 @@ var (
 	ErrTooManyEntries = errors.New("list exceeds maximum entry count")
 )
 
-// Parse reads a blocklist stream in format ("domains" or "hosts"), validates
-// every entry with engine.ParseEntry, and returns an immutable DomainSet
-// along with the number of rejected lines. Blank lines, comments (#, !, ;)
-// and localhost boilerplate in hosts files are ignored without counting as
-// rejected. Streams larger than MaxListBytes or exceeding MaxEntries fail.
 func Parse(r io.Reader, format string) (set *engine.DomainSet, rejected int, err error) {
 	return parseWithLimits(r, format, MaxListBytes, MaxEntries)
 }
@@ -92,10 +79,6 @@ func parseWithLimits(r io.Reader, format string, maxBytes int64, maxEntries int)
 	return builder.Build(), rejected, nil
 }
 
-// readBoundedLine reads one line from br (whose buffer is larger than
-// MaxLineBytes). If the line is at least MaxLineBytes long after stripping a
-// leading BOM (on line 1) and trailing CRLF/LF, it drains until the next
-// newline and returns overlong=true.
 func readBoundedLine(br *bufio.Reader, stripBOM bool) (line []byte, overlong bool, err error) {
 	slice, err := br.ReadSlice('\n')
 	if errors.Is(err, bufio.ErrBufferFull) {
@@ -119,9 +102,6 @@ func trimLineEnd(b []byte) []byte {
 	return bytes.TrimSuffix(b, []byte("\r"))
 }
 
-// ParseLine parses a single line in format ("domains" or "hosts"). It returns
-// ok=false and err=nil for blank lines, comments (#, !, ;) and ignored
-// localhost entries in hosts format.
 func ParseLine(line, format string) (domain string, ok bool, err error) {
 	if !validFormat(format) {
 		return "", false, ErrUnknownFormat

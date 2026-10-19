@@ -12,13 +12,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Backend names accepted by the backend setting.
 const (
 	BackendDNSProxy = "dnsproxy"
 	BackendNative   = "native"
 )
 
-// Block modes: the shape of the answer returned for a blocked name.
 const (
 	ModeNullIP   = "null_ip"
 	ModeNXDomain = "nxdomain"
@@ -26,7 +24,6 @@ const (
 	ModeRefused  = "refused"
 )
 
-// Blocklist source kinds and formats.
 const (
 	KindBlock     = "block"
 	KindAllow     = "allow"
@@ -50,8 +47,6 @@ const (
 	utf8BOM = "\xef\xbb\xbf"
 )
 
-// Config is the complete hecate configuration. Keys omitted from the YAML file
-// keep the values from Default().
 type Config struct {
 	Backend        string       `yaml:"backend"`
 	Listen         []string     `yaml:"listen"`
@@ -67,7 +62,6 @@ type Config struct {
 	DataDir        string       `yaml:"data_dir"`
 }
 
-// Cache configures the answer cache of the selected backend.
 type Cache struct {
 	Enabled bool          `yaml:"enabled"`
 	SizeMB  int           `yaml:"size_mb"`
@@ -75,25 +69,21 @@ type Cache struct {
 	MaxTTL  time.Duration `yaml:"max_ttl"`
 }
 
-// Block configures the answer returned for a blocked name.
 type Block struct {
 	Mode string        `yaml:"mode"`
 	TTL  time.Duration `yaml:"ttl"`
 }
 
-// SpecialNames toggles the handling of names that steer client behaviour.
 type SpecialNames struct {
 	FirefoxCanary bool `yaml:"firefox_canary"`
 	DDR           bool `yaml:"ddr"`
 }
 
-// Lists configures the blocklist sources and how often they are refreshed.
 type Lists struct {
 	UpdateInterval time.Duration `yaml:"update_interval"`
 	Sources        []Source      `yaml:"sources"`
 }
 
-// Source is one downloadable blocklist.
 type Source struct {
 	Name    string `yaml:"name"`
 	URL     string `yaml:"url"`
@@ -102,14 +92,8 @@ type Source struct {
 	Enabled bool   `yaml:"enabled"`
 }
 
-// sourceKeys are the keys a list source may have; UnmarshalYAML rejects any
-// other, because its own decoding step is not strict.
 var sourceKeys = map[string]bool{"name": true, "url": true, "kind": true, "format": true, "enabled": true}
 
-// UnmarshalYAML decodes a source in which an omitted enabled key means true: a
-// list somebody wrote down is meant to be used, and a silent false would leave
-// the server without protection. A node.Decode call is not strict, so unknown
-// keys are rejected here by hand; duplicate keys are still caught by the decoder.
 func (s *Source) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(node.Content); i += 2 {
@@ -128,13 +112,11 @@ func (s *Source) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-// Rules configures the custom allow/block rules file.
 type Rules struct {
 	File         string        `yaml:"file"`
 	PollInterval time.Duration `yaml:"poll_interval"`
 }
 
-// Log configures the query log.
 type Log struct {
 	Enabled       bool   `yaml:"enabled"`
 	Dir           string `yaml:"dir"`
@@ -142,8 +124,6 @@ type Log struct {
 	MaxMBPerDay   int    `yaml:"max_mb_per_day"`
 }
 
-// Default returns the built-in configuration. Every call returns fresh
-// slices, so callers may modify the result freely.
 func Default() Config {
 	return Config{
 		Backend:        BackendDNSProxy,
@@ -161,9 +141,6 @@ func Default() Config {
 	}
 }
 
-// Load reads the YAML file at path, decodes it strictly over Default() (an
-// unknown or duplicated key is an error), resolves relative paths against
-// the directory that contains the file, and validates the result.
 func Load(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -184,9 +161,6 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
-// decodeStrict decodes the single YAML document in data into cfg, tolerating
-// a UTF-8 BOM and treating an empty document as "no overrides". A second
-// document is an error, because its settings would be silently ignored.
 func decodeStrict(data []byte, cfg *Config) error {
 	dec := yaml.NewDecoder(bytes.NewReader(bytes.TrimPrefix(data, []byte(utf8BOM))))
 	dec.KnownFields(true)
@@ -207,14 +181,12 @@ func decodeStrict(data []byte, cfg *Config) error {
 	}
 }
 
-// resolvePaths makes the relative path settings absolute against baseDir.
 func resolvePaths(cfg *Config, baseDir string) {
 	cfg.DataDir = absFrom(baseDir, cfg.DataDir)
 	cfg.Rules.File = absFrom(baseDir, cfg.Rules.File)
 	cfg.Log.Dir = absFrom(baseDir, cfg.Log.Dir)
 }
 
-// absFrom joins p onto base unless p is empty or already absolute.
 func absFrom(base, p string) string {
 	if p == "" || filepath.IsAbs(p) {
 		return p

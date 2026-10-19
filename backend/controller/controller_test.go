@@ -14,8 +14,6 @@ import (
 	"github.com/shiinobu/hecatedns/backend/service/lists"
 )
 
-const exampleConfig = "../../configs/hecate.example.yaml"
-
 func writeFile(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
@@ -25,7 +23,6 @@ func writeFile(t *testing.T, dir, name, content string) string {
 	return path
 }
 
-// agy wrote this
 func startTestDNSUpstream(t *testing.T, forceSafeSearch bool) string {
 	t.Helper()
 	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -65,7 +62,6 @@ func TestRun(t *testing.T) {
 	missing := filepath.Join(dir, "missing.yaml")
 	invalid := writeFile(t, dir, "invalid.yaml", "backend: nope\n")
 
-	// agy wrote this
 	okUpstream := startTestDNSUpstream(t, false)
 	safeSearchUpstream := startTestDNSUpstream(t, true)
 
@@ -147,7 +143,7 @@ func TestUsageListsOnlyWhatIsStillMissing(t *testing.T) {
 	if code := Execute(nil, &bytes.Buffer{}, &stderr); code != exitUsage {
 		t.Fatalf("exit = %d, want %d", code, exitUsage)
 	}
-	// agy wrote this
+
 	for _, line := range strings.Split(stderr.String(), "\n") {
 		for _, done := range []string{"check", "run", "log", "rule", "lists"} {
 			if strings.HasPrefix(strings.TrimSpace(line), done+" ") && strings.Contains(line, "belum diimplementasi") {

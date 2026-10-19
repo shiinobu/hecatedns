@@ -158,8 +158,7 @@ func TestUpstreamDownGivesServfailAndErrorRecord(t *testing.T) {
 	}
 	cfg := testConfig(deadAddr)
 	rec := &memRecorder{}
-	// Windows reports no ICMP error for UDP, so the dead upstream is only
-	// noticed by the timeout; keep it short.
+
 	s, err := newServer(cfg, newTestEngine(t, cfg, "", nil, rec), nil, 200*time.Millisecond)
 	if err != nil {
 		t.Fatalf("newServer: %v", err)
@@ -177,7 +176,6 @@ func TestUpstreamDownGivesServfailAndErrorRecord(t *testing.T) {
 	}
 }
 
-// panicFilter panics in the named stage and otherwise passes everything.
 type panicFilter struct{ stage string }
 
 func (f panicFilter) Before(context.Context, engine.Query) engine.Decision {
@@ -252,11 +250,6 @@ func TestRunTwiceFails(t *testing.T) {
 	}
 }
 
-// occupyTCPPortWithFreeUDP returns a TCP listener whose port number can still
-// be bound over UDP. dnsproxy binds UDP first, so the TCP bind is then the one
-// that fails, which is what the bind-failure test is about. Picking a TCP port
-// first does not work on Windows: its excluded UDP port ranges (Hyper-V,
-// WinNAT) can make the UDP bind fail instead.
 func occupyTCPPortWithFreeUDP(t *testing.T) net.Listener {
 	t.Helper()
 	for attempt := 0; attempt < 50; attempt++ {
@@ -331,7 +324,6 @@ func TestNewReportsConfigErrors(t *testing.T) {
 	}
 }
 
-// blockFirstAfter blocks the first answer it sees in After and passes the rest.
 type blockFirstAfter struct{ calls atomic.Int64 }
 
 func (f *blockFirstAfter) Before(context.Context, engine.Query) engine.Decision {
@@ -347,9 +339,6 @@ func (f *blockFirstAfter) After(_ context.Context, q engine.Query, _ *dns.Msg, _
 
 func (f *blockFirstAfter) Failed(context.Context, engine.Query, error) {}
 
-// TestAfterBlockReplacesAnswerButNotCache proves that a Block from After
-// reaches the client while dnsproxy's cache keeps the upstream answer, which
-// the Phase 2 CNAME check relies on.
 func TestAfterBlockReplacesAnswerButNotCache(t *testing.T) {
 	up := startFakeUpstream(t, 300)
 	s, err := newServer(testConfig(up.addr), &blockFirstAfter{}, nil, UpstreamTimeout)
@@ -377,8 +366,6 @@ func TestPrivateReverseLookupIsRecordedAsAnsweredNotAsAFailure(t *testing.T) {
 
 	resp := exchange(t, "udp", r.addr(t, core.NetworkUDP), "1.1.168.192.in-addr.arpa", dns.TypePTR, 7)
 
-	// dnsproxy has no private reverse upstream configured, so it answers
-	// NXDOMAIN itself. That is an answered query, not an upstream failure.
 	if resp.Rcode != dns.RcodeNameError {
 		t.Fatalf("rcode %s, want NXDOMAIN", dns.RcodeToString[resp.Rcode])
 	}

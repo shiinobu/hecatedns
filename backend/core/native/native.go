@@ -15,7 +15,6 @@ import (
 	"github.com/shiinobu/hecatedns/backend/lib/config"
 )
 
-// Name is the name of this backend in the configuration.
 const Name = config.BackendNative
 
 var errRunTwice = errors.New("native backend: Run may be called only once, build a new backend")
@@ -25,8 +24,6 @@ var (
 	_ core.Bound   = (*server)(nil)
 )
 
-// server is the native backend: UDP and TCP listeners on every listen address,
-// a handler, a cache and an upstream pool. It is single-use.
 type server struct {
 	addrs   []netip.AddrPort
 	handler *handler
@@ -39,9 +36,6 @@ type server struct {
 	tcpAddr   atomic.Pointer[net.Addr]
 }
 
-// New builds the native backend; it is a core.Factory. The returned backend
-// also implements core.Bound. Configuration errors are reported here, not by
-// Run, and nothing stays open on error.
 func New(deps core.Deps) (core.Backend, error) {
 	if deps.Engine == nil {
 		return nil, errors.New("native backend: an engine is required")
@@ -49,8 +43,6 @@ func New(deps core.Deps) (core.Backend, error) {
 	return newServer(deps.Cfg, deps.Engine, deps.Log, upstreamTimeout)
 }
 
-// newServer builds a server around any Filter and upstream timeout, so tests can
-// inject a fake filter and fail fast against a dead upstream.
 func newServer(cfg config.Config, f Filter, log *slog.Logger, timeout time.Duration) (*server, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
@@ -68,11 +60,8 @@ func newServer(cfg config.Config, f Filter, log *slog.Logger, timeout time.Durat
 	return &server{addrs: addrs, handler: h, up: up, ready: make(chan struct{})}, nil
 }
 
-// Name implements core.Backend.
 func (s *server) Name() string { return Name }
 
-// Run implements core.Backend: it binds, serves until ctx ends, then shuts
-// down. A bind failure is returned at once. Ready is closed in every case.
 func (s *server) Run(ctx context.Context) (err error) {
 	if !s.ran.CompareAndSwap(false, true) {
 		return errRunTwice
@@ -88,7 +77,6 @@ func (s *server) Run(ctx context.Context) (err error) {
 	s.udpAddr.Store(&udp)
 	s.tcpAddr.Store(&tcp)
 
-	// Queries run under this context, which is cancelled when the shutdown begins.
 	queries, stopQueries := context.WithCancel(context.Background())
 	defer stopQueries()
 	s.handler.base = queries
@@ -103,11 +91,8 @@ func (s *server) markReady() {
 	s.readyOnce.Do(func() { close(s.ready) })
 }
 
-// Ready implements core.Bound.
 func (s *server) Ready() <-chan struct{} { return s.ready }
 
-// Addr implements core.Bound. It is nil before the sockets are bound, after a
-// failed bind, and for a network other than udp or tcp.
 func (s *server) Addr(network string) net.Addr {
 	var p *net.Addr
 	switch network {

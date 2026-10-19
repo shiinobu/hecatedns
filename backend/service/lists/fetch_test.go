@@ -1,7 +1,5 @@
 package lists
 
-// agy wrote this
-
 import (
 	"compress/gzip"
 	"context"
@@ -69,7 +67,6 @@ func TestFetcher_FetchAndCache(t *testing.T) {
 		t.Errorf("fetched DomainSet did not match expected entries")
 	}
 
-	// Verify files on disk and LoadCached.
 	set, meta, err := LoadCached(dir, src)
 	if err != nil {
 		t.Fatalf("LoadCached: %v", err)
@@ -112,7 +109,6 @@ func TestFetcher_ConditionalGet304(t *testing.T) {
 		t.Fatalf("first Fetch: %v", err)
 	}
 
-	// Advance clock and fetch again -> 304 Not Modified.
 	later := now.Add(time.Hour)
 	f.Now = func() time.Time { return later }
 	res, err := f.Fetch(context.Background(), src)
@@ -131,8 +127,6 @@ func TestFetcher_ConditionalGet304(t *testing.T) {
 }
 
 func TestFetcher_GzipDecodedCapEnforced(t *testing.T) {
-	// Serve gzip-compressed payload whose compressed size is tiny (< 1 KiB)
-	// but whose decoded size exceeds MaxBytes (4 KiB in this test).
 	srv, client := newTLSServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Encoding", "gzip")
 		gz := gzip.NewWriter(w)
@@ -146,7 +140,7 @@ func TestFetcher_GzipDecodedCapEnforced(t *testing.T) {
 	f := &Fetcher{
 		Dir:      dir,
 		Client:   client,
-		MaxBytes: 1024, // 1 KiB decoded limit
+		MaxBytes: 1024,
 	}
 	src := testSource(srv.URL + "/bomb.txt")
 
@@ -181,7 +175,6 @@ func TestFetcher_FailureKeepsOldCache(t *testing.T) {
 		t.Fatalf("expected error on 502 response, got nil")
 	}
 
-	// Old cache must remain intact.
 	set, _, err := LoadCached(dir, src)
 	if err != nil {
 		t.Fatalf("LoadCached after failed fetch: %v", err)
@@ -223,17 +216,14 @@ func TestFetcher_RejectsHTTPAndInsecureRedirectAndEmptyList(t *testing.T) {
 	dir := t.TempDir()
 	f := &Fetcher{Dir: dir, Client: client}
 
-	// Plain HTTP URL rejected.
 	if _, err := f.Fetch(context.Background(), testSource(httpSrv.URL+"/list.txt")); !errors.Is(err, ErrHTTPSRequired) {
 		t.Fatalf("Fetch http:// err = %v, want %v", err, ErrHTTPSRequired)
 	}
 
-	// Redirect from HTTPS to HTTP rejected.
 	if _, err := f.Fetch(context.Background(), testSource(redirSrv.URL+"/to-http")); !errors.Is(err, ErrHTTPSRequired) {
 		t.Fatalf("Fetch redirect to http:// err = %v, want %v", err, ErrHTTPSRequired)
 	}
 
-	// Exactly 5 HTTPS redirects succeed.
 	hopRes, err := f.Fetch(context.Background(), testSource(redirSrv.URL+"/hop1"))
 	if err != nil {
 		t.Fatalf("Fetch 5 HTTPS redirects err = %v, want nil", err)
@@ -242,17 +232,14 @@ func TestFetcher_RejectsHTTPAndInsecureRedirectAndEmptyList(t *testing.T) {
 		t.Errorf("expected five-hops.example.com to match after 5 redirects")
 	}
 
-	// Redirect loop (> 5 redirects) rejected.
 	if _, err := f.Fetch(context.Background(), testSource(redirSrv.URL+"/loop")); !errors.Is(err, ErrTooManyRedirects) {
 		t.Fatalf("Fetch redirect loop err = %v, want %v", err, ErrTooManyRedirects)
 	}
 
-	// Empty list (0 valid domains) rejected so an HTML error page cannot wipe protection.
 	if _, err := f.Fetch(context.Background(), testSource(redirSrv.URL+"/empty")); !errors.Is(err, ErrEmptyList) {
 		t.Fatalf("Fetch empty list err = %v, want %v", err, ErrEmptyList)
 	}
 
-	// Unsafe list name rejected.
 	badSrc := testSource(redirSrv.URL + "/empty")
 	badSrc.Name = "../escape"
 	if _, err := f.Fetch(context.Background(), badSrc); !errors.Is(err, ErrBadListName) {
@@ -279,14 +266,12 @@ func TestFetcher_TimeoutAbortsSlowServer(t *testing.T) {
 }
 
 func TestBootstrapResolver_FailsOverFromSilentUDPAndReusesTransport(t *testing.T) {
-	// First bootstrap server is a silent UDP blackhole that never replies.
 	blackholePC, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen blackhole udp: %v", err)
 	}
 	t.Cleanup(func() { _ = blackholePC.Close() })
 
-	// Second bootstrap server is a working fake DNS server on 127.0.0.1:0.
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen udp: %v", err)
@@ -346,7 +331,6 @@ func TestBootstrapResolver_FailsOverFromSilentUDPAndReusesTransport(t *testing.T
 		t.Errorf("expected fake bootstrap DNS server to receive queries, got 0")
 	}
 
-	// Second call with Client == nil must reuse the same *http.Transport instance.
 	tr1 := f.httpClient().Transport
 	tr2 := f.httpClient().Transport
 	if tr1 == nil || tr1 != tr2 {
@@ -368,7 +352,7 @@ func TestFetcher_OrphanedMetaWithoutListFileDoesNotSendETag(t *testing.T) {
 
 	dir := t.TempDir()
 	src := testSource(srv.URL + "/list.txt")
-	// Write only <name>.meta.json without <name>.txt.
+
 	if err := writeMetaAtomic(dir, src.Name, Meta{ETag: `"v1"`, Count: 1}); err != nil {
 		t.Fatalf("writeMetaAtomic: %v", err)
 	}

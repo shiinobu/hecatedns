@@ -15,8 +15,6 @@ import (
 	"github.com/shiinobu/hecatedns/backend/lib/config"
 )
 
-// startNative runs a native backend on a random loopback port against up, until
-// the test ends.
 func startNative(t *testing.T, mutate func(*config.Config)) (*server, <-chan error) {
 	t.Helper()
 	cfg := config.Default()
@@ -86,7 +84,7 @@ func TestServer_IgnoresGarbageAndKeepsServing(t *testing.T) {
 	for _, junk := range [][]byte{{1, 2, 3}, make([]byte, 5000), []byte("GET / HTTP/1.1\r\n\r\n")} {
 		_, _ = conn.Write(junk)
 	}
-	// A response (QR set) must not be answered either.
+
 	echo := queryFor("fine.example", dns.TypeA)
 	echo.Response = true
 	wire, _ := echo.Pack()
@@ -249,7 +247,7 @@ func TestLimitListener_WaitsForAFreeSlotAndReleasesOnClose(t *testing.T) {
 	}
 
 	_ = first.Close()
-	_ = first.Close() // closing twice must not free a second slot
+	_ = first.Close()
 	select {
 	case err := <-third:
 		if err != nil {
@@ -266,7 +264,7 @@ func TestLimitListener_CloseWakesAWaitingAccept(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := newLimitListener(raw, 1, 10)
-	l.slots <- struct{}{} // take the only slot
+	l.slots <- struct{}{}
 
 	done := make(chan error, 1)
 	go func() {
@@ -286,7 +284,6 @@ func TestLimitListener_CloseWakesAWaitingAccept(t *testing.T) {
 	}
 }
 
-// errReader is a dns.Reader whose reads all fail with err.
 type errReader struct{ err error }
 
 func (r errReader) ReadTCP(net.Conn, time.Duration) ([]byte, error) { return nil, r.err }
@@ -447,8 +444,7 @@ func TestLimitListener_EveryRejectedConnectionGivesItsSlotBack(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("the first connection was not accepted")
 	}
-	// Each of these is over the per-address limit. If a rejection kept its slot,
-	// two of them would fill the listener and the rest would never be looked at.
+
 	for i := 0; i < 5; i++ {
 		c := dial()
 		_ = c.SetReadDeadline(time.Now().Add(time.Second))
@@ -523,9 +519,7 @@ func TestServer_ReplyToAQueryWithABrokenBodyIsNeverLargerThanTheQuery(t *testing
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	// A header that passes acceptMsg (one question) followed by half a name:
-	// miekg itself answers FORMERR before the rate limiter, ACL and query log
-	// see it. Whatever comes back must not be an amplifier.
+
 	msg := []byte{0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0, 3, 'a', 'b'}
 	if _, err := conn.Write(msg); err != nil {
 		t.Fatal(err)

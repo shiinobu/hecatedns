@@ -11,7 +11,6 @@ import (
 	"github.com/shiinobu/hecatedns/backend/engine"
 )
 
-// fakeFilter returns a fixed Before decision and remembers the query.
 type fakeFilter struct {
 	before engine.Decision
 	got    engine.Query
@@ -48,8 +47,6 @@ func TestHandlerBlockAnswersWithoutResolve(t *testing.T) {
 	f := &fakeFilter{before: engine.Decision{Verdict: engine.Block, Resp: blockResp}}
 	h := &handler{filter: f, log: discardLog}
 
-	// A nil *proxy.Proxy panics if Resolve is called, which would replace the
-	// block answer with SERVFAIL.
 	err := h.ServeDNS(context.Background(), nil, dctx)
 
 	if err != nil || dctx.Res != blockResp {
@@ -83,8 +80,6 @@ func TestHandlerNeverLeavesResponseNil(t *testing.T) {
 }
 
 func TestHandlerFilterPanicFailsClosed(t *testing.T) {
-	// A panic before Before has returned leaves it unknown whether the client
-	// passed the ACL, so the safe answer is REFUSED, never an unfiltered Resolve.
 	dctx := newDNSContext()
 	h := &handler{filter: &fakeFilter{panics: true}, log: discardLog}
 

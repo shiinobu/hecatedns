@@ -13,8 +13,6 @@ import (
 
 const defaultConfigPath = "hecate.yaml"
 
-// runCheck loads and validates a configuration file, runs the self-check suite
-// and prints a summary.
 func runCheck(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("check", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -34,7 +32,6 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	}
 	printSummary(stdout, *path, cfg)
 
-	// agy wrote this
 	res, err := selfcheck.Run(context.Background(), cfg, selfcheck.Options{})
 	for _, w := range res.Warnings {
 		fmt.Fprintf(stdout, "peringatan: %s\n", w)
@@ -60,7 +57,6 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// printSummary writes the human-readable result of a valid configuration.
 func printSummary(w io.Writer, path string, cfg config.Config) {
 	fmt.Fprintf(w, "konfigurasi valid: %s\n", path)
 	fmt.Fprintf(w, "backend: %s\n", cfg.Backend)
@@ -72,7 +68,6 @@ func printSummary(w io.Writer, path string, cfg config.Config) {
 	}
 }
 
-// enabledSources counts the blocklist sources that are switched on.
 func enabledSources(cfg config.Config) int {
 	count := 0
 	for _, source := range cfg.Lists.Sources {

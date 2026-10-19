@@ -25,14 +25,11 @@ const (
 	upstreamTTL = 300
 )
 
-// Documentation-range addresses (RFC 5737, RFC 3849) the fake upstream answers.
 var (
 	upstreamA    = net.IPv4(192, 0, 2, 1)
 	upstreamAAAA = net.ParseIP("2001:db8::1")
 )
 
-// fakeUpstream is a plain DNS server on loopback that answers A and AAAA for any
-// name, answers everything else with NODATA, and counts what it was asked.
 type fakeUpstream struct {
 	addr string
 
@@ -66,7 +63,6 @@ func (u *fakeUpstream) serve(w dns.ResponseWriter, req *dns.Msg) {
 		chain := u.cnames[lower]
 		u.mu.Unlock()
 
-		// agy wrote this
 		owner := q.Name
 		for _, target := range chain {
 			fqdn := dns.Fqdn(target)
@@ -83,24 +79,20 @@ func (u *fakeUpstream) serve(w dns.ResponseWriter, req *dns.Msg) {
 		case dns.TypeAAAA:
 			resp.Answer = append(resp.Answer, &dns.AAAA{Hdr: hdr, AAAA: upstreamAAAA})
 		case dns.TypeHTTPS:
-			// agy wrote this
 			resp.Answer = append(resp.Answer, &dns.HTTPS{SVCB: dns.SVCB{Hdr: hdr, Priority: 1, Target: "."}})
 		case dns.TypeSVCB:
-			// agy wrote this
 			resp.Answer = append(resp.Answer, &dns.SVCB{Hdr: hdr, Priority: 1, Target: "."})
 		}
 	}
 	_ = w.WriteMsg(resp)
 }
 
-// queries returns how many queries for name (any type) reached the upstream.
 func (u *fakeUpstream) queries(name string) int {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	return u.seen[strings.ToLower(name)]
 }
 
-// recorder collects the query-log entries the engine writes.
 type recorder struct {
 	mu      sync.Mutex
 	entries []engine.Entry
@@ -118,8 +110,6 @@ func (r *recorder) snapshot() []engine.Entry {
 	return append([]engine.Entry(nil), r.entries...)
 }
 
-// setup describes one scenario: which clients are allowed and which rules and
-// lists the engine starts with.
 type setup struct {
 	allowedClients []string
 	rules          string
@@ -128,7 +118,6 @@ type setup struct {
 	cnames         map[string][]string
 }
 
-// harness is one running backend with a fake upstream and a recording engine.
 type harness struct {
 	t        *testing.T
 	upstream *fakeUpstream
@@ -136,8 +125,6 @@ type harness struct {
 	bound    core.Bound
 }
 
-// start builds the engine and the backend from s and runs the backend until the
-// test ends.
 func start(t *testing.T, factory core.Factory, s setup) *harness {
 	t.Helper()
 	h := &harness{t: t, upstream: startUpstream(t, s.cnames), log: &recorder{}}
@@ -208,7 +195,7 @@ func (h *harness) newEngine(cfg config.Config, s setup) *engine.Engine {
 	if _, err := rules.Reload(); err != nil {
 		t.Fatalf("load rules: %v", err)
 	}
-	// agy wrote this
+
 	eng, err := engine.New(engine.Options{ACL: acl, Rules: rules, Responder: responder, Special: cfg.SpecialNames, Recorder: h.log})
 	if err != nil {
 		t.Fatalf("engine: %v", err)
@@ -231,7 +218,6 @@ func buildLists(t *testing.T, s setup) *engine.ListSet {
 	return engine.NewListSet(allow, block)
 }
 
-// ask sends one query over proto ("udp" or "tcp") and returns the answer.
 func (h *harness) ask(proto, name string, qtype uint16) *dns.Msg {
 	h.t.Helper()
 	network := core.NetworkUDP
@@ -248,9 +234,6 @@ func (h *harness) ask(proto, name string, qtype uint16) *dns.Msg {
 	return resp
 }
 
-// entries waits until the engine has written n records and returns them. The
-// engine writes a forwarded query's record before the answer leaves, so this
-// normally returns at once; the wait only absorbs scheduling noise.
 func (h *harness) entries(n int) []engine.Entry {
 	h.t.Helper()
 	deadline := time.Now().Add(waitLimit)
@@ -266,7 +249,6 @@ func (h *harness) entries(n int) []engine.Entry {
 	}
 }
 
-// askOpcode sends a query whose opcode is not QUERY over UDP.
 func (h *harness) askOpcode(opcode int, name string, qtype uint16) *dns.Msg {
 	h.t.Helper()
 	req := new(dns.Msg)

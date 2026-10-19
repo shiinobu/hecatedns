@@ -14,25 +14,13 @@ import (
 const (
 	bytesPerMB = 1 << 20
 
-	// entryOverhead is the estimated cost of an entry beyond its packed message:
-	// the map slot, the list element, the key and the Msg struct.
 	entryOverhead = 128
 
-	// recordOverhead is the estimated heap cost of one resource record beyond its
-	// packed size (the interface value, the header, the name string). The packed
-	// length alone would let a cache full of small records use several times its
-	// configured size.
 	recordOverhead = 64
 
-	// minLifetime is the shortest remaining life an entry is still served with.
-	// A smaller value would show up as TTL 0, which clients read as "do not use".
 	minLifetime = time.Second
 )
 
-// cacheKey identifies an answer: the lower-cased question plus the DNSSEC OK
-// and Checking Disabled bits. A client that asks for DNSSEC records must not be
-// served an answer stored without them, and a client that wants validation must
-// not be served an answer fetched with validation switched off.
 type cacheKey struct {
 	name   string
 	qtype  uint16
@@ -41,8 +29,6 @@ type cacheKey struct {
 	do     bool
 }
 
-// cacheEntry is one stored answer. msg is never modified after it is stored, so
-// readers copy it outside the lock.
 type cacheEntry struct {
 	key      cacheKey
 	msg      *dns.Msg
@@ -51,13 +37,10 @@ type cacheEntry struct {
 	size     int
 }
 
-// cache is a TTL-aware answer cache with a byte limit and least-recently-used
-// eviction. It holds the UPSTREAM answer, unmodified by the engine, so the
-// engine's After runs on every hit. A nil *cache is a disabled cache.
 type cache struct {
 	mu     sync.Mutex
 	items  map[cacheKey]*list.Element
-	order  *list.List // front is the most recently used
+	order  *list.List
 	used   int
 	limit  int
 	minTTL time.Duration
@@ -65,11 +48,8 @@ type cache struct {
 	now    func() time.Time
 }
 
-// newCache builds the cache from the configuration; it returns nil when the
-// cache is disabled.
 func newCache(cfg config.Cache) *cache { return newCacheAt(cfg, time.Now) }
 
-// newCacheAt is newCache with an injectable clock for tests.
 func newCacheAt(cfg config.Cache, now func() time.Time) *cache {
 	if !cfg.Enabled {
 		return nil
@@ -84,7 +64,6 @@ func newCacheAt(cfg config.Cache, now func() time.Time) *cache {
 	}
 }
 
-// cacheLimit converts megabytes to bytes without overflowing int.
 func cacheLimit(mb int) int {
 	switch {
 	case mb <= 0:
@@ -95,10 +74,6 @@ func cacheLimit(mb int) int {
 	return mb * bytesPerMB
 }
 
-// get returns a private copy of the stored answer for req, with the ID of req,
-// the question spelled as the client wrote it, and every TTL set to the life
-// the entry has left. It reports false for a miss, which includes an entry that
-// has just expired.
 func (c *cache) get(req *dns.Msg) (*dns.Msg, bool) {
 	if c == nil {
 		return nil, false
@@ -130,9 +105,6 @@ func (c *cache) get(req *dns.Msg) (*dns.Msg, bool) {
 	return out, true
 }
 
-// put stores resp as the answer to req if it is worth keeping: a NOERROR or
-// NXDOMAIN answer that is not truncated, matches the question and has a
-// lifetime. It stores a copy.
 func (c *cache) put(req, resp *dns.Msg) {
 	if c == nil || resp == nil {
 		return
@@ -166,9 +138,6 @@ func (c *cache) put(req, resp *dns.Msg) {
 	c.used += e.size
 }
 
-// lifetime reports how long resp may be served: the smallest TTL of its records
-// (for a negative answer the SOA TTL or minimum, whichever is smaller, RFC 2308),
-// clamped to the configured bounds.
 func (c *cache) lifetime(resp *dns.Msg) (time.Duration, bool) {
 	if !resp.Response || resp.Truncated {
 		return 0, false
@@ -196,14 +165,12 @@ func (c *cache) lifetime(resp *dns.Msg) (time.Duration, bool) {
 	return d, d >= minLifetime
 }
 
-// len reports the number of stored entries.
 func (c *cache) len() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.items)
 }
 
-// clear drops every entry.
 func (c *cache) clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -212,14 +179,12 @@ func (c *cache) clear() {
 	c.used = 0
 }
 
-// removeLocked removes one list element; the caller holds c.mu.
 func (c *cache) removeLocked(el *list.Element) {
 	e := c.order.Remove(el).(*cacheEntry)
 	delete(c.items, e.key)
 	c.used -= e.size
 }
 
-// keyFor derives the cache key; a message without exactly one question has none.
 func keyFor(req *dns.Msg) (cacheKey, bool) {
 	if req == nil || len(req.Question) != 1 {
 		return cacheKey{}, false
@@ -232,7 +197,6 @@ func keyFor(req *dns.Msg) (cacheKey, bool) {
 	return key, true
 }
 
-// answersQuestion reports whether resp repeats the single question of req.
 func answersQuestion(req, resp *dns.Msg) bool {
 	if len(resp.Question) != 1 {
 		return false
@@ -241,7 +205,6 @@ func answersQuestion(req, resp *dns.Msg) bool {
 	return a.Qtype == b.Qtype && a.Qclass == b.Qclass && dns.CanonicalName(a.Name) == dns.CanonicalName(b.Name)
 }
 
-// smallestTTL returns the smallest TTL among the records of the given sections.
 func smallestTTL(sections ...[]dns.RR) uint32 {
 	smallest := uint32(math.MaxUint32)
 	for _, section := range sections {
@@ -254,8 +217,6 @@ func smallestTTL(sections ...[]dns.RR) uint32 {
 	return smallest
 }
 
-// negativeTTL returns the lifetime of an answer without records, taken from the
-// SOA in its authority section; without an SOA there is nothing to go by.
 func negativeTTL(ns []dns.RR) (uint32, bool) {
 	for _, rr := range ns {
 		if soa, ok := rr.(*dns.SOA); ok {
@@ -265,8 +226,6 @@ func negativeTTL(ns []dns.RR) (uint32, bool) {
 	return 0, false
 }
 
-// withoutOPT returns the records without any OPT pseudo-record. It builds a new
-// slice and leaves the argument alone.
 func withoutOPT(rrs []dns.RR) []dns.RR {
 	out := make([]dns.RR, 0, len(rrs))
 	for _, rr := range rrs {
@@ -277,8 +236,6 @@ func withoutOPT(rrs []dns.RR) []dns.RR {
 	return out
 }
 
-// setTTL sets the TTL of every record of m except the OPT pseudo-record, where
-// the same field carries the extended rcode and flags.
 func setTTL(m *dns.Msg, ttl uint32) {
 	for _, section := range [][]dns.RR{m.Answer, m.Ns, m.Extra} {
 		for _, rr := range section {

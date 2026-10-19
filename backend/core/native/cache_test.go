@@ -12,7 +12,6 @@ import (
 	"github.com/shiinobu/hecatedns/backend/lib/config"
 )
 
-// fakeClock is a settable time source for cache tests.
 type fakeClock struct {
 	mu  sync.Mutex
 	now time.Time
@@ -47,7 +46,6 @@ func queryFor(name string, qtype uint16) *dns.Msg {
 	return req
 }
 
-// answerFor builds an upstream answer for req holding one A record.
 func answerFor(req *dns.Msg, ttl uint32) *dns.Msg {
 	resp := new(dns.Msg).SetReply(req)
 	resp.Answer = []dns.RR{&dns.A{
@@ -57,8 +55,6 @@ func answerFor(req *dns.Msg, ttl uint32) *dns.Msg {
 	return resp
 }
 
-// negativeFor builds an answer without records and with an SOA in the
-// authority section.
 func negativeFor(req *dns.Msg, rcode int, soaTTL, minimum uint32) *dns.Msg {
 	resp := new(dns.Msg).SetRcode(req, rcode)
 	resp.Ns = []dns.RR{&dns.SOA{
@@ -353,7 +349,7 @@ func TestCache_EvictsTheLeastRecentlyUsedWhenFull(t *testing.T) {
 		req := queryFor(fmt.Sprintf("name%d.example", i), dns.TypeA)
 		c.put(req, answerFor(req, 300))
 	}
-	// Touch name0 so name1 becomes the oldest.
+
 	if _, ok := c.get(queryFor("name0.example", dns.TypeA)); !ok {
 		t.Fatal("name0 missing before the cache is full")
 	}
@@ -437,8 +433,6 @@ func TestCache_ConcurrentUse(t *testing.T) {
 	}
 }
 
-// entrySize measures what one entry costs in the cache under test, so a test
-// can size the cache to hold an exact number of them.
 func entrySize(t *testing.T, c *cache, name string) int {
 	t.Helper()
 	req := queryFor(name, dns.TypeA)

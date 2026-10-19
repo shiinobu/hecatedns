@@ -199,7 +199,6 @@ func BenchmarkDomainSet_Match(b *testing.B) {
 	}
 }
 
-// agy wrote this
 func build250kListSet() *ListSet {
 	makeList := func(prefix string, n int) *DomainSet {
 		raw := make([]string, n)
@@ -216,7 +215,6 @@ func build250kListSet() *ListSet {
 	})
 }
 
-// agy wrote this
 func BenchmarkListSet_Lookup250k(b *testing.B) {
 	lists := build250kListSet()
 	queries := []string{
@@ -232,7 +230,6 @@ func BenchmarkListSet_Lookup250k(b *testing.B) {
 	}
 }
 
-// agy wrote this
 func TestListSet_Budget250k(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping 250k budget measurement in -short mode")
@@ -287,7 +284,6 @@ func TestListSet_Budget250k(t *testing.T) {
 	}
 }
 
-// agy wrote this
 func TestDomainSetBuilderAndFind(t *testing.T) {
 	b := NewDomainSetBuilder(4)
 	if n := b.AddNormalized("zeta.example.com"); n != 1 {
@@ -304,7 +300,6 @@ func TestDomainSetBuilderAndFind(t *testing.T) {
 		t.Fatalf("built DomainSet Len=%d Match=%v", set.Len(), set.Match("sub.alpha.example.com"))
 	}
 
-	// Find returns the lexicographically smallest entry satisfying the predicate.
 	got, ok := set.Find(func(entry string) bool {
 		return entry != "alpha.example.com"
 	})

@@ -1,7 +1,5 @@
 package lists
 
-// agy wrote this
-
 import (
 	"context"
 	"errors"
@@ -21,15 +19,13 @@ import (
 const (
 	defaultUpdateInterval = 24 * time.Hour
 	defaultPollInterval   = 5 * time.Second
-	jitterDivisor         = 10 // up to +10% jitter
+	jitterDivisor         = 10
 )
 
-// Swapper receives newly built list snapshots. *engine.Engine implements it.
 type Swapper interface {
 	SwapLists(set *engine.ListSet)
 }
 
-// ManagerOptions configures a Manager.
 type ManagerOptions struct {
 	Dir            string
 	Sources        []config.Source
@@ -47,9 +43,6 @@ type fileStamp struct {
 	modTime time.Time
 }
 
-// Manager loads cached blocklists at startup, refreshes them over HTTPS on a
-// jittered schedule, watches for on-disk updates (from `hecate lists update`),
-// and atomically publishes immutable *engine.ListSet snapshots.
 type Manager struct {
 	dir            string
 	sources        []config.Source
@@ -67,7 +60,6 @@ type Manager struct {
 	stamps map[string]fileStamp
 }
 
-// NewManager constructs a Manager from opts.
 func NewManager(opts ManagerOptions) *Manager {
 	log := opts.Log
 	if log == nil {
@@ -111,15 +103,10 @@ func defaultJitter(d time.Duration) time.Duration {
 	return time.Duration(rand.Int64N(int64(maxJ)))
 }
 
-// Snapshot returns the latest published ListSet, or nil if none was built yet.
 func (m *Manager) Snapshot() *engine.ListSet {
 	return m.current.Load()
 }
 
-// LoadCache loads all enabled cached lists from disk and publishes a snapshot.
-// Missing cache files are skipped quietly (they will be downloaded by Refresh);
-// damaged cache files are logged and returned as a joined error while the
-// remaining lists still load.
 func (m *Manager) LoadCache() (loaded int, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -153,9 +140,6 @@ func (m *Manager) LoadCache() (loaded int, err error) {
 	return loaded, errors.Join(errs...)
 }
 
-// ReloadCache checks whether any enabled list file on disk changed since the
-// last load or fetch (for example after `hecate lists update`) and publishes a
-// new snapshot when it did.
 func (m *Manager) ReloadCache() (changed bool, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -194,9 +178,6 @@ func (m *Manager) ReloadCache() (changed bool, err error) {
 	return changed, errors.Join(errs...)
 }
 
-// Refresh downloads all enabled lists over HTTPS, updates the on-disk cache,
-// and publishes a new snapshot. If a download fails, that list keeps its
-// previous in-memory and on-disk copy.
 func (m *Manager) Refresh(ctx context.Context) error {
 	type fetched struct {
 		src   config.Source
@@ -251,9 +232,6 @@ func (m *Manager) cachedSetIfStampMatches(name string) *engine.DomainSet {
 	return nil
 }
 
-// Run refreshes lists in the background immediately, then periodically every
-// UpdateInterval (+ jitter) while also polling disk stamps every PollInterval
-// until ctx ends.
 func (m *Manager) Run(ctx context.Context) {
 	_ = m.Refresh(ctx)
 

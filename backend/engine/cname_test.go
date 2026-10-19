@@ -1,7 +1,5 @@
 package engine
 
-// agy wrote this
-
 import (
 	"context"
 	"net/netip"
@@ -170,7 +168,6 @@ func TestAfter_MalformedInputsDoNotPanic(t *testing.T) {
 	rec := &memRecorder{}
 	e := newFixtureEngine(t, rec, nil)
 
-	// Nil request or empty question in After must not panic and must pass.
 	badQ := Query{Req: new(dns.Msg), Client: netip.MustParseAddr("127.0.0.1"), Proto: "udp"}
 	resp := &dns.Msg{
 		MsgHdr: dns.MsgHdr{Rcode: dns.RcodeSuccess},
@@ -185,7 +182,6 @@ func TestAfter_MalformedInputsDoNotPanic(t *testing.T) {
 		t.Fatalf("After with malformed request = %+v, want Pass", dec)
 	}
 
-	// Valid request with nil RR and empty-target CNAME before a blocked CNAME.
 	goodQ := newQuery("site.example", dns.TypeA, "127.0.0.1")
 	dec = e.After(context.Background(), goodQ, resp, Meta{})
 	if dec.Verdict != Block || dec.Via != "ads.example" {

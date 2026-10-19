@@ -1,11 +1,3 @@
-// Command compare sends the same sample of domain names to two running hecate
-// servers (one per backend, same configuration) and reports every difference in
-// the engine's decision (read from each server's query log) and in the answer
-// the client got. It is a Phase 4 tool: block and pass decisions must be the same
-// on both backends, and any difference needs an explanation.
-//
-//	go run ./scripts/compare -a 127.0.0.1:5301 -b 127.0.0.1:5302 \
-//	    -log-a data/logs-a -log-b data/logs-b -queries data/logs -lists data/lists
 package main
 
 import (
@@ -25,7 +17,6 @@ import (
 	"github.com/miekg/dns"
 )
 
-// logRecord holds the fields of a query-log line the comparison needs.
 type logRecord struct {
 	QName  string `json:"qname"`
 	QType  string `json:"qtype"`
@@ -35,15 +26,11 @@ type logRecord struct {
 	RCode  string `json:"rcode"`
 }
 
-// key identifies one query.
 type key struct{ name, qtype string }
 
-// outcome is what one backend did with one query: the engine's decision from the
-// log, and the shape of the answer the client received.
 type outcome struct {
 	rec    logRecord
-	wire   string // rcode plus a class of the answer section
-	err    error
+	wire   string
 	hasRec bool
 }
 
@@ -74,7 +61,7 @@ func main() {
 
 	start := time.Now().Add(-time.Second)
 	wireA, wireB := ask(*addrA, names, *qps), ask(*addrB, names, *qps)
-	time.Sleep(2 * time.Second) // let both servers flush their logs
+	time.Sleep(2 * time.Second)
 	recA, err := readLog(*logA, start)
 	if err != nil {
 		fatal("reading log A: %v", err)
@@ -91,8 +78,6 @@ func fatal(format string, args ...any) {
 	os.Exit(1)
 }
 
-// sample picks total distinct names: about 60% from real query logs, the rest
-// from the block lists (some as a subdomain, to exercise suffix matching).
 func sample(queryDir, listDir string, total int, seed uint64) ([]string, error) {
 	rng := rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))
 	logged, err := loggedNames(queryDir)
@@ -189,14 +174,12 @@ func eachRecord(path string, fn func(logRecord)) error {
 			if err == io.EOF {
 				return nil
 			}
-			return nil // a half-written last line is not an error
+			return nil
 		}
 		fn(r)
 	}
 }
 
-// ask sends A and HTTPS for every name to addr at about qps queries per second
-// and returns the shape of each answer.
 func ask(addr string, names []string, qps int) map[key]string {
 	out := make(map[key]string)
 	var mu sync.Mutex
@@ -223,7 +206,6 @@ func ask(addr string, names []string, qps int) map[key]string {
 	return out
 }
 
-// exchange asks one question and describes the answer by what a client sees.
 func exchange(addr, name string, qtype uint16) string {
 	req := new(dns.Msg)
 	req.SetQuestion(dns.Fqdn(name), qtype)
@@ -249,8 +231,6 @@ func shortErr(err error) string {
 	return s
 }
 
-// answerClass says what kind of answer section a reply has, without the values
-// that legitimately differ between two lookups of the same name.
 func answerClass(m *dns.Msg) string {
 	if len(m.Answer) == 0 {
 		return "empty"
@@ -272,7 +252,6 @@ func answerClass(m *dns.Msg) string {
 	return "records"
 }
 
-// readLog returns the decisions the server logged since start, one per query.
 func readLog(dir string, since time.Time) (map[key]logRecord, error) {
 	files, _ := filepath.Glob(filepath.Join(dir, "queries-*.jsonl"))
 	out := make(map[key]logRecord)
@@ -309,7 +288,6 @@ func merge(wire map[key]string, recs map[key]logRecord) map[key]outcome {
 	return out
 }
 
-// report prints the summary and every difference.
 func report(w io.Writer, nameA, nameB string, a, b map[key]outcome) {
 	keys := make([]key, 0, len(a))
 	for k := range a {
@@ -357,7 +335,6 @@ func report(w io.Writer, nameA, nameB string, a, b map[key]outcome) {
 	}
 }
 
-// decision is what the engine decided, as the log records it.
 func decision(r logRecord) string {
 	if r.Action == "block" {
 		return fmt.Sprintf("block/%s/%s", r.Reason, r.Source)

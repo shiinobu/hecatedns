@@ -11,7 +11,6 @@ import (
 	"github.com/shiinobu/hecatedns/backend/engine"
 )
 
-// ruleFixture is a config file next to a (not yet created) rules file.
 type ruleFixture struct {
 	config string
 	rules  string
@@ -337,7 +336,7 @@ func TestRuleList_ShowsNoRuleThatTheServerWouldSkipAsTooLong(t *testing.T) {
 
 func TestRuleAdd_RefusesToGrowTheFileBeyondWhatTheServerReads(t *testing.T) {
 	f := newRuleFixture(t)
-	// 10 bytes below the limit: the 20-byte rule line would end beyond it.
+
 	body := strings.Repeat("#", engine.MaxRulesFileBytes-11) + "\n"
 	f.seed(t, body)
 

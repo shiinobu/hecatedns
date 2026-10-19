@@ -13,34 +13,23 @@ import (
 )
 
 const (
-	// upstreamTimeout bounds one upstream exchange and one bootstrap lookup; it
-	// is the value the dnsproxy backend uses.
 	upstreamTimeout = 5 * time.Second
 
-	// ednsBufferSize is the UDP payload size advertised to upstreams. 1232 bytes
-	// avoids IP fragmentation on every common path (DNS flag day 2020).
 	ednsBufferSize = 1232
 
-	// Smoothed round trip time bookkeeping of the pool, in milliseconds.
 	initialSRTT    = 100.0
 	maxSRTT        = 30000.0
 	failurePenalty = 500.0
 	srttKeep       = 0.8
 )
 
-// upstream resolves a query against one DNS server.
 type upstream interface {
-	// Address names the server for logs and the query log.
 	Address() string
-	// Exchange sends a copy of q and returns the validated reply with q's ID
-	// restored. It never modifies q. A reply whose ID, QR bit, opcode or
-	// question does not match the query is an error, not an answer.
+
 	Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, error)
 	Close() error
 }
 
-// checkReply accepts got as the answer to sent only if it is a response to the
-// same question with the ID that was sent.
 func checkReply(sent, got *dns.Msg) error {
 	switch {
 	case !got.Response:
@@ -60,21 +49,17 @@ func checkReply(sent, got *dns.Msg) error {
 	return nil
 }
 
-// member is one upstream of a pool with its smoothed round trip time.
 type member struct {
 	up   upstream
-	srtt float64 // milliseconds; guarded by pool.mu
+	srtt float64
 }
 
-// pool picks upstreams by weighted random choice (a lower round trip time
-// weighs more) and falls over to the others when one fails.
 type pool struct {
 	mu      sync.Mutex
 	members []*member
 	rnd     func() float64
 }
 
-// newPool builds a pool; rnd returns a number in [0, 1) and may be nil.
 func newPool(ups []upstream, rnd func() float64) *pool {
 	if rnd == nil {
 		rnd = rand.Float64
@@ -86,14 +71,6 @@ func newPool(ups []upstream, rnd func() float64) *pool {
 	return &pool{members: members, rnd: rnd}
 }
 
-// Exchange asks the upstreams in weighted random order until one answers. It
-// returns the reply and the address of the upstream that gave it. When the
-// context ends it stops at once, without blaming the upstream that was slow.
-//
-// An upstream that answers SERVFAIL or REFUSED (a provider throttling or
-// failing) counts as failed and the next one is asked; if nobody does better,
-// that answer is returned rather than an error, so the client sees the upstream's
-// own verdict. Any other rcode, NXDOMAIN included, is a final answer.
 func (p *pool) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, string, error) {
 	var errs []error
 	var fallback *dns.Msg
@@ -127,14 +104,10 @@ func (p *pool) Exchange(ctx context.Context, q *dns.Msg) (*dns.Msg, string, erro
 	return nil, "", fmt.Errorf("all upstreams failed: %w", errors.Join(errs...))
 }
 
-// failedRcode reports an rcode that says the upstream could not serve the
-// query, as opposed to saying something about the name.
 func failedRcode(rcode int) bool {
 	return rcode == dns.RcodeServerFailure || rcode == dns.RcodeRefused
 }
 
-// order returns the member indexes in the order to try them: a weighted random
-// sample without replacement, weight 1/srtt.
 func (p *pool) order() []int {
 	p.mu.Lock()
 	weights := make([]float64, len(p.members))
@@ -167,8 +140,6 @@ func (p *pool) order() []int {
 	return out
 }
 
-// record updates the smoothed round trip time of member i: toward the measured
-// time on success, sharply up on failure.
 func (p *pool) record(i int, rtt time.Duration, err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -180,7 +151,6 @@ func (p *pool) record(i int, rtt time.Duration, err error) {
 	m.srtt = srttKeep*m.srtt + (1-srttKeep)*float64(rtt)/float64(time.Millisecond)
 }
 
-// Close closes every upstream and joins the errors.
 func (p *pool) Close() error {
 	var errs []error
 	for _, m := range p.members {

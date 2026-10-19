@@ -21,8 +21,6 @@ const (
 	upstreamIP  = "192.0.2.1"
 )
 
-// fakeUpstream is a plain UDP DNS server on loopback that answers every A
-// query with upstreamIP and counts what it receives.
 type fakeUpstream struct {
 	addr    string
 	ttl     uint32
@@ -54,7 +52,6 @@ func (f *fakeUpstream) serve(w dns.ResponseWriter, req *dns.Msg) {
 	_ = w.WriteMsg(resp)
 }
 
-// memRecorder keeps every record; safe for concurrent use.
 type memRecorder struct {
 	mu      sync.Mutex
 	entries []engine.Entry
@@ -76,8 +73,6 @@ type staticRules struct{ set *engine.RuleSet }
 
 func (s staticRules) Snapshot() *engine.RuleSet { return s.set }
 
-// testConfig returns the default configuration listening on a random
-// loopback port and forwarding to upstream.
 func testConfig(upstream string) config.Config {
 	cfg := config.Default()
 	cfg.Listen = []string{"127.0.0.1:0"}
@@ -86,8 +81,6 @@ func testConfig(upstream string) config.Config {
 	return cfg
 }
 
-// newTestEngine builds an engine from cfg with the given rules text and block
-// lists (name -> domains).
 func newTestEngine(t *testing.T, cfg config.Config, rules string, blockLists map[string][]string, rec engine.Recorder) *engine.Engine {
 	t.Helper()
 	acl, err := engine.NewACL(cfg.AllowedClients)
@@ -115,8 +108,6 @@ func newTestEngine(t *testing.T, cfg config.Config, rules string, blockLists map
 	return e
 }
 
-// running is a backend started by startRunning. done is closed when Run
-// returned; err is its result.
 type running struct {
 	b    core.Backend
 	stop context.CancelFunc
@@ -133,7 +124,6 @@ func (r *running) addr(t *testing.T, network string) net.Addr {
 	return addr
 }
 
-// shutdown cancels Run and returns its result.
 func (r *running) shutdown(t *testing.T) error {
 	t.Helper()
 	r.stop()
@@ -146,7 +136,6 @@ func (r *running) shutdown(t *testing.T) error {
 	}
 }
 
-// startRunning runs b until the test ends and waits until it listens.
 func startRunning(t *testing.T, b core.Backend) *running {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -171,7 +160,6 @@ func startRunning(t *testing.T, b core.Backend) *running {
 	return r
 }
 
-// startEngineBackend builds the backend for cfg and eng with New and runs it.
 func startEngineBackend(t *testing.T, cfg config.Config, eng *engine.Engine) *running {
 	t.Helper()
 	b, err := New(core.Deps{Cfg: cfg, Engine: eng})
@@ -181,7 +169,6 @@ func startEngineBackend(t *testing.T, cfg config.Config, eng *engine.Engine) *ru
 	return startRunning(t, b)
 }
 
-// exchange sends one query over network to addr and returns the answer.
 func exchange(t *testing.T, network string, addr net.Addr, name string, qtype, id uint16) *dns.Msg {
 	t.Helper()
 	req := new(dns.Msg).SetQuestion(dns.Fqdn(name), qtype)
@@ -197,7 +184,6 @@ func exchange(t *testing.T, network string, addr net.Addr, name string, qtype, i
 	return resp
 }
 
-// answerIP returns the address of the single A record of resp.
 func answerIP(t *testing.T, resp *dns.Msg) string {
 	t.Helper()
 	if resp.Rcode != dns.RcodeSuccess || len(resp.Answer) != 1 {

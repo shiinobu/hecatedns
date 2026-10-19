@@ -1,4 +1,3 @@
-// Command hecate is a DNS server that blocks ads.
 package controller
 
 import (
@@ -6,7 +5,6 @@ import (
 	"io"
 )
 
-// Process exit codes.
 const (
 	exitOK    = 0
 	exitError = 1
@@ -23,7 +21,6 @@ perintah:
   lists   kelola daftar blokir      (hecate lists status | update)
 `
 
-// Execute dispatches args to a subcommand and returns the process exit code.
 func Execute(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
@@ -40,7 +37,6 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 	case "run":
 		return runServer(rest, stdout, stderr)
 	case "lists":
-		// agy wrote this
 		return runLists(rest, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "hecate: perintah tidak dikenal %q\n\n%s", command, usage)

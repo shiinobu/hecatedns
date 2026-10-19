@@ -14,10 +14,6 @@ import (
 
 const defaultDNSPort = "53"
 
-// parseUpstream turns one upstreams entry into an upstream. The forms are the
-// ones config validation accepts: a bare IP, ip:port, udp://, tcp://, tls:// and
-// https://. DNS over TLS is not implemented yet, and udp:// and tcp:// need an IP
-// address, since a name would need a lookup before every query.
 func parseUpstream(line string, boot *bootstrap, timeout time.Duration) (upstream, error) {
 	line = strings.TrimSpace(line)
 	if line == "" {
@@ -58,8 +54,6 @@ func parsePlainURL(u *url.URL, timeout time.Duration) (upstream, error) {
 	return newPlain(u.Scheme, net.JoinHostPort(u.Hostname(), port), timeout), nil
 }
 
-// buildPool builds the upstream pool from the configuration. Every bad entry is
-// reported in one joined error and nothing stays open on error.
 func buildPool(cfg config.Config, timeout time.Duration) (*pool, error) {
 	var boot *bootstrap
 	if len(cfg.Bootstrap) > 0 {

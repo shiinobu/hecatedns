@@ -16,11 +16,8 @@ import (
 	"github.com/shiinobu/hecatedns/backend/lib/config"
 )
 
-// Name is the name of this backend in the configuration.
 const Name = config.BackendDNSProxy
 
-// shutdownTimeout bounds closing the listeners and upstreams after the run
-// context ends.
 const shutdownTimeout = 5 * time.Second
 
 var errRunTwice = errors.New("dnsproxy backend: Run may be called only once, build a new backend")
@@ -30,8 +27,6 @@ var (
 	_ core.Bound   = (*server)(nil)
 )
 
-// server runs one dnsproxy instance. It is single-use, because a dnsproxy
-// Proxy cannot be restarted cleanly after Shutdown.
 type server struct {
 	conf      *proxy.Config
 	res       *resources
@@ -41,9 +36,6 @@ type server struct {
 	proxy     atomic.Pointer[proxy.Proxy]
 }
 
-// New builds the dnsproxy backend; it is a core.Factory. The returned
-// backend also implements core.Bound. Configuration errors are reported
-// here, not by Run.
 func New(deps core.Deps) (core.Backend, error) {
 	if deps.Engine == nil {
 		return nil, errors.New("dnsproxy backend: an engine is required")
@@ -55,8 +47,6 @@ func New(deps core.Deps) (core.Backend, error) {
 	return s, nil
 }
 
-// newServer builds a server around any Filter and upstream timeout, so tests
-// can inject a fake filter and fail fast against a dead upstream.
 func newServer(cfg config.Config, f Filter, log *slog.Logger, timeout time.Duration) (*server, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
@@ -69,12 +59,8 @@ func newServer(cfg config.Config, f Filter, log *slog.Logger, timeout time.Durat
 	return &server{conf: conf, res: res, ready: make(chan struct{})}, nil
 }
 
-// Name implements core.Backend.
 func (s *server) Name() string { return Name }
 
-// Run implements core.Backend: it listens, serves until ctx ends, then
-// shuts down. A listen failure is returned at once. Ready is closed in every
-// case.
 func (s *server) Run(ctx context.Context) (err error) {
 	if !s.ran.CompareAndSwap(false, true) {
 		return errRunTwice
@@ -92,9 +78,6 @@ func (s *server) Run(ctx context.Context) (err error) {
 	return shutdown(ctx, p)
 }
 
-// start creates and starts the proxy. On failure it closes the upstreams
-// itself: Start closes the listeners it opened, but Shutdown does nothing for a
-// proxy that never started.
 func (s *server) start(ctx context.Context) (*proxy.Proxy, error) {
 	p, err := proxy.New(s.conf)
 	if err != nil {
@@ -106,9 +89,6 @@ func (s *server) start(ctx context.Context) (*proxy.Proxy, error) {
 	return p, nil
 }
 
-// shutdown stops p with a fresh deadline, since ctx is already done. dnsproxy
-// does not wait for requests in flight, so the engine may still see a few
-// calls after Run returned.
 func shutdown(ctx context.Context, p *proxy.Proxy) error {
 	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
@@ -122,11 +102,8 @@ func (s *server) markReady() {
 	s.readyOnce.Do(func() { close(s.ready) })
 }
 
-// Ready implements core.Bound.
 func (s *server) Ready() <-chan struct{} { return s.ready }
 
-// Addr implements core.Bound. It is nil before the listeners are up, after
-// a failed start, and for a network other than udp or tcp.
 func (s *server) Addr(network string) net.Addr {
 	p := s.proxy.Load()
 	if p == nil {

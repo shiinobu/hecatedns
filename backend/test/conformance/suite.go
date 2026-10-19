@@ -1,6 +1,3 @@
-// Package conformance holds the test suite every backend must pass: the same
-// questions asked of each implementation, against a fake upstream on loopback,
-// so a block, an allow or a refusal looks identical whichever backend serves it.
 package conformance
 
 import (
@@ -13,7 +10,6 @@ import (
 	"github.com/shiinobu/hecatedns/backend/engine"
 )
 
-// Constructor names a backend factory under test.
 type Constructor struct {
 	Name    string
 	Factory core.Factory
@@ -24,9 +20,6 @@ type testCase struct {
 	run  func(t *testing.T, factory core.Factory)
 }
 
-// Run executes the whole suite once per constructor, as subtests. A backend
-// factory must produce a backend that implements core.Bound, because the
-// suite listens on random ports and has to ask where it ended up.
 func Run(t *testing.T, constructors []Constructor) {
 	t.Helper()
 	for _, c := range constructors {
@@ -52,7 +45,7 @@ var cases = []testCase{
 	{"one log record per query, cache hits included", logRecordPerQuery},
 	{"opcode other than QUERY is answered NOTIMP, never forwarded", nonQueryOpcode},
 	{"CNAME to a blocked domain is blocked on both upstream and cache hit", blockedCNAMEAndCacheHit},
-	{"special names answer NXDOMAIN for canary and NODATA for DDR", specialNames}, // agy wrote this
+	{"special names answer NXDOMAIN for canary and NODATA for DDR", specialNames},
 	{"an oversized or malformed UDP datagram does not stop the server", oversizedDatagram},
 	{"reverse lookups of private addresses are answered NXDOMAIN and never leave the machine", privateReverse},
 }
@@ -81,7 +74,6 @@ func blockedAAAA(t *testing.T, factory core.Factory) {
 }
 
 func blockedHTTPS(t *testing.T, factory core.Factory) {
-	// agy wrote this
 	h := start(t, factory, setup{
 		blockList: []string{"ads.test"},
 		cnames: map[string][]string{
@@ -232,7 +224,6 @@ func nonQueryOpcode(t *testing.T, factory core.Factory) {
 	}
 }
 
-// agy wrote this
 func blockedCNAMEAndCacheHit(t *testing.T, factory core.Factory) {
 	h := start(t, factory, setup{
 		blockList: []string{"ads.test"},
@@ -243,16 +234,14 @@ func blockedCNAMEAndCacheHit(t *testing.T, factory core.Factory) {
 		},
 	})
 
-	// First lookup: resolved upstream, blocked in After via CNAME.
 	assertNullAnswer(t, h.ask("udp", "cloaked.example", dns.TypeA), dns.TypeA, net.IPv4zero)
-	// Second lookup: served from backend cache (upstream still queried only once), still blocked in After.
+
 	assertNullAnswer(t, h.ask("udp", "cloaked.example", dns.TypeA), dns.TypeA, net.IPv4zero)
 
 	if got := h.upstream.queries("cloaked.example"); got != 1 {
 		t.Errorf("upstream queries for cloaked.example = %d, want 1 (second should come from cache)", got)
 	}
 
-	// Allowed CNAME target passes.
 	assertPassed(t, h.ask("udp", "allowed.example", dns.TypeA), dns.TypeA, upstreamA)
 
 	entries := h.entries(3)
@@ -267,7 +256,6 @@ func blockedCNAMEAndCacheHit(t *testing.T, factory core.Factory) {
 	}
 }
 
-// agy wrote this
 func specialNames(t *testing.T, factory core.Factory) {
 	h := start(t, factory, blockSetup)
 
@@ -298,9 +286,6 @@ func specialNames(t *testing.T, factory core.Factory) {
 	}
 }
 
-// oversizedDatagram sends datagrams a UDP server must survive: one far larger
-// than any DNS query (on Windows the failed read of such a datagram once stopped
-// a server for good), one too short to hold a header, and one that is not DNS.
 func oversizedDatagram(t *testing.T, factory core.Factory) {
 	h := start(t, factory, blockSetup)
 
@@ -348,9 +333,6 @@ func answerIP(rr dns.RR) net.IP {
 	return nil
 }
 
-// privateReverse: a PTR for a private address (RFC 6303) says nothing a public
-// resolver could know, and asking it would tell Cloudflare or Google which
-// hosts are on the home network. Public addresses still go upstream.
 func privateReverse(t *testing.T, factory core.Factory) {
 	h := start(t, factory, setup{})
 

@@ -26,7 +26,7 @@ func exists(dir, name string) bool {
 func TestPurge_KeepsRetentionDaysIncludingToday(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{
-		"queries-20261010.jsonl", "queries-20261011.jsonl", // older than 7 days
+		"queries-20261010.jsonl", "queries-20261011.jsonl",
 		"queries-20261012.jsonl", "queries-20261018.jsonl", "queries-20261019.jsonl",
 	} {
 		touch(t, dir, name)

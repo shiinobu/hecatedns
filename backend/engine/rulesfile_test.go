@@ -280,8 +280,6 @@ func TestRulesFile_SameModTimeButNewSizeReloads(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A file system with coarse timestamps can report the same modification
-	// time for two writes in a row; the size still tells them apart.
 	writeRules(t, path, "block aaa.example.com\nblock bbb.example.com\n")
 	if err := os.Chtimes(path, frozen, frozen); err != nil {
 		t.Fatal(err)

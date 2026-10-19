@@ -20,7 +20,6 @@ type logLine struct {
 	attrs map[string]any
 }
 
-// captureLog is a slog.Handler that keeps every record.
 type captureLog struct {
 	mu    sync.Mutex
 	lines []logLine

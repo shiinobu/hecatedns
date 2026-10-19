@@ -34,7 +34,7 @@ func TestLimiter_RefillsOverTime(t *testing.T) {
 		l.allow(client)
 	}
 
-	clock.Advance(200 * time.Millisecond) // two tokens at 10 per second
+	clock.Advance(200 * time.Millisecond)
 	if !l.allow(client) || !l.allow(client) {
 		t.Error("two queries should be allowed after 200 ms")
 	}

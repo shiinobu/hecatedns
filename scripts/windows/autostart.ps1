@@ -1,26 +1,3 @@
-<#
-.SYNOPSIS
-  Memasang, menghapus, atau memeriksa tugas Task Scheduler yang menjalankan hecate saat PC menyala.
-
-.DESCRIPTION
-  install  Membuat tugas "hecate": jalan 30 detik setelah boot (tanpa perlu login), sebagai akun
-           sekarang dengan hak biasa (bukan SYSTEM, bukan "highest"), tersembunyi, tanpa batas
-           waktu. Pemicunya diulang tiap 1 menit selama 365 hari sejak tiap boot; karena tugas tidak membuat
-           salinan kedua, ulangan itu hanya menghidupkan hecate bila belum jalan (misalnya
-           Wi-Fi belum memberi alamat 192.168.1.99 saat boot lalu hecate berhenti dengan galat).
-           Perintah ini mengubah Windows; jalankan dari PowerShell Administrator.
-  remove   Menghentikan dan menghapus tugas. Ini satu-satunya rollback yang diperlukan.
-  status   Menampilkan keadaan tugas dan proses hecate.
-
-  Tugas menjalankan bin\hecate.exe run -config hecate.yaml dari folder proyek. Aturan firewall
-  terikat ke jalur bin\hecate.exe, jadi bangun ulang ke jalur yang sama dan jangan pindahkan.
-  Log operasional ada di <log.dir>\hecate.log (maks 5 MB, satu cadangan .1).
-
-.EXAMPLE
-  powershell -File scripts\autostart.ps1 install
-  powershell -File scripts\autostart.ps1 status
-  powershell -File scripts\autostart.ps1 remove
-#>
 param(
     [Parameter(Mandatory = $true, Position = 0)]
     [ValidateSet('install', 'remove', 'status')]

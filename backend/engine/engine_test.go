@@ -18,7 +18,6 @@ import (
 
 var fixedNow = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
 
-// memRecorder keeps every record; safe for concurrent use.
 type memRecorder struct {
 	mu      sync.Mutex
 	entries []Entry
@@ -36,12 +35,10 @@ func (r *memRecorder) all() []Entry {
 	return append([]Entry(nil), r.entries...)
 }
 
-// staticRules is a RuleSource with a fixed snapshot.
 type staticRules struct{ set *RuleSet }
 
 func (s staticRules) Snapshot() *RuleSet { return s.set }
 
-// levelCounter is a slog.Handler that only counts records per level.
 type levelCounter struct {
 	warns  atomic.Int64
 	errors atomic.Int64
@@ -77,8 +74,6 @@ func fixtureLists(t *testing.T) *ListSet {
 	)
 }
 
-// newFixtureEngine returns an engine with the fixture rules and lists, a fixed
-// clock and the given recorder and log handler (both may be nil).
 func newFixtureEngine(t *testing.T, rec Recorder, logs slog.Handler) *Engine {
 	t.Helper()
 	rules, _ := parseRulesText(t, fixtureRules)
@@ -165,7 +160,6 @@ func TestBeforeDecisions(t *testing.T) {
 	}
 }
 
-// checkBlockAnswer checks the response of a Block decision.
 func checkBlockAnswer(t *testing.T, q Query, dec Decision, wantRcode int) {
 	t.Helper()
 	if dec.Resp == nil {
@@ -363,8 +357,7 @@ func TestEngineDoesNotMutateInputs(t *testing.T) {
 			q.Req.SetEdns0(4096, true)
 			resp := new(dns.Msg).SetReply(q.Req)
 			resp.Answer = []dns.RR{&dns.CNAME{Hdr: dns.RR_Header{Name: q.Req.Question[0].Name, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: 60}, Target: "ads.example."}}
-			// Copy turns a nil OPT option slice into an empty one, so compare a
-			// copy taken before with a copy taken after, never the original.
+
 			reqBefore, respBefore := q.Req.Copy(), resp.Copy()
 
 			e.Before(ctx, q)

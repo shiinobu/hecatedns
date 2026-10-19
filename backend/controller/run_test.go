@@ -21,15 +21,13 @@ import (
 	"github.com/shiinobu/hecatedns/backend/service/qlog"
 )
 
-// fakeBackend stands in for a real DNS server: no sockets, it only exercises
-// the wiring that `hecate run` builds around it.
 type fakeBackend struct {
 	name  string
 	deps  core.Deps
 	ready chan struct{}
 	up    atomic.Bool
 	once  sync.Once
-	// serve runs between "ready" and "ctx done"; its error ends Run early.
+
 	serve func(deps core.Deps) error
 }
 
@@ -88,8 +86,6 @@ func newRunFixture(t *testing.T, extraYAML string) runFixture {
 	}
 }
 
-// start runs `hecate run` in a goroutine and returns a function that stops it
-// (cancelling the context) and reports its exit code and output.
 func (f runFixture) start(t *testing.T, registry core.Registry, args ...string) *runHandle {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -306,7 +302,6 @@ func TestRunServer_AFailedStartLeavesItsReasonInTheOperationalLog(t *testing.T) 
 	}
 }
 
-// agy wrote this
 func TestRunServer_PrintsConfigWarningsWithoutPhase1StubNote(t *testing.T) {
 	f := newRunFixture(t, "lists:\n  sources: []\n")
 	registry := core.Registry{"dnsproxy": fakeFactory("dnsproxy", nil)}
@@ -414,7 +409,6 @@ func TestDefaultRegistry_HasBothBackends(t *testing.T) {
 	}
 }
 
-// runHandle controls a `hecate run` started by runFixture.start.
 type runHandle struct {
 	stop   func() (code int, stdout, stderr string)
 	stdout func() string

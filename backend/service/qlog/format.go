@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-// Display text of the action column (Indonesian, like all CLI output). Each is
-// padded to the same width.
 const (
 	tagBlock = "BLOK "
 	tagPass  = "LOLOS"
@@ -17,12 +15,6 @@ const (
 	noClient          = "-"
 )
 
-// Line formats r for a terminal, in location loc:
-//
-//	2026-10-18 14:32:07.412 BLOK  192.168.1.23 A ads.contoh.com list:hagezi-popups
-//	2026-10-18 14:32:08.000 LOLOS 192.168.1.23 A www.contoh.com NOERROR 38ms https://1.1.1.1/dns-query
-//
-// The text fields of a Record are already sanitized by the reader.
 func (r Record) Line(loc *time.Location) string {
 	client := r.Client
 	if client == "" {
@@ -49,7 +41,6 @@ func actionTag(action string) string {
 	return fmt.Sprintf("%-5s", strings.ToUpper(action))
 }
 
-// blockDetail is the "why" of a blocked query: reason:source and the CNAME target.
 func blockDetail(r Record) []string {
 	var parts []string
 	if why := reasonSource(r); why != "" {
@@ -61,8 +52,6 @@ func blockDetail(r Record) []string {
 	return parts
 }
 
-// answerDetail describes a forwarded query: rcode, time, where the answer came
-// from, why it was let through and, for a failure, the error text.
 func answerDetail(r Record) []string {
 	var parts []string
 	if r.RCode != "" {

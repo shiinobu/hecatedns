@@ -1,7 +1,5 @@
 package lists
 
-// agy wrote this
-
 import (
 	"bytes"
 	"context"
@@ -27,7 +25,6 @@ import (
 )
 
 const (
-	// DefaultFetchTimeout is the per-list HTTP download timeout.
 	DefaultFetchTimeout = 30 * time.Second
 
 	maxRedirects         = 5
@@ -39,7 +36,6 @@ const (
 	dnsDefaultPort       = "53"
 )
 
-// Errors returned by Fetch, LoadCached and ReadMeta.
 var (
 	ErrHTTPSRequired    = errors.New("list URL must use https://")
 	ErrTooManyRedirects = errors.New("list download exceeded 5 redirects")
@@ -47,7 +43,6 @@ var (
 	ErrBadListName      = errors.New("list name is not a safe file name")
 )
 
-// Meta holds the on-disk metadata of a cached blocklist (<name>.meta.json).
 type Meta struct {
 	ETag      string    `json:"etag,omitempty"`
 	FetchedAt time.Time `json:"fetched_at"`
@@ -55,14 +50,12 @@ type Meta struct {
 	Rejected  int       `json:"rejected"`
 }
 
-// FetchResult is the outcome of one Fetch call.
 type FetchResult struct {
 	Set         *engine.DomainSet
 	Meta        Meta
 	NotModified bool
 }
 
-// Fetcher downloads, validates and atomically caches blocklist files.
 type Fetcher struct {
 	Dir              string
 	Bootstrap        []string
@@ -77,15 +70,10 @@ type Fetcher struct {
 	transport *http.Transport
 }
 
-// Fetch downloads src over HTTPS, validates and parses the body, and writes
-// <name>.txt and <name>.meta.json atomically into f.Dir. On any error the
-// existing cached copy in f.Dir is left untouched.
 func (f *Fetcher) Fetch(ctx context.Context, src config.Source) (FetchResult, error) {
 	return f.FetchWithCached(ctx, src, nil)
 }
 
-// FetchWithCached behaves like Fetch, but on HTTP 304 Not Modified reuses
-// cached (when non-nil and non-empty) instead of re-parsing <name>.txt from disk.
 func (f *Fetcher) FetchWithCached(ctx context.Context, src config.Source, cached *engine.DomainSet) (FetchResult, error) {
 	if err := validateSource(src); err != nil {
 		return FetchResult{}, err
@@ -369,8 +357,6 @@ func (f *Fetcher) now() time.Time {
 	return time.Now().Round(time.Second)
 }
 
-// LoadCached reads and parses the cached <name>.txt file from dir, together
-// with <name>.meta.json if present.
 func LoadCached(dir string, src config.Source) (*engine.DomainSet, Meta, error) {
 	if !validListName(src.Name) {
 		return nil, Meta{}, ErrBadListName
@@ -405,7 +391,6 @@ func LoadCached(dir string, src config.Source) (*engine.DomainSet, Meta, error) 
 	return set, meta, nil
 }
 
-// ReadMeta reads <name>.meta.json from dir.
 func ReadMeta(dir, name string) (Meta, error) {
 	if !validListName(name) {
 		return Meta{}, ErrBadListName
@@ -430,7 +415,6 @@ func writeMetaAtomic(dir, name string, m Meta) error {
 	return writeFileAtomic(metaPath(dir, name), raw)
 }
 
-// Dir returns the lists cache directory inside dataDir (<data_dir>/lists).
 func Dir(dataDir string) string {
 	return filepath.Join(dataDir, "lists")
 }
@@ -487,8 +471,6 @@ func isWindowsDeviceName(name string) bool {
 	return false
 }
 
-// writeFileAtomic writes data to a temporary file in path's directory, syncs
-// it, and renames it over path with a short Windows retry loop.
 func writeFileAtomic(path string, data []byte) (err error) {
 	dir := filepath.Dir(path)
 	if err = os.MkdirAll(dir, listDirMode); err != nil {

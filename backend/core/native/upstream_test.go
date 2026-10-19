@@ -190,7 +190,7 @@ func TestDoH_ReachesAHostnameThroughTheBootstrapResolver(t *testing.T) {
 		}
 		return resp
 	})
-	// The httptest certificate is valid for example.com.
+
 	u := newTestDoH(t, f, "https://example.com:"+f.port()+"/dns-query", newBootstrap([]string{boot.addr}, testTimeout))
 
 	if _, err := exchange(t, u, queryMsg("fine.example", dns.TypeA)); err != nil {
@@ -243,11 +243,10 @@ func TestBootstrap_FallsBackToTheNextServer(t *testing.T) {
 	}
 }
 
-// stub is a scripted upstream for pool tests.
 type stub struct {
 	name  string
 	fail  bool
-	rcode int // when set, the stub answers with this rcode and no records
+	rcode int
 	delay time.Duration
 
 	mu    sync.Mutex
@@ -459,7 +458,6 @@ func TestBuildPool_BuildsTheDefaultUpstreams(t *testing.T) {
 	}
 }
 
-// queryMsgWithID is queryMsg with a chosen ID, to craft replies.
 func queryMsgWithID(name string, qtype uint16, id uint16) *dns.Msg {
 	q := queryMsg(name, qtype)
 	q.Id = id
@@ -479,8 +477,7 @@ func TestDoH_HostnameStillWorksWhenTheFirstBootstrapServerIsDead(t *testing.T) {
 		}
 		return resp
 	})
-	// Production gives the bootstrap lookup the same deadline as the whole DoH
-	// request; a dead first server must not use all of it.
+
 	u := newTestDoH(t, f, "https://example.com:"+f.port()+"/dns-query", newBootstrap([]string{dead.addr, good.addr}, testTimeout))
 
 	if _, err := exchange(t, u, queryMsg("fine.example", dns.TypeA)); err != nil {

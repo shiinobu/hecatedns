@@ -11,7 +11,6 @@ import (
 
 var logZone = time.FixedZone("WIB", 7*60*60)
 
-// logFixture is a config whose log directory holds a few days of records.
 type logFixture struct {
 	config string
 	now    time.Time
