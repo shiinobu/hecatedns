@@ -117,3 +117,19 @@ func validHostLabel(label string) bool {
 	}
 	return true
 }
+
+const minSecretLabelLen = 16
+
+func (c Config) dotWarnings() []string {
+	if !c.DoT.Enabled {
+		return nil
+	}
+	var out []string
+	for i, name := range c.DoT.Names {
+		label, _, _ := strings.Cut(name, ".")
+		if len(label) < minSecretLabelLen {
+			out = append(out, fmt.Sprintf("dot.names[%d]: the first label is shorter than %d characters, a short name is easy to guess or to find", i, minSecretLabelLen))
+		}
+	}
+	return out
+}

@@ -179,7 +179,7 @@ func runBackend(ctx context.Context, b core.Backend, stdout io.Writer) error {
 
 func announce(stdout io.Writer, name string, bound core.Bound) bool {
 	var lines []string
-	for _, network := range []string{core.NetworkUDP, core.NetworkTCP} {
+	for _, network := range []string{core.NetworkUDP, core.NetworkTCP, core.NetworkTLS} {
 		if addr := bound.Addr(network); addr != nil {
 			lines = append(lines, fmt.Sprintf("listening: %s %s", network, addr))
 		}

@@ -222,3 +222,11 @@ func closersOf(socks []socket, dots []*dotServer) []io.Closer {
 	}
 	return out
 }
+
+func CheckDoT(cfg config.Config) (time.Time, error) {
+	store, _, err := newDoT(cfg, time.Now, slog.New(slog.DiscardHandler))
+	if err != nil || store == nil {
+		return time.Time{}, err
+	}
+	return store.cur.Load().leaf.NotAfter, nil
+}

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
+	"github.com/shiinobu/hecatedns/backend/core/native"
 	"github.com/shiinobu/hecatedns/backend/lib/config"
 	"github.com/shiinobu/hecatedns/backend/service/selfcheck"
 )
@@ -52,9 +54,26 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "self-check: FAILED")
 		return exitError
 	}
+	if !checkDoTCertificate(stdout, stderr, cfg) {
+		return exitError
+	}
 	fmt.Fprintln(stdout, "safe_search (S3): PASSED (www.google.com is not redirected to forcesafesearch.google.com)")
 	fmt.Fprintln(stdout, "self-check: PASSED")
 	return exitOK
+}
+
+func checkDoTCertificate(stdout, stderr io.Writer, cfg config.Config) bool {
+	if !cfg.DoT.Enabled {
+		return true
+	}
+	expires, err := native.CheckDoT(cfg)
+	if err != nil {
+		fmt.Fprintf(stderr, "hecate check: dot certificate: %v\n", err)
+		fmt.Fprintln(stdout, "dot certificate: FAILED")
+		return false
+	}
+	fmt.Fprintf(stdout, "dot certificate: PASSED (covers every configured name, valid until %s)\n", expires.UTC().Format(time.RFC3339))
+	return true
 }
 
 func printSummary(w io.Writer, path string, cfg config.Config) {

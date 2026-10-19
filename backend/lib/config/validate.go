@@ -50,6 +50,8 @@ func (c Config) Warnings() []string {
 		out = append(out, "no block list source is enabled: only custom rules will block")
 	}
 	out = append(out, c.LoopWarnings()...)
+	out = append(out, c.openResolverWarnings()...)
+	out = append(out, c.dotWarnings()...)
 	return out
 }
 
@@ -372,4 +374,26 @@ func isWindowsDeviceName(name string) bool {
 		return upper[3] >= '1' && upper[3] <= '9'
 	}
 	return false
+}
+
+func (c Config) openResolverWarnings() []string {
+	world := ""
+	for _, cidr := range c.AllowedClients {
+		if prefix, err := netip.ParsePrefix(cidr); err == nil && prefix.Bits() == 0 {
+			world = cidr
+			break
+		}
+	}
+	if world == "" {
+		return nil
+	}
+	var out []string
+	for _, listen := range c.Listen {
+		ap, err := netip.ParseAddrPort(listen)
+		if err != nil || ap.Addr().IsLoopback() || ap.Addr().IsPrivate() {
+			continue
+		}
+		out = append(out, fmt.Sprintf("listen %s with allowed_clients %s makes plain DNS an open resolver", listen, world))
+	}
+	return out
 }
