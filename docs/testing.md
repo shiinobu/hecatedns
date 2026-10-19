@@ -13,7 +13,7 @@ The project is developed test first: a failing test, the minimum code to pass it
 | Source rule | `backend/test/nocomment` fails if a Go or PowerShell source contains a comment | Always green |
 | Manual integration | `scripts/windows/dnsquery.ps1` (or `dig`) from the PC, then tests from a phone | Criteria S1 to S3 |
 
-Coverage at the last full run: `controller` 93.4%, `core` 100%, `core/dnsproxy` 95.6%, `core/native` 92.7%, `engine` 97.2%, `lib/config` 97.0%, `lib/runlog` 96.0%, `service/lists` 86.7%, `service/qlog` 90.9%, `service/selfcheck` 92.5%, `test/conformance` 79.7%.
+Coverage at the last full run: `controller` 93.4%, `core` 100%, `core/dnsproxy` 95.6%, `core/native` 93.1%, `engine` 96.9%, `lib/config` 97.1%, `lib/runlog` 96.0%, `service/lists` 86.7%, `service/qlog` 90.9%, `service/selfcheck` 92.5%, `test/conformance` 79.7%.
 
 Verification commands (all must be clean before a merge):
 
