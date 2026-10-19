@@ -57,7 +57,7 @@ There is no separate "After hook" and none is needed: `Resolve` returns after th
 
 ## 4. Config fields we map (`proxy/config.go`)
 
-| xdns | `proxy.Config` field | Type | Line |
+| hecate | `proxy.Config` field | Type | Line |
 |---|---|---|---|
 | `listen` | `UDPListenAddr`, `TCPListenAddr` | `[]*net.UDPAddr`, `[]*net.TCPAddr` | 111, 115 |
 | `upstreams`, `bootstrap` | `UpstreamConfig` | `*proxy.UpstreamConfig` | 70 |
@@ -72,7 +72,7 @@ There is no separate "After hook" and none is needed: `Resolve` returns after th
 | - | `BindRetryConfig` | `*proxy.BindRetryConfig{Interval time.Duration; Count uint; Enabled bool}` (`proxy/retry.go:12-22`), nil = no retry | 95 |
 
 - `Config.Validate()` (`:284`) requires a valid `UpstreamConfig`; `Fallbacks` may be nil (not "empty"). `New(c *Config)` is `proxy/proxy.go:397`: `func New(c *Config) (p *Proxy, err error)`.
-- UDP and TCP are separate listen lists: for each xdns `listen` entry build BOTH a `*net.UDPAddr` and a `*net.TCPAddr` (plain DNS needs both).
+- UDP and TCP are separate listen lists: for each hecate `listen` entry build BOTH a `*net.UDPAddr` and a `*net.TCPAddr` (plain DNS needs both).
 - **No client ACL in `Config`** (read all 230 lines of the struct): only `TrustedProxies` (for DoH proxies), `PrivateSubnets` (for PTR handling). The engine enforces `allowed_clients`, as designed.
 - **Rate limiting is NOT in `proxy.Config`.** It is a separate package `ratelimit` of the same module: `ratelimit/ratelimit.go:34` `func NewMiddleware(c *Config) (m proxy.Middleware)`, which wraps a `proxy.Handler` and returns `proxy.ErrDrop` for limited UDP clients (`ratelimit/ratelimit.go:51-63`). So `docs/architecture.md` section 13 wording "opsi rate limit bawaannya" should read "paket ratelimit (middleware)". Phase 6 can wrap our handler with it; `ratelimit` pulls extra dependencies (`go-rate`, `go-cache`) - not needed in Phase 1.
 - Upstream selection modes (`proxy/upstreammode.go:13-26`): `UpstreamModeLoadBalance` (default), `UpstreamModeParallel`, `UpstreamModeFastestAddr`. `load_balance` is a WEIGHTED RANDOM pick by past RTT with fail-over to the others on error (`proxy/exchange.go:49-71`), NOT strict "try in listed order". `docs/architecture.md` section 10 comment "dicoba berurutan" is therefore inexact for this backend. Options: keep the default and fix the comment in the docs pass (recommended), or `parallel` (queries all upstreams, fastest wins, doubles upstream traffic). Decide in P1-08; record it.
@@ -87,7 +87,7 @@ There is no separate "After hook" and none is needed: `Resolve` returns after th
 - `upstream/upstream.go:62-110` `Options`: `Logger *slog.Logger`, `Bootstrap Resolver` (`:94`; "If nil, net.DefaultResolver will be used"), `HTTPVersions []HTTPVersion` (`:98`, default HTTP/1.1 and h2), `Timeout time.Duration` (`:102`, also bootstrap timeout; "Zero value disables the timeout"), `InsecureSkipVerify bool` (keep false), `PreferIPv6 bool`, `RootCAs`, `VerifyConnection`, ...
 - `upstream/upstream.go:188` `func AddressToUpstream(addr string, opts *Options) (u Upstream, err error)` - single upstream. `Upstream` interface (`:33-47`): `Exchange(ctx, req) (resp, err)`, `Address() string`, `io.Closer`.
 - **DoH upstream given by IP needs NO bootstrap**: `upstream/doh.go:93-94` `newDoH` calls `addPort(addr, defaultPortDoH)` (`upstream/upstream.go:152`, 443) and `upstream/doh.go:114` sets `getDialer: newDialerInitializer(addr, opts)`; `upstream/upstream.go:401-408` `newDialerInitializer`: `if netutil.IsValidIPPortString(u.Host)` it dials that IP directly without any resolution. `https://1.1.1.1/dns-query` becomes host `1.1.1.1:443` -> direct. The dialer is created lazily, so building the config contacts no network (`NOT RUN`: prove with a throwaway program/test that `ParseUpstreamsConfig` returns without error and without network).
-- A hostname upstream needs `opts.Bootstrap`. Build it from xdns `bootstrap` (list of IPs): `upstream.NewUpstreamResolver(ip, nil)` per IP (`upstream/resolver.go:50`; returns a resolver plus an error that is `NotBootstrapError` when the address itself is a hostname), then `upstream.ConsequentResolver{r1, r2}` (`upstream/resolver.go:36`, tries in order; `ParallelResolver` at `:31` queries all). Config validation already requires an IP list in `bootstrap` when an upstream names a host. Close what you create (`UpstreamResolver` embeds `Upstream`; closing is the caller's job, `upstream/resolver.go:48-49`).
+- A hostname upstream needs `opts.Bootstrap`. Build it from hecate `bootstrap` (list of IPs): `upstream.NewUpstreamResolver(ip, nil)` per IP (`upstream/resolver.go:50`; returns a resolver plus an error that is `NotBootstrapError` when the address itself is a hostname), then `upstream.ConsequentResolver{r1, r2}` (`upstream/resolver.go:36`, tries in order; `ParallelResolver` at `:31` queries all). Config validation already requires an IP list in `bootstrap` when an upstream names a host. Close what you create (`UpstreamResolver` embeds `Upstream`; closing is the caller's job, `upstream/resolver.go:48-49`).
 - Timeout: dnsproxy's `defaultTimeout = 10 * time.Second` (`proxy/proxy.go:39`) is used for client writes; the upstream `Options.Timeout` default is "disabled" if zero, so set it (suggest 5s, a named constant).
 
 ## 6. Lifecycle

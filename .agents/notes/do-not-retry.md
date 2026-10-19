@@ -20,7 +20,7 @@
 | Make the reviewer edit files | A reviewer reports; the implementer fixes | Reviewer is read-only |
 | Pass `localhost:5300` as a `listen` value | Config rejects hostnames in `listen` | Use an IP: `127.0.0.1:5300` |
 | Push or create a remote "as a backup" | Outward-facing; needs Master's explicit yes | Ask Master; the repo is local only for now |
-| Rely on Task Scheduler "restart on failure" (`-RestartCount`, `-RestartInterval`) to bring xdns back | Tested 2026-10-19: a process killed with `Stop-Process`, and a task that exits with code 1 (restart count 3, interval 1 min), were not restarted (1 run in 215 s) | Boot trigger with repetition every minute and `MultipleInstances IgnoreNew` (`scripts/autostart.ps1`) |
+| Rely on Task Scheduler "restart on failure" (`-RestartCount`, `-RestartInterval`) to bring hecate back | Tested 2026-10-19: a process killed with `Stop-Process`, and a task that exits with code 1 (restart count 3, interval 1 min), were not restarted (1 run in 215 s) | Boot trigger with repetition every minute and `MultipleInstances IgnoreNew` (`scripts/autostart.ps1`) |
 | `[TimeSpan]::MaxValue` as the repetition duration of a trigger | Task Scheduler rejects it (`0x80041318`, `P99999999DT23H59M59S` out of range) | `New-TimeSpan -Days 365` (repetition restarts at every boot) |
 | `Set-ScheduledTask -Settings` with a freshly built settings set to drop restart settings | Rejected: "task XML is missing a required element (Count)" | Change only the trigger with `Set-ScheduledTask -Trigger`, or `remove` then `install` |
 | `$PSScriptRoot` in a `param()` default of a script on Windows PowerShell 5.1 | Empty there; `Split-Path` fails | Compute it in the script body |
@@ -29,6 +29,7 @@
 | Trust a context for cancellation of a miekg/dns exchange | miekg obeys the deadline of a context but not its cancellation; shutdown waited out the upstream timeout | Close the connection on cancel (`context.AfterFunc(ctx, conn.Close)`) |
 | Use the request context's deadline inside a net/http dial function | Since Go 1.23 net/http dials with a context that has lost the request deadline | Give the dial its own budget with `context.WithTimeout` |
 | Pick a free test port by trying 100 random ports on Windows | Windows excludes 100-port blocks of TCP ports (Hyper-V/WinNAT); 1 flake in 25 runs | Try up to 1,000 ports |
-| Replace `bin\xdns.exe` while the scheduled task is running, or stop xdns with `Stop-ScheduledTask` alone | A running exe is locked, and the trigger repeats every minute, so xdns is started again within a minute | `Disable-ScheduledTask`, `Stop-ScheduledTask`, copy, `Enable-ScheduledTask`, `Start-ScheduledTask` |
+| Replace `bin\hecate.exe` while the scheduled task is running, or stop hecate with `Stop-ScheduledTask` alone | A running exe is locked, and the trigger repeats every minute, so hecate is started again within a minute | `Disable-ScheduledTask`, `Stop-ScheduledTask`, copy, `Enable-ScheduledTask`, `Start-ScheduledTask` |
+| Rename the project folder, or move Claude Code's memory and sessions, from inside a running Claude Code session | The session process and VS Code hold the folder (a rename fails with "in use"), and Claude Code keys memory, transcripts and temp by the folder path | Commit the in-repo rename first, then Master runs `hecate-migrate.ps1` (elevated) with Claude Code and VS Code closed; open the new folder afterwards |
 
 Unresolved, do not guess: which domain triggers the Play Store redirect on Master's phone (needs the Phase 3 query log).

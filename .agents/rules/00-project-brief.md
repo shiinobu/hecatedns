@@ -1,11 +1,11 @@
 ---
 trigger: always_on
-description: What xdns is, why it exists, its architecture, repository map and success criteria.
+description: What hecate is, why it exists, its architecture, repository map and success criteria.
 ---
 
-# xdns - project brief
+# HecateDNS - project brief
 
-xdns is Master's personal, non-commercial DNS server written in Go. It blocks ads in the browser of Master's Android phone (RedMagic 8S Pro): pop-up, pop-under, auto-redirect and click-redirect, including redirects that open the Shopee app or the Play Store. It must not force Google SafeSearch and must not need a VPN app. The phone uses it as its DNS server: home Wi-Fi first (Phase 3), later a small VPS with DNS-over-TLS plus Android Private DNS (Phase 6, budget up to about Rp50,000/month). An Android app that is only an on/off switch is Plan B.
+hecate is Master's personal, non-commercial DNS server written in Go. It blocks ads in the browser of Master's Android phone (RedMagic 8S Pro): pop-up, pop-under, auto-redirect and click-redirect, including redirects that open the Shopee app or the Play Store. It must not force Google SafeSearch and must not need a VPN app. The phone uses it as its DNS server: home Wi-Fi first (Phase 3), later a small VPS with DNS-over-TLS plus Android Private DNS (Phase 6, budget up to about Rp50,000/month). An Android app that is only an on/off switch is Plan B.
 
 ## The honest limit (say it, never oversell)
 
@@ -37,7 +37,7 @@ Default blocklists (about 249k entries): HaGeZi Multi PRO, HaGeZi Pop-Up Ads, AB
 ## Repository map
 
 ```
-cmd/xdns/                 main.go, check.go, run.go, log.go, rule.go, lists.go    [DONE, 92% cover]
+cmd/hecate/               main.go, check.go, run.go, log.go, rule.go, lists.go    [DONE, 92% cover]
 internal/config/          strict YAML loader, defaults, validation, Warnings()    [DONE, 96% cover]
 internal/engine/          filter engine (ACL, matcher, rules, CNAME, special)     [DONE, 97% cover]
 internal/lists/           list download, parser, cache, scheduler                 [DONE, 87% cover]
@@ -47,7 +47,7 @@ internal/backend/         Backend interface, registry                           
   dnsproxybe/             AdGuard dnsproxy v0.86.0 adapter                        [DONE, 95% cover]
   conformance/            shared backend conformance suite                        [DONE, 81% cover]
   native/                 native miekg/dns backend (Phase 4)                      [doc.go only]
-configs/xdns.example.yaml reference config (identical to docs/architecture.md section 10)
+configs/hecate.example.yaml reference config (identical to docs/architecture.md section 10)
 docs/                     architecture.md roadmap.md research.md phase-{0,1,2}-report.md (Indonesian)
 .agents/                  this pack          .claude/  Claude Code only (tracked; settings.local.json ignored)
 ```
@@ -62,7 +62,7 @@ Planned engine files (`docs/architecture.md` section 4): `engine.go acl.go match
 | S2 | Play Store redirect trigger found via the query log and stopped (10 retries without that redirect) | Phase 3 |
 | S3 | SafeSearch not forced: `www.google.com` never chains to `forcesafesearch.google.com` | Phase 2 and 3 |
 | S4 | 7 days running without crash or manual restart, stable memory, cache-miss p95 < 150 ms | Phase 6, on the VPS (moved from Phase 5: the home PC is switched off at night) |
-| S5 | `xdns rule add allow <domain>` takes effect within 10 s without restart | Phase 1 |
+| S5 | `hecate rule add allow <domain>` takes effect within 10 s without restart | Phase 1 |
 
 Not goals of version 1: web UI, HTTPS content inspection, APK, DNS-over-QUIC, DNSSEC validation, per-client profiles, parental control, ECS.
 

@@ -1,9 +1,9 @@
 ---
-name: xdns-block-semantics
-description: Domain knowledge for xdns filtering decisions - suffix matching, name normalization, list and rule parsing, rule priority, blocked-answer shapes per mode, CNAME and HTTPS/SVCB handling, special names, SafeSearch rule. Use when implementing or reviewing the matcher, rules, lists, response builder, CNAME check or special names.
+name: hecate-block-semantics
+description: Domain knowledge for hecate filtering decisions - suffix matching, name normalization, list and rule parsing, rule priority, blocked-answer shapes per mode, CNAME and HTTPS/SVCB handling, special names, SafeSearch rule. Use when implementing or reviewing the matcher, rules, lists, response builder, CNAME check or special names.
 ---
 
-# xdns blocking semantics
+# HecateDNS blocking semantics
 
 Source of truth: `docs/architecture.md` sections 6, 7, 8, 11 and decisions D3-D7. This is the condensed rule set.
 
@@ -20,7 +20,7 @@ custom `allow` > custom `block` > list `allow` > list `block`. A matched `allow`
 
 ## Formats
 
-- Rules file `data/rules.txt`: lines `block <domain>` / `allow <domain>`; `#` starts a comment; a bad line is skipped and reported with its line number; a missing file means no rules. Same suffix semantics as lists. Reload when the file's mtime changes (poll every `rules.poll_interval`, default 2 s); `xdns rule add` writes atomically.
+- Rules file `data/rules.txt`: lines `block <domain>` / `allow <domain>`; `#` starts a comment; a bad line is skipped and reported with its line number; a missing file means no rules. Same suffix semantics as lists. Reload when the file's mtime changes (poll every `rules.poll_interval`, default 2 s); `hecate rule add` writes atomically.
 - Lists, format `domains`: one domain per line. Format `hosts`: `0.0.0.0 domain` (also `127.0.0.1`). Comments start with `#`, `!` or `;` and may trail a line. Count and report rejected lines; a bad line never aborts the load. The three default lists contain only plain lowercase domains (checked 2026-10-18: no `*.`, no spaces). Full adblock syntax (`||domain^$opts`) is NOT supported in v1.
 
 ## Blocked answers (copy ID + question, set RA, keep RD; TTL = `block.ttl`, default 10 s)
@@ -46,11 +46,11 @@ For every CNAME in the answer section: normalize its target; if allow-listed, co
 
 ## SafeSearch rule (success criterion S3)
 
-xdns never rewrites `www.google.com`. The default upstreams are NOT the "family/filtering" variants, and the upstream is encrypted so the ISP/router cannot hijack answers. `xdns check` (self-check, Phase 2) resolves `www.google.com` through the configured upstream and warns if the chain contains `forcesafesearch.google.com`. Limit: if SafeSearch is locked by the Google account or a network proxy, DNS cannot undo it.
+hecate never rewrites `www.google.com`. The default upstreams are NOT the "family/filtering" variants, and the upstream is encrypted so the ISP/router cannot hijack answers. `hecate check` (self-check, Phase 2) resolves `www.google.com` through the configured upstream and warns if the chain contains `forcesafesearch.google.com`. Limit: if SafeSearch is locked by the Google account or a network proxy, DNS cannot undo it.
 
 ## What to be careful about
 
 - Never block by substring or regex: only by label-boundary suffix.
 - Never let a blocked answer carry upstream data. Never mutate the incoming request or the upstream response; copy first.
 - A cached negative answer in the phone/browser means a rule change can take up to the block TTL (10 s) to be visible; do not "fix" this by raising the TTL.
-- Allow-list entries are for fixing false positives: `xdns rule add allow <domain>` must work in <= 10 s with no restart (S5).
+- Allow-list entries are for fixing false positives: `hecate rule add allow <domain>` must work in <= 10 s with no restart (S5).

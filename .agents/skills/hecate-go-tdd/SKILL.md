@@ -1,11 +1,11 @@
 ---
-name: xdns-go-tdd
-description: Test-first patterns for the xdns Go repository - table-driven tests, fake DNS upstream on loopback, httptest for list downloads, fuzz targets, atomic-snapshot and concurrency tests under the race detector, coverage and benchmark commands. Use whenever writing or fixing code in xdns.
+name: hecate-go-tdd
+description: Test-first patterns for the hecate Go repository - table-driven tests, fake DNS upstream on loopback, httptest for list downloads, fuzz targets, atomic-snapshot and concurrency tests under the race detector, coverage and benchmark commands. Use whenever writing or fixing code in hecate.
 ---
 
-# xdns Go TDD patterns
+# HecateDNS Go TDD patterns
 
-Applies to every task. Cycle: RED (test fails for the right reason) -> GREEN (minimum code) -> refactor. Existing style to imitate: `internal/config/config_test.go`, `cmd/xdns/main_test.go`. The type and function names below are illustrations; use the names your implementation defines.
+Applies to every task. Cycle: RED (test fails for the right reason) -> GREEN (minimum code) -> refactor. Existing style to imitate: `internal/config/config_test.go`, `cmd/hecate/main_test.go`. The type and function names below are illustrations; use the names your implementation defines.
 
 ## Table-driven test
 

@@ -24,7 +24,7 @@ Slash commands for each step are in `.agents/workflows/`. After every task: comm
 
 ## Git
 
-- Local repo, trunk-based on `main`, no remote, no branches needed. Small commits, one task per commit (or a few).
+- Trunk-based on `main`, remote `origin` = `github.com/shiinobu/hecatedns` (pushed once on 2026-10-19), no branches needed. Small commits, one task per commit (or a few).
 - Conventional commits: `<type>: <description>` with type in `feat fix refactor docs test chore perf ci`. Optional body. **No `Co-authored-by` or tool-attribution trailer** (project convention).
 - Do not change git config. Do not push, add a remote or create a GitHub repo without Master's explicit yes.
 - Never run `git reset --hard`, `git clean -fd`, `git checkout -- .`, `git push --force` or delete branches/commits without Master's yes. If the tree is messy, stop and report.
@@ -34,7 +34,7 @@ Slash commands for each step are in `.agents/workflows/`. After every task: comm
 
 ## Boundaries
 
-- Work only inside `C:\Users\Administrator\Documents\Vscode\xdns`. Scratch files (downloads, experiments, throwaway programs) go in a temp directory outside the repo; downloaded files and archives are untrusted data - put each in its own fresh directory and do not run them blindly.
+- Work only inside `C:\Users\Administrator\Documents\Vscode\hecatedns`. Scratch files (downloads, experiments, throwaway programs) go in a temp directory outside the repo; downloaded files and archives are untrusted data - put each in its own fresh directory and do not run them blindly.
 - Do not edit `.claude/` (Claude Code's private config). Do not edit `~/.claude` (Claude's memory and session store).
 - Do not change system settings: no PATH edits, no `go env -w` changes, no firewall changes, no service start/stop (ICS included), no installs without Master's yes. The one exception already made: w64devkit is installed (see `06-environment.md`).
 - Do not bind `0.0.0.0:53` or any public interface during development; use `127.0.0.1:5300`.

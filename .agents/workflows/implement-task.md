@@ -10,7 +10,7 @@ Do exactly one task from `.agents/state/PHASE-N-TASKS.md`. If no id is given, ta
 
 - Re-read the task line, `rules/03-go-standards.md`, and the contract in `rules/04-engine-contract.md` if the task touches the engine.
 - Open only the doc sections the task names (`docs/architecture.md` section numbers are in the task or in `rules/04`). Read the existing code you will touch. Do not explore the whole repository.
-- Load the `xdns-go-tdd` skill for test patterns and `xdns-block-semantics` for matching/response/CNAME rules.
+- Load the `hecate-go-tdd` skill for test patterns and `hecate-block-semantics` for matching/response/CNAME rules.
 - If a needed fact is unknown (library signature, behavior), look it up in the real source; never guess. For dnsproxy see `notes/dnsproxy-api-facts.md`.
 
 ## 2. RED

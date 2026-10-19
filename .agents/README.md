@@ -1,13 +1,13 @@
-# .agents - paket cadangan xdns / xdns fallback pack
+# .agents - paket cadangan HecateDNS / HecateDNS fallback pack
 
-Backup hand-off pack for the xdns project. If Claude's usage limit runs out, any other AI coding agent (Gemini 4 Argon in Antigravity, Gemini CLI, Codex, ...) can continue from here without the Claude conversation. Written 2026-10-18 by Claude Sonnet 5.5 at Master's request. The pack describes the project as of commit `4b546fc` (end of Phase 0); `state/STATE.md` is always the live status.
+Backup hand-off pack for the hecate project. If Claude's usage limit runs out, any other AI coding agent (Gemini 4 Argon in Antigravity, Gemini CLI, Codex, ...) can continue from here without the Claude conversation. Written 2026-10-18 by Claude Sonnet 5.5 at Master's request. The pack describes the project as of commit `4b546fc` (end of Phase 0); `state/STATE.md` is always the live status.
 
 ## Untuk Master (Bahasa Indonesia)
 
 **Isi.** Aturan proyek, alur kerja (slash command), prompt siap tempel, catatan keputusan, dan status terkini. Semua disusun supaya agent yang tidak tahu apa-apa tentang percakapan sebelumnya tetap bekerja dengan aturan Master yang sama (tugas dulu, dokumen di akhir, satu review per fase, jawab singkat dalam Bahasa Indonesia).
 
 **Cara pakai (Gemini 4 Argon / Antigravity)**
-1. Buka folder `C:\Users\Administrator\Documents\Vscode\xdns` sebagai workspace (folder induknya, bukan subfolder).
+1. Buka folder `C:\Users\Administrator\Documents\Vscode\hecatedns` sebagai workspace (folder induknya, bukan subfolder).
 2. Pesan pertama di sesi baru: tempel seluruh isi `prompts/00-bootstrap.md`.
 3. Setelah agent melapor siap, ketik "lanjut". Untuk tugas besar pakai prompt di `prompts/` (urut dari nomor kecil) atau slash command `/resume`, `/implement-task`, `/gates`, `/review-phase`, `/close-phase`, `/handoff`, `/debug`, `/spike-dnsproxy`.
 4. Sebelum berhenti, atau saat batas pemakaian hampir habis: ketik `/handoff`. Itu memperbarui `state/STATE.md` dan `state/WORKLOG.md`.
@@ -26,7 +26,7 @@ Backup hand-off pack for the xdns project. If Claude's usage limit runs out, any
 .agents/
 ├── README.md
 ├── rules/                  always-on rules (each file < 12,000 chars)
-│   ├── 00-project-brief.md       what xdns is, architecture, repo map, success criteria
+│   ├── 00-project-brief.md       what hecate is, architecture, repo map, success criteria
 │   ├── 01-communication.md       Master, Indonesian, short chat, when to ask
 │   ├── 02-workflow.md            Master's work rules, phase cycle, commits, boundaries
 │   ├── 03-go-standards.md        code, test and file standards for this repo
@@ -34,7 +34,7 @@ Backup hand-off pack for the xdns project. If Claude's usage limit runs out, any
 │   ├── 05-security-and-input.md  threat model, untrusted input, resource limits
 │   └── 06-environment.md         Windows, Go, shells, gates, race, ports
 ├── workflows/              slash commands (/resume, /implement-task, ...)
-├── skills/                 on-demand knowledge: xdns-go-tdd, xdns-block-semantics
+├── skills/                 on-demand knowledge: hecate-go-tdd, hecate-block-semantics
 ├── roles/                  role briefs: core-engineer, phase-reviewer
 ├── prompts/                paste-ready prompts, numbered in the order they are needed
 ├── notes/                  decisions, do-not-retry, open questions, dnsproxy API facts

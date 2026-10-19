@@ -1,5 +1,5 @@
 ---
-description: Close a finished xdns phase - verify gates and review fixes, do the single documentation pass, write the phase report, report to Master, prepare the next phase's task file, then stop.
+description: Close a finished hecate phase - verify gates and review fixes, do the single documentation pass, write the phase report, report to Master, prepare the next phase's task file, then stop.
 ---
 
 # /close-phase

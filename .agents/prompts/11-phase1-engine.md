@@ -6,7 +6,7 @@ Use after the spike (P1-01) is ticked. This is the hard core: run it with your m
 
 Kerjakan tugas **P1-02 sampai P1-06** dari `.agents/state/PHASE-1-TASKS.md`, berurutan: matcher, rules, response, acl, engine. Adopt the role in `.agents/roles/core-engineer.md`.
 
-Read first (only these): `.agents/rules/03-go-standards.md`, `04-engine-contract.md`, `05-security-and-input.md`; skills `xdns-go-tdd` and `xdns-block-semantics`; `docs/architecture.md` sections 5.1, 6, 7, 8, 14; `notes/dnsproxy-api-facts.md` (for the engine you mostly need the DNS message types: miekg/dns v1.1.73); existing style in `internal/config`.
+Read first (only these): `.agents/rules/03-go-standards.md`, `04-engine-contract.md`, `05-security-and-input.md`; skills `hecate-go-tdd` and `hecate-block-semantics`; `docs/architecture.md` sections 5.1, 6, 7, 8, 14; `notes/dnsproxy-api-facts.md` (for the engine you mostly need the DNS message types: miekg/dns v1.1.73); existing style in `internal/config`.
 
 For each task use `.agents/workflows/implement-task.md`:
 - Test first and show RED, then GREEN; table-driven; hostile inputs; a fuzz test for the rule-line parser; a benchmark skeleton for the matcher.

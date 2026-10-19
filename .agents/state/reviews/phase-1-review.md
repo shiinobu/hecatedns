@@ -1,9 +1,9 @@
-# xdns Phase 1 review
+# HecateDNS Phase 1 review
 
-Reviewer: Opus agent `xdns-reviewer`, fresh context, read-only. Range `4b546fc..HEAD`, HEAD `ec0065d` (code as of `f825312`). Saved verbatim by the main session on 2026-10-18; the triage and what was done about each finding is in the section "Triage" at the end (added by the main session, not by the reviewer).
+Reviewer: Opus agent `hecate-reviewer`, fresh context, read-only. Range `4b546fc..HEAD`, HEAD `ec0065d` (code as of `f825312`). Saved verbatim by the main session on 2026-10-18; the triage and what was done about each finding is in the section "Triage" at the end (added by the main session, not by the reviewer).
 
 ## Verdict
-Phase 1 mostly holds up. Every "done when" criterion passes on the real binary. The engine core, the rules parsing, the qlog writer and reader, and the config hardening are solid, and the tests are hard to fool (most mutations were caught). Running the binary turned up three real problems, and none of them can be seen by reading the xdns code alone: (1) any host can stall the whole server with 256 idle TCP connections, and the ACL does not stop it; (2) refused queries from clients outside the ACL can fill the disk through the query log; (3) queries with an opcode other than QUERY skip the rules and are forwarded upstream. There is also one flaky test, which fails about a third of the time on this machine. **Counts: Critical 0, Important 4, Minor 12.** The Important findings should be fixed, or accepted explicitly as LAN-only risks with a recorded decision, before Phase 2.
+Phase 1 mostly holds up. Every "done when" criterion passes on the real binary. The engine core, the rules parsing, the qlog writer and reader, and the config hardening are solid, and the tests are hard to fool (most mutations were caught). Running the binary turned up three real problems, and none of them can be seen by reading the hecate code alone: (1) any host can stall the whole server with 256 idle TCP connections, and the ACL does not stop it; (2) refused queries from clients outside the ACL can fill the disk through the query log; (3) queries with an opcode other than QUERY skip the rules and are forwarded upstream. There is also one flaky test, which fails about a third of the time on this machine. **Counts: Critical 0, Important 4, Minor 12.** The Important findings should be fixed, or accepted explicitly as LAN-only risks with a recorded decision, before Phase 2.
 
 ## Gates re-run
 - `gofmt -l .`: empty. `go vet ./...`: clean. `go mod verify`: all verified. `go mod tidy -diff`: empty.
@@ -41,9 +41,9 @@ Phase 1 mostly holds up. Every "done when" criterion passes on the real binary. 
 
 **M3 - Minor (latent) - `handler.go:96-106`.** A panic that escapes `Before` takes the fail-open path (`resolveUnfiltered`) without knowing whether the ACL passed, so a client outside the ACL would be resolved. Cannot happen today (`clientAllowed` and `filter` recover internally), fragile for Phase 2. Fix: in the filter stage, answer REFUSED unless the ACL check is known to have passed.
 
-**M4 - Minor - `cmd/xdns/main.go:21-23`.** `xdns` with no arguments still lists `run`, `log` and `rule` as "(belum diimplementasi)".
+**M4 - Minor - `cmd/hecate/main.go:21-23`.** `hecate` with no arguments still lists `run`, `log` and `rule` as "(belum diimplementasi)".
 
-**M5 - Minor - `cmd/xdns/rule.go:161-174` vs `engine/rules.go:168-172`.** A line of 4096 bytes or more is skipped by the server but shown by `rule list` as an active rule. Fix: same length check in the CLI.
+**M5 - Minor - `cmd/hecate/rule.go:161-174` vs `engine/rules.go:168-172`.** A line of 4096 bytes or more is skipped by the server but shown by `rule list` as an active rule. Fix: same length check in the CLI.
 
 **M6 - Minor - `engine/rules.go:145-147,185-194`.** With at least 100 issues before the 4 MiB cut, `ErrFileTooLarge` is swallowed by the issue cap, so truncation is silent. Fix: always report the file-level issue.
 
@@ -51,7 +51,7 @@ Phase 1 mostly holds up. Every "done when" criterion passes on the real binary. 
 
 **M8 - Minor - config semantics.** `validate.go:174` rejects `min_ttl: 30s, max_ttl: 0s` although dnsproxybe treats 0 as "no bound". An empty `enabled:` (YAML null) means true, and `<<` merge keys are rejected inside sources. Decide and document.
 
-**M9 - Minor - `cmd/xdns/rulesedit.go`, `rule.go:91-111`.** `rule add`/`remove` read-modify-write without a lock, so two concurrent invocations can lose an update (reasoning only; 12 parallel adds kept all 12). Adding a rule to a file just under 4 MiB can push the new rule past the server's cut-off.
+**M9 - Minor - `cmd/hecate/rulesedit.go`, `rule.go:91-111`.** `rule add`/`remove` read-modify-write without a lock, so two concurrent invocations can lose an update (reasoning only; 12 parallel adds kept all 12). Adding a rule to a file just under 4 MiB can push the new rule past the server's cut-off.
 
 **M10 - Minor - `scripts/dnsquery.ps1:42-48`.** `Skip-Name` never ends on a header-only reply (out-of-range index yields `$null`). Fix: bounds-check `$pos`.
 

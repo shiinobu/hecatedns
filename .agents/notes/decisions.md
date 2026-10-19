@@ -42,7 +42,7 @@ Master delegated technical decisions to the implementing agent on 2026-10-18 and
 - `.gitattributes` `* text=auto eol=lf` (Windows autocrlf made `gofmt -l` list everything).
 - Work directly on `main`; no worktrees; no remote.
 - Config rejects a second YAML document and unexpected CLI arguments to `check`.
-- Upstream/bootstrap equal to xdns's own listen address is accepted (needs run-time knowledge; Phase 1), and list-download hostnames that resolve through xdns itself are a Phase 2 design point.
+- Upstream/bootstrap equal to hecate's own listen address is accepted (needs run-time knowledge; Phase 1), and list-download hostnames that resolve through hecate itself are a Phase 2 design point.
 
 ## Phase 1 hand-off decisions
 
@@ -57,13 +57,13 @@ Master delegated technical decisions to the implementing agent on 2026-10-18 and
 - A panic before `Before` returns fails closed (REFUSED) in the adapter; panics inside the engine fail open except for the ACL.
 - `log.max_mb_per_day` (default 256, minimum 1 while the log is on) caps the query log; excess records are dropped and counted.
 - I1 (TCP connections hold shared request slots) is accepted for the home LAN and becomes a Phase 6 prerequisite.
-- `xdns rule add` refuses a result over 4 MiB (the server ignores the rest of a file that large); a rules line of 4096 bytes or more is ignored by the server and not shown by `rule list`.
+- `hecate rule add` refuses a result over 4 MiB (the server ignores the rest of a file that large); a rules line of 4096 bytes or more is ignored by the server and not shown by `rule list`.
 - `scripts/dnsquery.ps1` was added although it was not a listed task: `nslookup -port` is ignored on Windows, so the roadmap criterion needed a replacement.
 
 ## Phase 2 close-out decisions (2026-10-18, by Gemini 4 Argon / agy)
 
-- `DomainSet` keeps `map[string]struct{}` (Q1 closed): 250k entries across 3 lists take 16.15 MiB heap (`TestListSet_Budget250k`), 214.9–250.1 ns/op (0 allocs/op), p95 = 1.04 µs, p99 = 2.01 µs (< 50 µs budget), and full `xdns run` WorkingSet is 71.74–74.20 MiB (< 150 MB budget).
-- List downloader (`internal/lists/fetch.go`) resolves HTTPS hostnames via `miekg/dns` sequentially against `bootstrap:` servers (UDP with TCP fallback on `TC=1` or network error) so a dead first bootstrap server fails over deterministically (`I1`) and xdns never queries itself while downloading lists (Q3). It reuses a cloned default `*http.Transport` (`M2a`), caps redirects at 5 (`M3`), and reuses the in-memory `*engine.DomainSet` on HTTP `304 Not Modified` when the disk stamp matches (`M2b`).
-- `lists.Manager` polls cached list files every 5 s (`modTime` + `size`) so `xdns lists update` from another CLI process hot-reloads the running server within 5 s without restarting (Q2 closed).
-- `selfcheck.Run` (`xdns check`) treats missing cached list files (`os.ErrNotExist`) as a warning so `xdns check -config configs/xdns.example.yaml` succeeds on a clean repo without untracked files, while verifying each present blocklist's own un-allowed sample domain (`dec.Source == src.Name`, `I2`) and checking `rules.Reload()` errors.
+- `DomainSet` keeps `map[string]struct{}` (Q1 closed): 250k entries across 3 lists take 16.15 MiB heap (`TestListSet_Budget250k`), 214.9–250.1 ns/op (0 allocs/op), p95 = 1.04 µs, p99 = 2.01 µs (< 50 µs budget), and full `hecate run` WorkingSet is 71.74–74.20 MiB (< 150 MB budget).
+- List downloader (`internal/lists/fetch.go`) resolves HTTPS hostnames via `miekg/dns` sequentially against `bootstrap:` servers (UDP with TCP fallback on `TC=1` or network error) so a dead first bootstrap server fails over deterministically (`I1`) and hecate never queries itself while downloading lists (Q3). It reuses a cloned default `*http.Transport` (`M2a`), caps redirects at 5 (`M3`), and reuses the in-memory `*engine.DomainSet` on HTTP `304 Not Modified` when the disk stamp matches (`M2b`).
+- `lists.Manager` polls cached list files every 5 s (`modTime` + `size`) so `hecate lists update` from another CLI process hot-reloads the running server within 5 s without restarting (Q2 closed).
+- `selfcheck.Run` (`hecate check`) treats missing cached list files (`os.ErrNotExist`) as a warning so `hecate check -config configs/hecate.example.yaml` succeeds on a clean repo without untracked files, while verifying each present blocklist's own un-allowed sample domain (`dec.Source == src.Name`, `I2`) and checking `rules.Reload()` errors.
 - `Config.LoopWarnings()` (Q3 closed) rejects upstream/bootstrap endpoints matching any configured `listen` IP:port, wildcard (`0.0.0.0`/`::`) vs local interface IP on the same port, loopback (`127.0.0.0/8`, `::1`, `localhost`) on the same port when listening on loopback or wildcard, or any local interface IP on the same port (`M5`).

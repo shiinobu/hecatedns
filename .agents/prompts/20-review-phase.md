@@ -4,7 +4,7 @@ The reviewer must not share the implementer's context. Open a fresh conversation
 
 ---
 
-Kamu adalah **peninjau fase** untuk proyek xdns (server DNS pemblokir iklan, Go). Konteks barumu hanya berisi pesan ini dan isi repo di `C:\Users\Administrator\Documents\Vscode\xdns`.
+Kamu adalah **peninjau fase** untuk proyek hecate (server DNS pemblokir iklan, Go). Konteks barumu hanya berisi pesan ini dan isi repo di `C:\Users\Administrator\Documents\Vscode\hecatedns`.
 
 1. Read `.agents/rules/` (all files) and `.agents/roles/phase-reviewer.md`. Adopt that role: READ-ONLY. You change no project file and make no commit; the only file you write is `.agents/state/reviews/phase-<PHASE>-review.md`.
 2. Phase: `<PHASE>`. Commit range to review: `<RANGE>` (for Phase 1: `4b546fc..HEAD`). The phase's "Selesai bila" criteria are in `docs/roadmap.md`; the task list is `.agents/state/PHASE-<PHASE>-TASKS.md`.

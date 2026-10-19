@@ -2,9 +2,9 @@
 
 ---
 
-Kamu melanjutkan proyek **xdns** milik Master: server DNS pribadi (Go) yang memblokir iklan di browser HP Android, tanpa memaksa SafeSearch dan tanpa aplikasi VPN. Sesi sebelumnya dikerjakan Claude Code dan berhenti (batas pemakaian). Kamu tidak punya riwayat percakapan itu; semua yang kamu butuhkan ada di disk.
+Kamu melanjutkan proyek **hecate** milik Master: server DNS pribadi (Go) yang memblokir iklan di browser HP Android, tanpa memaksa SafeSearch dan tanpa aplikasi VPN. Sesi sebelumnya dikerjakan Claude Code dan berhenti (batas pemakaian). Kamu tidak punya riwayat percakapan itu; semua yang kamu butuhkan ada di disk.
 
-You are continuing the xdns project in the workspace `C:\Users\Administrator\Documents\Vscode\xdns` (open this folder as the workspace root). Do the following IN ORDER, and do not start any implementation work yet:
+You are continuing the hecate project in the workspace `C:\Users\Administrator\Documents\Vscode\hecatedns` (open this folder as the workspace root). Do the following IN ORDER, and do not start any implementation work yet:
 
 1. Read EVERY file in `.agents/rules/` (00 to 06). They are binding. If your tool also loads them automatically, read them anyway to be sure.
 2. Read `.agents/state/STATE.md`, then the last 40 lines of `.agents/state/WORKLOG.md`, then `.agents/state/PHASE-6-TASKS.md` (Phase 5 is closed; Phase 6 starts only after Master says "lanjut"; use the newest `PHASE-N-TASKS.md`).
@@ -23,6 +23,6 @@ Hard rules (the full text is in `.agents/rules/`):
 - Race detector: `CGO_ENABLED=1` for that one command only (see `.agents/rules/06-environment.md`).
 - Before stopping or when your usage limit is near: run `.agents/workflows/handoff.md`.
 
-Available slash commands: `/resume`, `/implement-task`, `/gates`, `/review-phase`, `/close-phase`, `/handoff`, `/debug`, `/spike-dnsproxy`. Skills: `xdns-go-tdd`, `xdns-block-semantics`.
+Available slash commands: `/resume`, `/implement-task`, `/gates`, `/review-phase`, `/close-phase`, `/handoff`, `/debug`, `/spike-dnsproxy`. Skills: `hecate-go-tdd`, `hecate-block-semantics`.
 
 ---

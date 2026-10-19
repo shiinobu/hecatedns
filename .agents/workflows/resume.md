@@ -1,5 +1,5 @@
 ---
-description: Orient in the xdns project at the start of a session - read the state, verify the baseline against git, report to Master in Indonesian. Changes no files.
+description: Orient in the hecate project at the start of a session - read the state, verify the baseline against git, report to Master in Indonesian. Changes no files.
 ---
 
 # /resume - orient before doing anything

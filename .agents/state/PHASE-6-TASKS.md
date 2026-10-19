@@ -8,7 +8,7 @@ Derived from `docs/roadmap.md` Phase 6 (tasks 1-10), `docs/phase-5-report.md` ("
 
 **Carried over from Phase 5 (check first, takes a minute):**
 
-- The home PC's Task Scheduler task `xdns` was verified with a throwaway test task but never through a real boot. After the next PC start, check that xdns is running about a minute later (`powershell -File scripts/autostart.ps1 status`, or a DNS query to `192.168.1.99`). If it is not, read `data\logs\xdns.log` and the task's last result before changing anything.
+- The home PC's Task Scheduler task `hecate` was verified with a throwaway test task but never through a real boot. After the next PC start, check that hecate is running about a minute later (`powershell -File scripts/autostart.ps1 status`, or a DNS query to `192.168.1.99`). If it is not, read `data\logs\hecate.log` and the task's last result before changing anything.
 - Decision by Master (2026-10-19): the 7-day run (criterion S4) is measured here, on the VPS, because the PC is switched off at night.
 - Decision by Master (2026-10-19): the home server keeps `allowed_clients: 192.168.1.0/24` (family and friends use it). Per-IP limits matter more than for a one-phone setup.
 
@@ -32,13 +32,13 @@ Write the failing test first (RED), then the fix (GREEN), one commit each. Decid
 
 - [ ] **P6-08 Review the access design at the start.** Android Private DNS sends no authentication header, so the planned identification is a secret hostname in the TLS SNI plus rate limits. Re-check the design before building it (`docs/architecture.md` section 13, "Akses publik") and record the ruling.
 - [ ] **P6-09 DoT listener (853) on both backends.** TLS 1.2+, certificate from P6-02, client identified by the secret SNI name, unknown SNI refused, per-client rate limit, port 53 closed to the public. Conformance cases for the listener on both backends from one table. Cross-build check `GOOS=linux GOARCH=amd64 go build ./...` stays green.
-- [ ] **P6-10 systemd service, logs, config backup.** Service runs as the dedicated user with the low-port bind capability only; operational log bounded (the run log is already capped at 5 MB + one backup); a backup of `xdns.yaml` and `data/rules.txt` that Master can restore.
+- [ ] **P6-10 systemd service, logs, config backup.** Service runs as the dedicated user with the low-port bind capability only; operational log bounded (the run log is already capped at 5 MB + one backup); a backup of `hecate.yaml` and `data/rules.txt` that Master can restore.
 - [ ] **P6-11 Phone and open-resolver test.** Phone: Private DNS set to the secret hostname; repeat S1 (turtlecute) and S2 on another Wi-Fi and on mobile data. Server: a client with a wrong or missing hostname is refused, and the server does not answer arbitrary clients on 53 or 853 (an external query from a host that is not the phone).
 
 ## D. Phase close
 
 - [ ] **P6-12 Seven-day run on the VPS (S4, moved from Phase 5).** Record memory, query count, errors and p95 latency of passed, uncached queries per day; no manual restart; look for "too many upstream queries in flight" (P6-07) and for upstream-failure warnings. Compute the p95 from the raw query log.
-- [ ] **P6-13 Network-facing review.** Full review (`xdns-reviewer`, Opus) of the Phase 6 range with attacker-style load against the DoT listener, plus `security-reviewer` on the TLS and identification code. Phase 4 had a cheap review by Master's decision, and Phase 5 used a cheap Sonnet review to spare the Opus quota; this phase opens the server to the internet, so a full review is required before it is opened. Fix Critical and Important findings RED -> GREEN.
+- [ ] **P6-13 Network-facing review.** Full review (`hecate-reviewer`, Opus) of the Phase 6 range with attacker-style load against the DoT listener, plus `security-reviewer` on the TLS and identification code. Phase 4 had a cheap review by Master's decision, and Phase 5 used a cheap Sonnet review to spare the Opus quota; this phase opens the server to the internet, so a full review is required before it is opened. Fix Critical and Important findings RED -> GREEN.
 - [ ] **P6-14 Gates, docs pass, report.** `/gates` (include `govulncheck` and the race run), `docs/phase-6-report.md`, `docs/architecture.md`, `docs/roadmap.md`, `README.md`, `STATE.md`; create `PHASE-7-TASKS.md` only if Master wants Phase 7 (optional: local web UI, extra lists, Plan B APK).
 
 ## Open for Master

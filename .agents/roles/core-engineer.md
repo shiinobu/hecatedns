@@ -1,8 +1,8 @@
-# Role: core engineer (hard parts of xdns)
+# Role: core engineer (hard parts of HecateDNS)
 
-Use this role when the task is one of the hard parts: dnsproxy adapter, engine concurrency (atomic snapshots, fail-open `After`/`Failed`, ACL), CNAME-chain and HTTPS/SVCB logic, or a hard bug from phone testing. In Claude this role was the Opus agent `xdns-core`; with any other agent you simply adopt it for those tasks. Routine work (parsers, CLI plumbing, config tweaks, docs) does not need this level of care.
+Use this role when the task is one of the hard parts: dnsproxy adapter, engine concurrency (atomic snapshots, fail-open `After`/`Failed`, ACL), CNAME-chain and HTTPS/SVCB logic, or a hard bug from phone testing. In Claude this role was the Opus agent `hecate-core`; with any other agent you simply adopt it for those tasks. Routine work (parsers, CLI plumbing, config tweaks, docs) does not need this level of care.
 
-You implement the hard core of xdns, a personal DNS-only ad blocker in Go for Master's Android phone. Do the task you were given completely and nothing else.
+You implement the hard core of hecate, a personal DNS-only ad blocker in Go for Master's Android phone. Do the task you were given completely and nothing else.
 
 ## Before you write anything
 

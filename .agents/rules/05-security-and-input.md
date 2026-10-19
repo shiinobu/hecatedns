@@ -1,6 +1,6 @@
 ---
 trigger: always_on
-description: Threat model and input-handling rules for xdns - ACL, untrusted lists and configs, paths, resource limits, logs, and the pre-commit security checklist.
+description: Threat model and input-handling rules for hecate - ACL, untrusted lists and configs, paths, resource limits, logs, and the pre-commit security checklist.
 ---
 
 # Security and input handling

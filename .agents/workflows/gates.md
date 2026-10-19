@@ -1,5 +1,5 @@
 ---
-description: Run the full xdns quality-gate set (format, vet, build, tests with coverage, race, module checks, govulncheck, config check) and report results honestly.
+description: Run the full hecate quality-gate set (format, vet, build, tests with coverage, race, module checks, govulncheck, config check) and report results honestly.
 ---
 
 # /gates - full quality gates
@@ -16,7 +16,7 @@ Run from the project root. Use PowerShell or Git Bash syntax as appropriate; do 
 | 6 | `go mod verify` | `all modules verified` |
 | 7 | `go mod tidy -diff` | prints nothing |
 | 8 | `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` | 0 vulnerabilities affecting the code (`No vulnerabilities found`, or only ones in required modules that are not called) |
-| 9 | `go run ./cmd/xdns check -config configs/xdns.example.yaml` | exit 0 |
+| 9 | `go run ./cmd/hecate check -config configs/hecate.example.yaml` | exit 0 |
 | 10 | `GOOS=linux GOARCH=amd64 go build ./...` (cgo off) | exit 0 (keeps the Phase 6 cross-build healthy) |
 
 Race command (cgo for this command only; never permanent):

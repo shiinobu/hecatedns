@@ -1,17 +1,17 @@
 ---
 trigger: always_on
-description: Go code, test, error-handling and file-size standards for the xdns repository, derived from the existing Phase 0 code.
+description: Go code, test, error-handling and file-size standards for the hecate repository, derived from the existing Phase 0 code.
 ---
 
-# Go standards for xdns
+# Go standards for HecateDNS
 
 Go 1.26.9 (module `go` directive). Dependencies: `github.com/AdguardTeam/dnsproxy v0.86.0`, `github.com/miekg/dns v1.1.73` (v1 API), `gopkg.in/yaml.v3`. Add no others without need.
 
-## Style (match the existing code in `internal/config` and `cmd/xdns`)
+## Style (match the existing code in `internal/config` and `cmd/hecate`)
 
 - `gofmt` clean. Idiomatic Go. Doc comment on every exported symbol and on every package (`// Package engine ...`), in English. Comments explain why, not what.
 - Named constants for thresholds, TTLs, limits and string enums (see `config.ModeNullIP`, `defaultBlockTTL`). No magic numbers.
-- User-facing CLI text is Indonesian (`penggunaan: xdns <perintah> [opsi]`, `belum diimplementasi`). Log fields and error strings for developers are English.
+- User-facing CLI text is Indonesian (`penggunaan: hecate <perintah> [opsi]`, `belum diimplementasi`). Log fields and error strings for developers are English.
 - Exit codes live in constants (`exitOK=0`, `exitError=1`, `exitUsage=2`). Commands take `io.Writer` for stdout/stderr so tests can capture output.
 - The HackHub-era rules found in `.claude/rules` (zero comments in `src/`, `trace()`, `tsc`/esbuild, `docs/implementation-rules.md`) do NOT apply here.
 
@@ -36,7 +36,7 @@ Go 1.26.9 (module `go` directive). Dependencies: `github.com/AdguardTeam/dnsprox
 - Concurrency code gets a test that hammers the real code path from many goroutines, run under `-race` (see `06-environment.md`).
 - Coverage: at least 80% per package that holds logic; `engine` at least 80% is a Phase 1 "done when" criterion. Check with `go test ./... -cover -count=1`.
 - Weak test check: when a test looks too easy, break the code on purpose (in a scratch copy, not the working tree) and see whether the test notices.
-- See the `xdns-go-tdd` skill for ready patterns.
+- See the `hecate-go-tdd` skill for ready patterns.
 
 ## Security hygiene before every commit
 
