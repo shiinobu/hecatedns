@@ -15,7 +15,7 @@ Run this review in a NEW conversation/session that contains only: this workflow,
 1. Inputs: the range, the phase section of `docs/roadmap.md` ("Selesai bila"), the gate results (run `/gates` first and paste its table; if there are none, run them yourself).
 2. `git log <range> --stat` and `git diff <range> -- . ':!.agents' ':!.claude'` (the range `4b546fc..HEAD` also holds the commits that added the agent folders; skip them unless a task touched them). Read surrounding code and `docs/architecture.md` only where the diff or a suspected finding needs it.
 3. Review against `roles/phase-reviewer.md` (correctness, concurrency, policy, security, project rules, test quality).
-4. Check every "done when" criterion on the real binary where it can run (for Phase 1: `hecate run`, `scripts/dnsquery.ps1 ... -Port 5300`, `hecate rule add`, REFUSED for a client outside the ACL, the log). Experiments happen in a scratch copy or temp directory outside the working tree; limit mutation experiments to three.
+4. Check every "done when" criterion on the real binary where it can run (for Phase 1: `hecate run`, `scripts/windows/dnsquery.ps1 ... -Port 5300`, `hecate rule add`, REFUSED for a client outside the ACL, the log). Experiments happen in a scratch copy or temp directory outside the working tree; limit mutation experiments to three.
 5. Save the report to `.agents/state/reviews/phase-N-review.md` (create the folder). Do not edit any other file and do not commit code. The report may be committed together with the fixes later.
 6. Chat output to Master (Indonesian, short): counts per severity, the top findings in one line each, the file path of the report, and whether the next phase may start.
 

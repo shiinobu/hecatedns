@@ -7,13 +7,13 @@ description: Go code, test, error-handling and file-size standards for the hecat
 
 Go 1.26.9 (module `go` directive). Dependencies: `github.com/AdguardTeam/dnsproxy v0.86.0`, `github.com/miekg/dns v1.1.73` (v1 API), `gopkg.in/yaml.v3`. Add no others without need.
 
-## Style (match the existing code in `internal/config` and `cmd/hecate`)
+## Style (match the existing code in `backend/lib/config` and `backend/controller`)
 
-- `gofmt` clean. Idiomatic Go. Doc comment on every exported symbol and on every package (`// Package engine ...`), in English. Comments explain why, not what.
+- `gofmt` clean. Idiomatic Go. NO comments anywhere in Go or PowerShell source, tests included (Master, 2026-10-19); no doc comments, no package comments, no `doc.go`. `backend/test/nocomment` fails the build if one appears. The "why" belongs in `docs/`.
 - Named constants for thresholds, TTLs, limits and string enums (see `config.ModeNullIP`, `defaultBlockTTL`). No magic numbers.
 - User-facing CLI text is Indonesian (`penggunaan: hecate <perintah> [opsi]`, `belum diimplementasi`). Log fields and error strings for developers are English.
 - Exit codes live in constants (`exitOK=0`, `exitError=1`, `exitUsage=2`). Commands take `io.Writer` for stdout/stderr so tests can capture output.
-- The HackHub-era rules found in `.claude/rules` (zero comments in `src/`, `trace()`, `tsc`/esbuild, `docs/implementation-rules.md`) do NOT apply here.
+- The HackHub-era rules found in `.claude/rules` (`trace()`, `tsc`/esbuild, `docs/implementation-rules.md`, "no automated test suite") do NOT apply here. Only the zero-comments rule coincides, and it applies because Master ordered it for this project.
 
 ## Size and structure
 

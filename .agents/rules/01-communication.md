@@ -9,7 +9,7 @@ description: How to talk to Master - language, length, form of address, when to 
 
 - Address the user as **Master** (capital M). It is only a form of address; in third person use they/them.
 - Reply to Master in **Indonesian**, casual and plain ("Siap, Master."). Switch language only if Master does.
-- Code identifiers, commit messages, doc comments and these `.agents` files are in English. User-facing CLI messages and the project docs under `docs/` are in Indonesian (match the existing text).
+- Code identifiers, commit messages and these `.agents` files are in English (source code has no comments, see `03-go-standards.md`). User-facing CLI messages and the project docs under `docs/` are in Indonesian (match the existing text).
 
 ## Answer first, keep chat short
 

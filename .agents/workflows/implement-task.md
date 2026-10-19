@@ -16,7 +16,7 @@ Do exactly one task from `.agents/state/PHASE-N-TASKS.md`. If no id is given, ta
 ## 2. RED
 
 - Write the tests first: table-driven, hostile inputs included (empty, huge, odd Unicode, trailing dot, uppercase, malformed DNS message).
-- Run only the package: `go test ./internal/<pkg>/... -count=1`.
+- Run only the package: `go test ./backend/<pkg>/... -count=1`.
 - Confirm the test FAILS for the RIGHT reason (assertion, or missing symbol that the next step defines) - not for a typo or a missing import. Paste the one or two decisive failing lines into the WORKLOG entry later.
 
 ## 3. GREEN
@@ -47,7 +47,7 @@ Short Indonesian note: task id, result, evidence, next task. Detail stays in the
 
 - [ ] Test was seen failing first, then passing
 - [ ] No mutation of shared or input data; snapshots immutable
-- [ ] No network inside `internal/engine`; tests need no internet
+- [ ] No network inside `backend/engine`; tests need no internet
 - [ ] Hostile-input tests exist for anything parsing external data
 - [ ] Exported symbols have doc comments; no magic numbers
 - [ ] `gofmt`, `go vet` clean on touched packages

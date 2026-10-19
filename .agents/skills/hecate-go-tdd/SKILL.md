@@ -5,7 +5,7 @@ description: Test-first patterns for the hecate Go repository - table-driven tes
 
 # HecateDNS Go TDD patterns
 
-Applies to every task. Cycle: RED (test fails for the right reason) -> GREEN (minimum code) -> refactor. Existing style to imitate: `internal/config/config_test.go`, `cmd/hecate/main_test.go`. The type and function names below are illustrations; use the names your implementation defines.
+Applies to every task. Cycle: RED (test fails for the right reason) -> GREEN (minimum code) -> refactor. Existing style to imitate: `backend/lib/config/config_test.go`, `backend/controller/controller_test.go`. The type and function names below are illustrations; use the names your implementation defines.
 
 ## Table-driven test
 
@@ -73,7 +73,7 @@ func FuzzParseRuleLine(f *testing.F) {
 }
 ```
 
-Run briefly while developing: `go test ./internal/engine -run xxx -fuzz FuzzParseRuleLine -fuzztime 20s`. Commit any interesting failing input that fuzzing writes under `testdata/fuzz`.
+Run briefly while developing: `go test ./backend/engine -run xxx -fuzz FuzzParseRuleLine -fuzztime 20s`. Commit any interesting failing input that fuzzing writes under `testdata/fuzz`.
 
 ## Atomic snapshot read while swapping (run under `-race`)
 
@@ -110,13 +110,13 @@ For the engine: spawn many goroutines calling `Before`/`After` with a shared `*E
 ## Commands
 
 ```
-go test ./internal/engine/... -count=1                 # package loop
-go test ./internal/engine/... -cover -count=1          # coverage (>= 80% on logic packages)
-go test ./internal/engine/... -coverprofile="$env:TEMP\c.out"; go tool cover -func "$env:TEMP\c.out"   # find uncovered code (PowerShell)
-go test ./internal/engine/... -bench . -benchmem -run xxx
+go test ./backend/engine/... -count=1                 # package loop
+go test ./backend/engine/... -cover -count=1          # coverage (>= 80% on logic packages)
+go test ./backend/engine/... -coverprofile="$env:TEMP\c.out"; go tool cover -func "$env:TEMP\c.out"   # find uncovered code (PowerShell)
+go test ./backend/engine/... -bench . -benchmem -run xxx
 ```
 
-Race (per command): `$env:CGO_ENABLED='1'; go test -race ./internal/engine/... -count=1; Remove-Item Env:CGO_ENABLED`.
+Race (per command): `$env:CGO_ENABLED='1'; go test -race ./backend/engine/... -count=1; Remove-Item Env:CGO_ENABLED`.
 
 ## Test-quality checks
 

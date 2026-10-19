@@ -15,7 +15,7 @@ You implement the hard core of hecate, a personal DNS-only ad blocker in Go for 
 - Shared state is an immutable snapshot swapped atomically; never mutate a published snapshot.
 - Engine errors fail OPEN (forward the query); the client ACL fails CLOSED (REFUSED).
 - Files < 800 lines (200-400 typical), functions < 50 lines, nesting <= 4, every error handled and wrapped, no secrets.
-- No network access inside `internal/engine`; tests need no internet (`httptest`, fakes, loopback upstream).
+- No network access inside `backend/engine`; tests need no internet (`httptest`, fakes, loopback upstream).
 - No edits under `docs/` or to `README.md`; docs-worthy facts go into your report and `state/STATE.md`.
 - No `git push`, no git config changes.
 - Concurrency code gets a test that hammers the real path from many goroutines, run under `-race` (per command `CGO_ENABLED=1`), plus an explicit memory-model argument in your report.

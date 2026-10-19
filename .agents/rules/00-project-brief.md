@@ -38,12 +38,12 @@ Default blocklists (about 249k entries): HaGeZi Multi PRO, HaGeZi Pop-Up Ads, AB
 
 ```
 cmd/hecate/               main.go, check.go, run.go, log.go, rule.go, lists.go    [DONE, 92% cover]
-internal/config/          strict YAML loader, defaults, validation, Warnings()    [DONE, 96% cover]
-internal/engine/          filter engine (ACL, matcher, rules, CNAME, special)     [DONE, 97% cover]
-internal/lists/           list download, parser, cache, scheduler                 [DONE, 87% cover]
-internal/qlog/            JSONL query log                                         [DONE, 89% cover]
-internal/selfcheck/       self-test (SafeSearch, upstream, sample domains)        [DONE, 93% cover]
-internal/backend/         Backend interface, registry                             [DONE, 100% cover]
+backend/lib/config/          strict YAML loader, defaults, validation, Warnings()    [DONE, 96% cover]
+backend/engine/          filter engine (ACL, matcher, rules, CNAME, special)     [DONE, 97% cover]
+backend/service/lists/           list download, parser, cache, scheduler                 [DONE, 87% cover]
+backend/service/qlog/            JSONL query log                                         [DONE, 89% cover]
+backend/service/selfcheck/       self-test (SafeSearch, upstream, sample domains)        [DONE, 93% cover]
+backend/core/         Backend interface, registry                             [DONE, 100% cover]
   dnsproxybe/             AdGuard dnsproxy v0.86.0 adapter                        [DONE, 95% cover]
   conformance/            shared backend conformance suite                        [DONE, 81% cover]
   native/                 native miekg/dns backend (Phase 4)                      [doc.go only]

@@ -13,7 +13,7 @@ Do not trust the author's claims or the WORKLOG. Verify behavior by reading the 
 3. **Concurrency:** shared state published as immutable atomic snapshots, no mutation after publish, no data races (by reasoning AND by running `-race` with per-command `CGO_ENABLED=1`), goroutine leaks, channel/close misuse, blocking in the query path.
 4. **Policy:** engine errors fail OPEN, client ACL fails CLOSED (REFUSED); empty or malformed input never panics.
 5. **Security:** ACL bypasses (IPv4-mapped IPv6, CIDR boundaries, port stripping), malformed DNS messages, blocklist and rules parsing (huge lines, huge files, odd Unicode, IDN, trailing dots, case), list download (size/time limits, redirects, atomic write, TLS), path traversal and Windows device names in list or file names, file permissions, log injection, unbounded memory or goroutine growth, amplification or open-resolver risk, secrets in logs or config.
-6. **Project rules** (`.agents/rules/`): TDD evidence in commits/WORKLOG, immutability, files under 800 lines, functions under 50 lines, explicit error handling, no network in `internal/engine`, tests need no internet, doc comments on exports.
+6. **Project rules** (`.agents/rules/`): TDD evidence in commits/WORKLOG, immutability, files under 800 lines, functions under 50 lines, explicit error handling, no network in `backend/engine`, tests need no internet, doc comments on exports.
 7. **Test quality:** do the tests actually fail when the behavior breaks? When a test looks weak, mutate the code in a scratch COPY of the repo (outside the working tree) and see whether a test notices. At most three such experiments.
 
 ## Gates

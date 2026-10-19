@@ -26,7 +26,7 @@ go run golang.org/x/vuln/cmd/govulncheck@latest ./...   # 0 vulnerabilities AFFE
 go run ./cmd/hecate check -config configs/hecate.example.yaml
 ```
 
-Baseline at HEAD `4b546fc`: `go test ./... -cover -count=1` prints two `ok` lines (`github.com/shiinobu/hecatedns/cmd/hecate` 97.3%, `github.com/shiinobu/hecatedns/internal/config` 96.2%), 92 tests pass. `govulncheck` shows 0 affected (one vulnerability in a required module that our code does not call).
+Baseline at HEAD `4b546fc`: `go test ./... -cover -count=1` prints two `ok` lines (`github.com/shiinobu/hecatedns/cmd/hecate` 97.3%, `github.com/shiinobu/hecatedns/backend/lib/config` 96.2%), 92 tests pass. `govulncheck` shows 0 affected (one vulnerability in a required module that our code does not call).
 
 ## Race detector (works since 2026-10-18)
 
@@ -42,7 +42,7 @@ Git Bash:    CGO_ENABLED=1 go test -race ./... -count=1
 ## Practical notes
 
 - Git emits LF/CRLF warnings on Windows; `.gitattributes` (`* text=auto eol=lf`) keeps files LF. Run `gofmt -l .` to catch drift.
-- **Windows `nslookup` ignores `-port`** (verified 2026-10-18 on this PC: `nslookup -port=5300 example.com 127.0.0.1` printed "No response from server" while hecate answered fine on 5300; the server never saw the query, so nslookup was asking UDP 53). `Resolve-DnsName` has no port option either. To query hecate on `127.0.0.1:5300` use `scripts/dnsquery.ps1 example.com -Port 5300` (A/AAAA/CNAME and rcode). On port 53 (phone test, Phase 3) plain `nslookup` works. In PowerShell 5.1 nslookup output that goes to stderr is wrapped as a `NativeCommandError` record, so judge by the printed text.
+- **Windows `nslookup` ignores `-port`** (verified 2026-10-18 on this PC: `nslookup -port=5300 example.com 127.0.0.1` printed "No response from server" while hecate answered fine on 5300; the server never saw the query, so nslookup was asking UDP 53). `Resolve-DnsName` has no port option either. To query hecate on `127.0.0.1:5300` use `scripts/windows/dnsquery.ps1 example.com -Port 5300` (A/AAAA/CNAME and rcode). On port 53 (phone test, Phase 3) plain `nslookup` works. In PowerShell 5.1 nslookup output that goes to stderr is wrapped as a `NativeCommandError` record, so judge by the printed text.
 - When a Windows path is passed to a Go test (`../../configs/hecate.example.yaml`) keep it relative; tests run with the package directory as cwd.
 - Scratch location for temporary work: a temp directory outside the repo (for example `$env:TEMP\hecate-scratch`). Delete what you create there when done.
 - `data/` (runtime state), `/hecate.yaml` (to be added to `.gitignore` in Phase 1), `*.exe`, `*.pem`, `*.key` must never be committed.
