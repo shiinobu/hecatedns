@@ -1,538 +1,349 @@
-# HecateDNS — Arsitektur
+# HecateDNS architecture
 
-*Versi 1.5 | 2026-10-19 | Status: Fase 0 sampai Fase 5 selesai. Backend `native` lulus tes HP dan menjadi backend server rumah; hecate jalan otomatis saat boot lewat Task Scheduler. Uji 7 hari (S4) dipindah ke Fase 6 di VPS atas keputusan Master (lihat `phase-1-report.md` sampai `phase-5-report.md`, `test-report.md`) | Penulis: Claude & Gemini 4 Argon (keputusan desain didelegasikan penuh oleh Master)*
+HecateDNS is a personal, non-commercial DNS server that blocks browser ads (pop-ups, auto-redirects, click-redirects) on a phone, without a VPN app and without forcing Google SafeSearch. This document is the design specification. The work plan is in [roadmap.md](roadmap.md), the research behind it in [research.md](research.md), test results in [testing.md](testing.md), and how to run it in [operations.md](operations.md).
 
-Dokumen ini adalah spesifikasi desain HecateDNS (dulu xdns). Urutan kerja ada di `roadmap.md`. Dasar riset dan sumbernya ada di `research.md` (rujukan "riset §N" di bawah menunjuk ke sana).
+Status: phases 0 to 5 are done (both backends pass the same conformance suite and a real-phone test). Phase 6 (VPS + DNS-over-TLS) is next.
 
 ---
 
-## 1. Tujuan, batas, dan kriteria sukses
+## 1. Goals, limits and success criteria
 
-**Tujuan.** Server DNS pribadi (non-komersial) yang memblokir iklan di browser HP Android Master (RedMagic 8S Pro): pop-up, pop-under, auto-redirect, dan click-redirect, termasuk redirect ke Play Store atau aplikasi Shopee. Server tidak memaksa Google SafeSearch dan tidak memakai aplikasi VPN di HP.
+**Goal.** A DNS server that blocks ad and tracker domains for an Android phone, first on the home Wi-Fi and later anywhere through Android's Private DNS (DoT).
 
-**Batas yang jujur** (riset §2–3). DNS tidak bisa memblokir 100% iklan browser. Yang tidak terjangkau:
-- iklan yang disajikan dari domain yang sama dengan kontennya;
-- skrip pemicu redirect dari domain situs itu sendiri;
-- overlay klik yang membuka jendela dari skrip situs;
-- kotak iklan kosong yang tertinggal.
+**Honest limits** (see research.md). DNS cannot block 100% of browser ads. It cannot reach ads served from the same domain as the content, redirect scripts served by the site itself, click overlays that open windows from page scripts, or the empty ad boxes left behind. The documented complement is Firefox with uBlock Origin; Plan B is an APK (section 16).
 
-Pelengkap terdokumentasi: Firefox + uBlock Origin. Plan B: APK (§16).
+**Not goals of version 1:** web UI, HTTPS inspection, APK, DNS-over-QUIC, DNSSEC validation, per-client profiles, parental control.
 
-**Bukan tujuan versi 1:** UI web, pemeriksaan isi HTTPS, APK, DNS-over-QUIC, validasi DNSSEC, profil per klien, kontrol orang tua.
+| Code | Criterion | How it is measured |
+|---|---|---|
+| S1 | Domains on the block lists are blocked | `hecate check` (a sample domain from every list answers `0.0.0.0`); ad-test pages before and after; target at least 90% of the test hosts |
+| S2 | The trigger of a redirect can be found and stopped | Query log around the time of the redirect, then a rule or list entry, then repeated attempts |
+| S3 | SafeSearch is not forced | `www.google.com` does not chain to `forcesafesearch.google.com` |
+| S4 | Stable | 7 days without a crash or manual restart, stable memory, p95 cache-miss latency under 150 ms (measured in phase 6 on the VPS) |
+| S5 | A false positive is easy to fix | `hecate rule add allow <domain>` takes effect within 10 seconds, without a restart |
 
-**Kriteria sukses**
+---
 
-| Kode | Kriteria | Cara ukur | Diukur di |
+## 2. Design decisions
+
+| # | Decision | Choice | Reason |
 |---|---|---|---|
-| S1 | Domain iklan pada daftar terblokir | `hecate check`: domain contoh tiap daftar dijawab `0.0.0.0`. Hasil adblock.turtlecute.org dan canyoublockit.com dicatat sebelum dan sesudah. Target awal: ≥ 90% host uji terblokir (disesuaikan setelah baseline) | Fase 3 |
-| S2 | Pemicu redirect Play Store ditemukan dan dihentikan | Log query di sekitar waktu kejadian → aturan atau daftar → 10 percobaan ulang tanpa redirect yang sama | Fase 3 |
-| S3 | SafeSearch tidak dipaksa oleh DNS | `www.google.com` tidak berantai ke `forcesafesearch.google.com`; self-check lulus | Fase 2 dan 3 |
-| S4 | Stabil | 7 hari berjalan tanpa crash atau restart manual, memori stabil, latensi query lolos (cache miss) p95 < 150 ms (target awal) | Fase 6, di VPS (dipindah dari Fase 5 pada 2026-10-19: PC ini dimatikan tiap malam, jadi 7 hari tanpa putus tidak bisa dicapai di sini) |
-| S5 | Salah blokir mudah diperbaiki | Satu perintah `hecate rule add allow <domain>` berlaku ≤ 10 detik tanpa restart | Fase 1 |
+| D1 | Language | Go (`go.mod` pins 1.26.9) | One binary, mature DNS ecosystem. 1.26.9 because 1.26.8 is affected by six standard-library vulnerabilities |
+| D2 | Backends | Two, switchable by config: `dnsproxy` (AdGuard dnsproxy v0.86.0, Apache-2.0) and `native` (own code on `miekg/dns` v1.1.73) | The owner wanted to try both. One shared engine keeps decisions identical and reusable for Plan B |
+| D3 | Domain matching | Map of domains, suffix match (a domain and all its subdomains), immutable snapshot swapped atomically | Simple, fast, safe under concurrency |
+| D4 | Default lists | HaGeZi Multi PRO, HaGeZi Pop-Up Ads, ABPindo `domain.txt` | PRO is the author's recommendation; ULTIMATE risks false positives |
+| D5 | Blocked answers | `null_ip` (A `0.0.0.0`, AAAA `::`), TTL 10 s; other types NODATA with a synthetic SOA; mode is configurable | Research section 4.3 |
+| D6 | CNAME | Every CNAME in an upstream answer is checked against the lists | Catches CNAME-cloaked trackers |
+| D7 | HTTPS/SVCB and special names | Type 65 on a blocked name gives NODATA; `_dns.resolver.arpa` NODATA; `use-application-dns.net` NXDOMAIN (switchable) | Closes bypasses through service-binding records |
+| D8 | Upstreams | DoH to Cloudflare `1.1.1.1` then Google `8.8.8.8` (not the filtering "family" variants) | Encrypted, and does not force SafeSearch |
+| D9 | Configuration | Strict YAML (`gopkg.in/yaml.v3`, unknown keys are errors) | Readable, already in the dependency graph |
+| D10 | Query log | Daily JSONL, 7-day retention | The "reproduce, read the log, block" workflow |
+| D11 | CLI to server coordination | Through files (rules, list cache) polled by modification time; no admin socket | No extra port, no extra attack surface |
+| D12 | Development port | `127.0.0.1:5300` | 5353 is mDNS; Windows Internet Connection Sharing holds UDP 53 |
+| D13 | UI | None in version 1; log and rules through the CLI | YAGNI |
+| D14 | Source style | Idiomatic Go with no comments in the source (enforced by `backend/test/nocomment`); the reasoning lives in this document | Owner's rule |
 
 ---
 
-## 2. Keputusan desain
+## 3. Overview
 
-Semua ditetapkan Claude atas kewenangan penuh dari Master (2026-10-18). Master boleh membatalkan salah satunya kapan saja.
+```
+ Client (phone / PC)
+      |  DNS (UDP/TCP 53; later DoT 853)
+      v
++------------------------------------------------------+
+| BACKEND   backend: dnsproxy | native                 |
+|   listener, client ACL, cache, encrypted upstream    |
++-------+------------------------------^---------------+
+   Before(q)                      After(q, answer)
+        v                               |
++------------------------------------------------------+
+| ENGINE (one, shared)                                 |
+|   custom rules, block lists, CNAME check,            |
+|   block answers, special names, query log            |
++------------------------------------------------------+
+        ^                    ^
+  data/rules.txt     data/lists/*.txt (downloaded periodically)
+```
 
-| # | Keputusan | Pilihan | Alasan |
-|---|---|---|---|
-| D1 | Bahasa | Go, `go 1.26.9` di `go.mod` | Satu binary, ekosistem DNS matang, sudah terpasang (1.26.4; toolchain naik otomatis). `dnsproxy` v0.86.0 mensyaratkan ≥ 1.26.8; dipakai 1.26.9 karena 1.26.8 terdampak enam kerentanan pustaka standar (GO-2026-6603, 6607, 6611, 6612, 6613, 6617) |
-| D2 | Backend | Dua, bisa ditukar lewat konfigurasi: `dnsproxy` (AdGuard dnsproxy v0.86.0, Apache-2.0) dan `native` (kode sendiri di atas `miekg/dns` v1.1.73) | Permintaan Master untuk mencoba keduanya. Engine bersama membuat hasil keputusan sama dan bisa dipakai ulang di Plan B |
-| D3 | Pencocokan domain | Peta domain, cocok sufiks (domain dan semua subdomainnya), snapshot tak berubah yang ditukar atomik | README HaGeZi: kelima format memblokir domain yang sama, dan aturan induk mencocokkan subdomain. Sederhana, cepat, aman konkuren |
-| D4 | Daftar bawaan | HaGeZi Multi PRO, HaGeZi Pop-Up Ads, ABPindo `domain.txt` | Riset §4.1. PRO direkomendasikan penulisnya; ULTIMATE berisiko salah blokir |
-| D5 | Jawaban terblokir | `null_ip` (A → `0.0.0.0`, AAAA → `::`), TTL 10 detik; tipe lain NODATA dengan SOA sintetis. Mode bisa diganti | Riset §4.3 |
-| D6 | CNAME | Periksa setiap CNAME pada jawaban hulu; blokir bila ada target yang cocok daftar (kecuali diizinkan) | Riset §4.2 |
-| D7 | HTTPS/SVCB dan nama khusus | Tipe 65 pada nama terblokir → NODATA. `_dns.resolver.arpa` → NODATA. `use-application-dns.net` → NXDOMAIN (opsional, dapat dimatikan) | Riset §4.4–4.5. Perilaku canary diverifikasi saat implementasi |
-| D8 | Hulu | DoH ke Cloudflare `1.1.1.1`, lalu Google `8.8.8.8` (bukan varian penyaring/"family") | Terenkripsi sehingga ISP tidak ikut campur; tidak memaksa SafeSearch. Latensi diukur di Fase 3 |
-| D9 | Konfigurasi | YAML ketat (`gopkg.in/yaml.v3`, kunci tak dikenal = galat) | Mudah dibaca; sudah ada di graf dependensi dnsproxy |
-| D10 | Log query | JSONL harian, retensi 7 hari | Alur "reproduksi → baca log → blokir" (riset §3) |
-| D11 | Koordinasi CLI dan server | Lewat file (aturan, cache daftar) dengan polling waktu ubah; tanpa soket admin | Sederhana, tanpa port tambahan, tidak menambah permukaan serangan |
-| D12 | Pengujian | `testing` standar, tabel, fuzz untuk parser, suite kesesuaian untuk kedua backend, TDD | Aturan proyek: tulis tes dulu, cakupan ≥ 80% |
-| D13 | Port saat pengembangan | `127.0.0.1:5300` | Port 5353 dipakai banyak proses (mDNS); UDP 53 dipegang ICS (§12) |
-| D14 | UI | Tidak ada UI web di versi 1; log dan aturan lewat CLI | YAGNI; UI web masuk Fase 7 bila Master mau |
-| D15 | Standar kode | Go idiomatik (`gofmt`, `go vet`, doc comment untuk simbol ekspor). Aturan khusus HackHub di `.claude/rules` tidak berlaku | Proyek ini bukan mod HackHub |
-| D16 | Git | Repo lokal, trunk-based di `main`, commit konvensional | Proyek pribadi satu orang |
+The engine knows nothing about networks, TLS or caching. A backend knows nothing about lists or rules. They meet only through three calls: `Before`, `After` and `Failed`.
 
 ---
 
-## 3. Gambaran besar
+## 4. Project layout
 
 ```
- Klien (HP / PC)
-      │  DNS (UDP/TCP 53; nanti DoT 853)
-      ▼
-┌──────────────────────────────────────────────────────┐
-│ BACKEND   backend: dnsproxy | native                 │
-│   listener · daftar klien yang diizinkan (ACL)       │
-│   cache · upstream terenkripsi (DoH/DoT)             │
-└───────┬───────────────────────────────▲──────────────┘
-   Before(q)                       After(q, jawaban)
-        ▼                               │
-┌──────────────────────────────────────────────────────┐
-│ ENGINE FILTER  (satu, dipakai bersama)               │
-│   aturan kustom · daftar blokir · cek CNAME          │
-│   jawaban blokir · nama khusus · log query           │
-└──────────────────────────────────────────────────────┘
-        ▲                   ▲
-  data/rules.txt     data/lists/*.txt  (diunduh berkala)
+cmd/
+  hecate/                 entry point (calls controller.Execute)
+  hecate-compare/         dev tool: compares the decisions of two running servers
+backend/
+  controller/             CLI commands: run, check, log, rule, lists
+  core/                   backend contract: Backend, Bound, Deps, Factory, Registry
+    dnsproxy/             adapter around AdGuard dnsproxy
+    native/               own server, upstreams, cache, rate limiter
+  engine/                 the filter: ACL, rules, matcher, CNAME check, special names, health
+  service/
+    lists/                download, parse, cache and schedule block lists
+    qlog/                 query log writer, reader, retention
+    selfcheck/            `hecate check`: upstreams, SafeSearch, sample domains
+  lib/
+    config/               YAML schema, strict loader, validation
+    runlog/               size-capped operational log
+  test/
+    conformance/          one suite run against both backends
+    nocomment/            fails the build if a comment appears in Go or PowerShell sources
+configs/hecate.example.yaml
+scripts/windows/          autostart.ps1 (Task Scheduler), dnsquery.ps1 (query on any port)
+data/                     runtime data, git-ignored: rules.txt, lists/, logs/, tls/
 ```
 
-Prinsip: engine tidak tahu apa pun tentang jaringan, TLS, atau cache. Backend tidak tahu apa pun tentang daftar atau aturan. Keduanya hanya bertemu lewat tiga pemanggilan (`Before`, `After`, `Failed`).
+Imports point downward only: `controller` may import everything; `core` and `service` import `engine` and `lib`; `engine` imports only `lib/config`; `lib` imports nothing from the project. `lists` and `qlog` feed the engine through small interfaces defined in `engine`. The backends are registered by the caller (`controller` and the conformance tests build the `Registry`), so `core` never imports its implementations and no import cycle can occur.
+
+Size rules: files 200 to 400 lines typical (800 soft ceiling), functions under 50 lines, nesting at most 4 levels.
 
 ---
 
-## 4. Struktur proyek
-
-```
-hecate/
-├── docs/                                       # dokumen proyek
-│   ├── architecture.md  roadmap.md  research.md
-│   ├── test-report.md                          # hasil tes HP, dibuat di Fase 3
-│   └── superpowers/plans/                      # rencana tugas Fase 0 (arsip)
-├── go.mod  go.sum  .gitignore  .gitattributes  README.md
-├── cmd/hecate/
-│   └── main.go                 # titik masuk; subperintah: run, check, log, rule, lists
-├── internal/
-│   ├── config/                 # skema YAML, pemuat ketat, validasi
-│   ├── engine/                 # filter tanpa jaringan
-│   │   ├── engine.go           #   Engine, Query, Decision; Before/After/Failed
-│   │   ├── acl.go              #   ACL klien (allowed_clients), langkah pertama Before
-│   │   ├── matcher.go          #   DomainSet (cocok sufiks) + snapshot atomik
-│   │   ├── rules.go            #   aturan kustom: parser + muat ulang
-│   │   ├── response.go         #   pembentuk jawaban blokir (4 mode)
-│   │   ├── cname.go            #   pemeriksaan rantai CNAME
-│   │   ├── special.go          #   nama khusus (canary, DDR)
-│   │   └── health.go           #   peringatan bila hulu gagal beruntun (kedua backend)
-│   ├── lists/                  # sumber daftar: unduh, parser, cache disk, penjadwal
-│   ├── qlog/                   # log query: penulis JSONL, rotasi, pembaca
-│   ├── runlog/                 # log operasional hecate.log: berkas berbatas ukuran + Tee ke layar
-│   ├── backend/
-│   │   ├── backend.go          #   antarmuka Backend, Deps, registri
-│   │   ├── dnsproxybe/         #   adapter AdGuard dnsproxy (pendekatan 4)
-│   │   ├── native/             #   server + upstream + cache sendiri (pendekatan 1)
-│   │   └── conformance/        #   suite tes yang sama untuk kedua backend
-│   └── selfcheck/              # uji mandiri: SafeSearch, hulu, domain contoh
-├── configs/hecate.example.yaml
-├── scripts/                    # dnsquery.ps1, compare (pembanding backend), autostart.ps1 (Task Scheduler)
-├── testdata/                   # daftar contoh, fixture
-└── data/                       # data runtime, di-.gitignore
-    ├── rules.txt  lists/  logs/  tls/
-```
-
-Aturan ukuran: berkas 200–400 baris tipikal (batas lunak 800), fungsi di bawah 50 baris, nesting maksimal 4 tingkat. Paket `engine` tidak boleh mengimpor `backend`, `lists`, atau `qlog` secara terbalik: `lists` dan `qlog` memberi data ke engine lewat antarmuka kecil yang didefinisikan di `engine`.
-
----
-
-## 5. Komponen dan kontrak
+## 5. Components and contracts
 
 ### 5.1 Engine
 
 ```go
-package engine
-
-type Query struct {
-    Req    *dns.Msg    // pesan dari miekg/dns v1
-    Client netip.Addr
-    Proto  string      // "udp" | "tcp" | "tls" | "https"
-}
-
-type Verdict uint8
-const ( Pass Verdict = iota; Block )
-
-type Decision struct {
-    Verdict Verdict
-    Resp    *dns.Msg // terisi bila Block
-    Reason  string   // "rule" | "list" | "cname" | "special" | "acl" | "invalid"
-    Source  string   // nama daftar atau baris aturan yang cocok
-    Via     string   // target CNAME yang cocok (bila Reason == "cname")
-}
-
-type Meta struct { Upstream string; Latency time.Duration; Cached bool }
+type Query struct { Req *dns.Msg; Client netip.Addr; Proto string }
+type Decision struct { Verdict Verdict; Resp *dns.Msg; Reason, Source, Via string }
 
 func (e *Engine) Before(ctx context.Context, q Query) Decision
 func (e *Engine) After(ctx context.Context, q Query, resp *dns.Msg, m Meta) Decision
 func (e *Engine) Failed(ctx context.Context, q Query, err error)
 ```
 
-Jaminan:
-- aman dipakai bersamaan oleh banyak goroutine;
-- tidak melakukan I/O jaringan;
-- tidak mengubah `q.Req` maupun `resp` yang diterima (membuat salinan bila perlu);
-- selalu menulis tepat satu catatan log per query yang sampai ke engine (di `Before` bila diblokir, di `After` atau `Failed` bila diteruskan). Beberapa jawaban diberikan dnsproxy sebelum handler dan tidak lewat engine (lihat §5.3);
-- bila belum ada daftar yang termuat, `Before` meloloskan query (fail-open) dan mencatat peringatan satu kali;
-- panic di dalam engine ditangkap: gagal-buka (`Pass`) untuk keputusan filter, gagal-tutup (REFUSED) untuk pemeriksaan ACL, dan hanya mengorbankan catatan log bila panic terjadi saat menulisnya.
+Guarantees: safe for concurrent use; no network I/O; never modifies `q.Req` or the upstream answer; writes exactly one log record per query that reaches it; fails open (passes the query and warns once) when no list is loaded; a panic inside the engine fails open for filter decisions and fails closed (REFUSED) for the ACL check.
 
 ### 5.2 Backend
 
 ```go
-package backend
-
-type Backend interface {
-    Name() string
-    Run(ctx context.Context) error // blok sampai ctx selesai atau galat fatal
-}
-
+type Backend interface { Name() string; Run(ctx context.Context) error }
 type Deps struct { Cfg config.Config; Engine *engine.Engine; Log *slog.Logger }
 type Factory func(Deps) (Backend, error)
-
-type Registry map[string]Factory   // dibuat oleh pemanggil; paket backend tidak mengimpor implementasinya
-
-// Opsional: backend yang dapat melaporkan alamat dengarnya (tes memakai port acak, `run` mencetak alamat).
+type Registry map[string]Factory
 type Bound interface { Ready() <-chan struct{}; Addr(network string) net.Addr }
 ```
 
-`cmd/hecate` (`defaultRegistry`) dan suite kesesuaian membangun `Registry` berisi `dnsproxy` (dan `native` mulai Fase 4); dengan begitu tidak ada siklus impor. `main.go` memilih backend dari `backend:` pada konfigurasi. Nama tak dikenal = galat saat start yang menyebut nama yang dikenal. Sebuah backend hanya dijalankan sekali (`Run` kedua adalah galat).
+`backend:` in the config selects the factory; an unknown name is a start-up error that lists the known ones. A backend runs at most once.
 
-### 5.3 Adapter `dnsproxy` (pendekatan 4)
+### 5.3 The `dnsproxy` adapter
 
-Alur satu query: `proxy.Config.RequestHandler` adalah *interface* `Handler` (bukan fungsi); adapter adalah satu handler pembungkus yang memanggil `Before`; bila `Block`, jawaban sintetis diisikan ke `dctx.Res`. Bila `Pass`, ia memanggil `p.Resolve(dctx)` (upstream + cache), lalu `After` memeriksa `dctx.Res` dan boleh menggantinya dengan jawaban blokir. Pemetaan konfigurasi: `listen`, `upstreams`, `bootstrap`, `cache` → `proxy.Config`. `allowed_clients` tidak dipetakan: dnsproxy tidak punya ACL klien, jadi engine menegakkannya sendiri (§6 langkah 1) dan kedua backend berperilaku sama.
+`proxy.Config.RequestHandler` is an interface, so the adapter is one wrapping handler: it calls `Before`; on `Block` it fills `dctx.Res` with the synthetic answer; on `Pass` it calls `p.Resolve(dctx)` (upstream plus cache) and then `After`, which may replace the answer. Facts verified against v0.86.0 that shaped the design:
 
-Tipe pesan DNS yang dipakai dnsproxy sama dengan engine (`github.com/miekg/dns`), jadi tidak ada konversi. Fakta yang diverifikasi dari kode v0.86.0 (dengan nomor baris) ada di `.agents/notes/dnsproxy-api-facts.md`; yang penting bagi desain:
+- The cache stores the upstream answer before `After`, so a block answer is never cached and the CNAME check runs on every cache hit.
+- dnsproxy has no client ACL, so the engine enforces `allowed_clients` and both backends behave the same.
+- dnsproxy answers some queries before the handler, without ACL or log: ANY gives NOTIMP, a question count other than 1 gives FORMERR, private ARPA from public clients gives NXDOMAIN. Other opcodes are forwarded upstream, so the engine answers them itself.
+- The package does not use `recover()`; the adapter adds it per stage (before `Before`: REFUSED; in `Resolve`: SERVFAIL; afterwards: keep the answer).
+- Every TCP connection holds one `MaxGoroutines` slot for its lifetime, shared with UDP. One LAN host can hold 256 connections and stall the service. Accepted at home, to be fixed before the server is exposed (phase 6).
+- On Linux dnsproxy uses `SO_REUSEPORT`, so a second instance can bind the same port silently; on Windows the second bind fails.
 
-- **Cache menyimpan jawaban hulu (dalam bentuk terkemas) sebelum `After`**, jadi jawaban blokir hasil `After` tidak ikut tersimpan dan pemeriksaan CNAME berjalan pada setiap cache hit.
-- Upstream DoH berupa IP (`https://1.1.1.1/dns-query`) tidak perlu bootstrap.
-- Mode hulu `load_balance`: pilihan acak berbobot dengan fail-over (bukan "berurutan"); `MaxGoroutines` 256, batas waktu hulu 5 detik, `RefuseAny` dan deduplikasi request kembar diaktifkan eksplisit (bawaan kodenya mati).
-- Paket `proxy` tidak memakai `recover()`; adapter memasangnya sendiri per tahap (filter, `Resolve`, jawaban). Panic sebelum `Before` selesai → REFUSED (status ACL tidak diketahui); panic di `Resolve` → SERVFAIL; panic setelahnya → jawaban dipertahankan.
-- `p.Resolve` mengembalikan `upstream.ErrNoUpstreams` untuk PTR alamat privat (tidak ada hulu privat) dan dnsproxy sudah mengisi NXDOMAIN; adapter mencatatnya sebagai query yang terjawab, bukan kegagalan.
-- **dnsproxy menjawab sebagian query sebelum handler kita**, tanpa ACL dan tanpa catatan log: ANY → NOTIMP, jumlah pertanyaan ≠ 1 → FORMERR, ARPA privat dari klien non-privat dan deteksi rekursi → NXDOMAIN, paket yang ditandai respons dibuang. Jawabannya tidak pernah lebih besar dari request. Opcode selain QUERY *tidak* ditolak dnsproxy (diteruskan ke hulu), sehingga engine menjawabnya sendiri (§6 langkah 2).
-- **Setiap koneksi TCP memegang satu slot `MaxGoroutines` selama hidupnya** (menganggur 10 detik, diperpanjang tiap request), dan UDP memakai semaphore yang sama. Satu host di LAN dapat menahan 256 koneksi dan menghentikan layanan; diterima untuk jaringan rumah, **wajib diperbaiki sebelum Fase 6** (kolam TCP sendiri atau batas koneksi per IP; roadmap Fase 6 tugas 8).
-- Listener dnsproxy memakai `SO_REUSEPORT` di Linux/Android, sehingga instance kedua bisa mengikat port yang sama tanpa galat; di Windows bind kedua gagal.
+### 5.4 The `native` backend
 
-### 5.4 Backend `native` (pendekatan 1)
+Own code on `miekg/dns`, serving the home server since 2026-10-19.
 
-Dibangun di Fase 4 dan diperbaiki setelah review penuh di Fase 5 (paket `internal/backend/native`, cakupan tes 93,8%). Sejak 2026-10-19 backend ini yang melayani server rumah.
-
-| Berkas | Isi |
+| Files | Behaviour |
 |---|---|
-| `native.go` | Pabrik `New` dan `Run` (satu kali pakai); mengikat soket lebih dulu sehingga galat bind kembali seketika; implementasi `backend.Bound` |
-| `server.go` | Listener UDP dan TCP lewat `dns.Server` pada setiap alamat `listen`; `acceptMsg` meneruskan opcode selain QUERY ke engine (supaya dijawab NOTIMP *dan* dicatat) dan mengabaikan paket berbit respons serta pesan yang *headernya* menyebut jumlah pertanyaan atau record yang tidak wajar (tanpa jawaban dan tanpa log; dnsproxy menjawab FORMERR). Pesan dengan header wajar tetapi badan rusak tidak sampai ke handler: miekg menjawab FORMERR sendiri sebelum batas laju, ACL, dan log, dan jawaban itu tidak pernah lebih besar dari request (dijaga tes, `28e0769`); batas koneksi TCP sendiri (`limitListener`: 64 total, 8 per alamat klien); `tolerantReader` agar kegagalan baca UDP (di Windows: datagram lebih besar dari buffer) tidak menghentikan server, kecuali soket memang ditutup; shutdown menutup soket juga supaya server yang dibatalkan sebelum sempat mulai tidak jalan terus |
-| `handler.go` | Batas laju → `Before` → cache → hulu → `After`; `Failed` bila semua hulu gagal; ANY dijawab NOTIMP; pemulihan panik per tahap (sebelum engine meloloskan: REFUSED; di cache atau hulu: SERVFAIL; sesudah jawaban ada: jawaban dipertahankan); hanya pertukaran ke hulu yang memakai slot (256 total, 64 per klien; di atas batas dijawab SERVFAIL dan dicatat lewat `Failed`), jadi cache hit dan jawaban blokir tetap jalan saat hulu lambat; tiap query punya batas waktu 11 detik dan dibatalkan saat shutdown; ukuran UDP mengikuti EDNS klien (512–1232) |
-| `upstream.go`, `upstream_plain.go`, `upstream_doh.go`, `upstream_parse.go`, `bootstrap.go` | Kolam hulu: pilihan acak berbobot 1/srtt dengan failover ke yang lain; plain UDP (diulang lewat TCP bila terpotong) dan TCP; DoH (POST RFC 8484, ID 0, HTTP/2, tanpa proksi lingkungan, tanpa redirect, badan ≤ 65535 byte, tipe `application/dns-message`); nama host DoH di-resolve lewat resolver bootstrap saat koneksi baru dibuat, dengan anggaran waktu sendiri yang dibagi: tiap server bootstrap dan tiap alamat hasilnya mendapat sebagian dari sisa waktu, jadi satu server yang diam tidak menghabiskan seluruh batas waktu (net/http membuang batas waktu request saat dial, sejak Go 1.23). Query ke hulu UDP/TCP polos menutup koneksinya saat konteks dibatalkan, karena miekg hanya menghormati batas waktu, bukan pembatalan. Jawaban diterima hanya bila bit QR, ID, opcode, dan pertanyaan cocok. Hulu yang menjawab SERVFAIL atau REFUSED dianggap gagal dan hulu berikutnya ditanya; bila semua begitu, jawaban hulu itu yang diteruskan. **DoT sebagai hulu belum ada** (`tls://` ditolak dengan pesan jelas); `udp://` dan `tcp://` harus berupa IP |
-| `cache.go` | LRU berbatas byte (ukuran paket + biaya tetap per entri dan per record); kunci (nama huruf kecil, tipe, kelas, bit DO, bit CD); TTL dijepit `min_ttl`/`max_ttl`; cache negatif (NXDOMAIN, NODATA) memakai min(TTL SOA, minimum SOA); hanya NOERROR dan NXDOMAIN tanpa TC yang disimpan; TTL tersaji = sisa umur entri; OPT hulu dibuang |
-| `ratelimit.go` | Token bucket per IP klien (200/detik, burst 500; dinaikkan dari 100/200 setelah tes HP: halaman tes iklan mengirim ±255 kueri dalam setengah detik), tabel dibatasi 4096 klien (tabel penuh disapu paling sering sekali per detik; klien baru yang tidak muat dilayani tanpa dilacak, artinya pada tabel penuh sumber baru tidak dibatasi sama sekali: terukur 1.200 dari 1.200 query dijawab, temuan I2, ditunda ke Fase 6); klien yang kena batas dibuang tanpa jawaban (jawaban ke alamat palsu = amplifier). Query yang dibuang tidak masuk log query |
+| `native.go` | Factory and single-use `Run`; sockets are bound first so a bind error returns at once |
+| `server.go` | UDP and TCP listeners on every `listen` address; non-QUERY opcodes go to the engine (NOTIMP and logged); malformed headers are dropped silently; own TCP limit (64 total, 8 per client); `tolerantReader` keeps the server alive when a UDP read fails (on Windows an oversized datagram fails with `WSAEMSGSIZE`); shutdown also closes sockets |
+| `handler.go` | Rate limit, `Before`, cache, upstream, `After`; `Failed` when every upstream fails; ANY answered NOTIMP; panic recovery per stage; only the upstream exchange takes a slot (256 total, 64 per client), so cache hits and block answers keep working when upstreams are slow; 11 s per query; UDP size follows EDNS (512 to 1232) |
+| `upstream*.go`, `bootstrap.go` | Weighted-random pool (1/srtt) with failover; plain UDP (retried over TCP when truncated), TCP, and DoH (RFC 8484 POST, ID 0, HTTP/2, no environment proxy, no redirects, body capped at 65,535 bytes). DoH host names resolve through plain-DNS bootstrap servers with a shared time budget. A reply is accepted only if QR, ID, opcode and question match. SERVFAIL or REFUSED from one upstream moves on to the next. **DoT as an upstream is not implemented** |
+| `cache.go` | Byte-bounded LRU; key is lower-cased name, type, class and the DO and CD bits; TTL clamped by `min_ttl`/`max_ttl`; negative caching; only NOERROR and NXDOMAIN without TC are stored; upstream OPT is stripped |
+| `ratelimit.go` | Token bucket per client IP (200/s, burst 500), table capped at 4,096 clients; a client over the limit gets no reply (a reply to a spoofed address would amplify) |
+| `localreverse.go` | PTR, SOA and NS for RFC 6303 zones answered locally with NXDOMAIN |
 
-Cache menyimpan jawaban hulu *sebelum* `After`, sama seperti dnsproxy, sehingga pemeriksaan CNAME tetap berjalan pada setiap cache hit. Query ke hulu dibangun baru dari pertanyaan klien (RD, CD, EDNS 1232 dengan bit DO bila klien memintanya): cookie, client subnet, dan padding klien tidak ikut keluar.
-
-**Perbedaan yang diketahui dengan adapter `dnsproxy`** (semuanya tanpa dampak untuk klien privat di LAN):
-- dnsproxy menjawab ANY, jumlah pertanyaan ≠ 1, dan deteksi rekursi *sebelum* handler (tanpa ACL dan tanpa log). `native` mengabaikan paket yang headernya menyebut jumlah pertanyaan atau record tidak wajar di `acceptMsg` (tanpa jawaban, tanpa log; koreksi 2026-10-19: versi sebelumnya menulis FORMERR), tetapi menjawab ANY setelah `Before`, sehingga ACL berlaku dan query tercatat.
-- **Sudah sama sejak Fase 5 (`dcc5347`):** reverse lookup (PTR, SOA, NS) untuk nama di zona RFC 6303 (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, fc00::/7, fe80::/10) dijawab lokal dengan NXDOMAIN dan SOA oleh kedua backend, untuk semua klien, memakai fungsi golibs yang sama (`netutil.IsLocallyServed`). Review penuh menunjukkan `native` sebelumnya meneruskannya ke Cloudflare/Google, termasuk dari klien privat (misalnya `nslookup 192.168.1.99` di Windows); catatan lama "baru relevan di Fase 6" keliru.
-- `native` tidak mendeduplikasi query identik yang sedang berjalan (`PendingRequests` milik dnsproxy).
-- Slot TCP: `native` punya batas koneksi TCP sendiri (64 total, 8 per alamat klien) dan slot hulu sendiri, sehingga masalah Q4 tidak berlaku. Belum ada pemeriksaan ACL saat accept. Koreksi 2026-10-19: batas baca 5 detik hanya berlaku sampai query pertama; sesudahnya berlaku batas menganggur 10 detik dan 100 query per koneksi, jadi satu host di luar ACL yang mengirim satu query tiap 9 detik bisa mempertahankan satu koneksi sekitar 16,5 menit dan membukanya lagi (terukur reviewer; 8 koneksi per alamat). Tidak berbahaya hari ini (firewall `LocalSubnet` dan ACL /24); Fase 6: periksa ACL saat accept atau tutup koneksi setelah REFUSED.
-- Pesan dengan header wajar tetapi badan rusak dijawab FORMERR oleh miekg sebelum batas laju, ACL, dan log (tidak pernah lebih besar dari request, jadi bukan penguat; dijaga tes). Hanya relevan bila UDP 53 dibuka ke internet.
-- Kunci IPv6 pada pembatas laju, batas TCP per alamat, dan gerbang hulu per klien memakai alamat penuh, bukan /64; ketiganya diperbaiki bersama di Fase 6, bersama temuan I2 (tabel pembatas penuh).
-
-### 5.5 Daftar blokir (`internal/lists`)
-
-Lihat §7.
-
-### 5.6 Log query (`internal/qlog`)
-
-Lihat §9.
+Differences from the `dnsproxy` adapter, none relevant for private LAN clients: `native` does not deduplicate identical in-flight queries; `native` answers ANY after `Before`, so the ACL applies and the query is logged; the rate-limit table, IPv6 `/64` keys and TCP-per-address limits have known gaps listed in the roadmap as phase 6 debt.
 
 ---
 
-## 6. Alur satu query
+## 6. Flow of one query
 
 `Before`:
-1. **ACL.** Klien di luar `allowed_clients` → `Block` dengan jawaban REFUSED (alasan `acl`), tanpa mencocokkan daftar. `allowed_clients` wajib berisi minimal satu CIDR (validasi konfigurasi), jadi daftar kosong tidak pernah berarti "izinkan semua".
-2. **Validasi.** Harus satu pertanyaan dengan opcode QUERY. Selain itu engine sendiri menjawab FORMERR (bukan satu pertanyaan) atau NOTIMP (opcode lain) dengan alasan `invalid`, dan mencatatnya; dnsproxy meneruskan opcode ganjil ke hulu melewati semua aturan, jadi ini tidak boleh diserahkan ke backend. Langkah ACL tetap lebih dulu.
-3. **Normalisasi.** Huruf kecil, buang titik akhir. Nama IDN dianggap sudah dalam punycode (bentuk kawat DNS).
-4. **Nama khusus** (bila diaktifkan): `use-application-dns.net` → blokir NXDOMAIN; `_dns.resolver.arpa` → NODATA.
-5. **Aturan kustom** (milik pemilik, selalu menang atas daftar): cocok `allow` → `Pass` (alasan `allow`); lalu cocok `block` → `Block` (alasan `rule`). Satu nama dapat memuat keduanya; entri yang lebih spesifik menang di dalam satu himpunan.
-6. **Daftar:** cocok daftar berjenis `allow` → `Pass` (alasan `allow`); lalu daftar berjenis `block` → `Block` dengan `Source` terisi.
+1. **ACL.** A client outside `allowed_clients` gets REFUSED (reason `acl`) before any matching. The list must hold at least one CIDR, so an empty list never means "allow all".
+2. **Validation.** Exactly one question with opcode QUERY; otherwise the engine answers FORMERR or NOTIMP and logs it.
+3. **Normalisation.** Lower case, trailing dot removed; IDNs are assumed to be in punycode.
+4. **Special names** (if enabled): `use-application-dns.net` NXDOMAIN, `_dns.resolver.arpa` NODATA.
+5. **Custom rules** (always win over lists): `allow` passes, then `block` blocks.
+6. **Lists:** `allow` lists pass, then `block` lists block.
+7. Otherwise `Pass`.
 
-Urutan prioritas: aturan kustom `allow` > aturan kustom `block` > daftar `allow` > daftar `block`. Pencocokan memakai sufiks pada batas label: `contoh.com` juga mencocokkan `a.b.contoh.com`, bukan `kontoh.com`.
-7. Selain itu `Pass`.
+Priority: custom `allow` > custom `block` > list `allow` > list `block`. Matching is by suffix on label boundaries: `example.com` matches `a.b.example.com` but not `notexample.com`.
 
-Backend meneruskan query yang `Pass` ke cache/hulu. Lalu `After`:
-1. **Jawaban tidak ada atau rcode bukan NOERROR:** catat dan kembalikan apa adanya.
-2. **Rantai CNAME:** untuk setiap CNAME di bagian jawaban, normalisasi targetnya. Bila target dikecualikan `allow`, lanjut. Bila cocok blokir, kembalikan `Block` untuk pertanyaan asli (alasan `cname`, `Via` = target).
-3. Selain itu catat sebagai lolos dengan hulu, rcode, dan latensi.
+`After` (for passed queries): a missing answer or a non-NOERROR code is logged as is; otherwise every CNAME target is normalised and checked, and a blocked target turns the whole answer into a block (reason `cname`, `Via` = the target); otherwise the pass is logged with upstream, rcode and latency.
 
-**Jawaban blokir** (`response.go`), semuanya menyalin ID dan bagian pertanyaan, mengisi RA, menjaga bit RD, meniru OPT bila request memilikinya, dan dikompresi (tanpa kompresi jawaban untuk nama panjang bisa dua kali ukuran request). Penolakan ACL (REFUSED) tidak mengisi RA karena klien itu tidak boleh memakai rekursi:
+**Block answers** copy the ID and question, set RA, keep RD, mirror OPT, and are compressed. ACL refusals do not set RA.
 
-| Mode | Perilaku |
+| Mode | Behaviour |
 |---|---|
-| `null_ip` (bawaan) | A → `0.0.0.0`, AAAA → `::` (TTL `block.ttl`); tipe lain, termasuk HTTPS/SVCB (65), → NOERROR kosong + SOA sintetis |
-| `nxdomain` | NXDOMAIN + SOA sintetis |
-| `nodata` | NOERROR kosong + SOA sintetis |
+| `null_ip` (default) | A `0.0.0.0`, AAAA `::` (TTL `block.ttl`); other types, including HTTPS/SVCB, NOERROR with no data plus a synthetic SOA |
+| `nxdomain` | NXDOMAIN plus SOA |
+| `nodata` | NOERROR, empty, plus SOA |
 | `refused` | REFUSED |
 
-SOA sintetis memakai TTL dan minimum sama dengan `block.ttl` agar cache negatif klien singkat (aturan baru cepat berlaku).
+The synthetic SOA uses the same short TTL, so a changed rule takes effect quickly.
 
 ---
 
-## 7. Daftar blokir
+## 7. Block lists
 
-| Nama | URL | Format | Entri (diunduh 2026-10-18 malam) |
-|---|---|---|---|
-| `hagezi-pro` | `https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro-onlydomains.txt` | `domains` | 202.297 (ditolak 0) |
-| `hagezi-popups` | `https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/popupads-onlydomains.txt` | `domains` | 47.668 (ditolak 0; 113 unik terhadap PRO) |
-| `abpindo` | `https://raw.githubusercontent.com/ABPindo/indonesianadblockrules/master/subscriptions/domain.txt` | `domains` | 124 (ditolak 0; lokal Indonesia) |
+| Name | Source | Entries (2026-10-18) |
+|---|---|---|
+| `hagezi-pro` | HaGeZi Multi PRO, wildcard domains | 202,297 |
+| `hagezi-popups` | HaGeZi Pop-Up Ads | 47,668 |
+| `abpindo` | ABPindo `domain.txt` (Indonesian ads) | 124 |
 
-Ketiganya sudah diunduh dan diverifikasi pada binary asli (total **250.089 entri** sebelum de-duplikasi): satu domain per baris, komentar berawalan `#`, tanpa spasi pada baris data. Header HaGeZi menyatakan `Expires: 8 hours`; ABPindo `4 days`.
+The full URLs are in `configs/hecate.example.yaml`. A source name becomes a file name (`data/lists/<name>.txt`), so it is limited to 1 to 64 letters, digits, `-` or `_`, must start with a letter or digit, must not be a Windows device name, and must be unique ignoring case. A source without `enabled` is enabled.
 
-**Nama sumber** menjadi nama berkas (`data/lists/<nama>.txt`), jadi dibatasi: 1–64 karakter huruf, angka, `-`, atau `_`, diawali huruf atau angka, bukan nama perangkat Windows (CON, PRN, AUX, NUL, COM1–COM9, LPT1–LPT9), dan unik tanpa membedakan huruf besar-kecil. Sumber tanpa `enabled` dianggap aktif (diterapkan di Fase 1).
+Formats: `domains` (one per line) and `hosts` (`0.0.0.0 domain` or `127.0.0.1 domain`). Full adblock syntax is not supported.
 
-**Format yang didukung versi 1:** `domains` (satu domain per baris) dan `hosts` (`0.0.0.0 domain` atau `127.0.0.1 domain`, baris bawaan `localhost` diabaikan). Sintaks adblock penuh (`||domain^$opsi`) tidak didukung; masuk Fase 7 bila diperlukan.
+**Parser** (lists are untrusted input): skip blank lines and comments (`#`, `!`, `;`), strip a BOM, lower-case ASCII only, remove `*.` and a trailing dot, validate labels (1 to 63 characters, total at most 253, only `a-z 0-9 - _`), reject IP addresses and single-label entries (so a bad line like `com` cannot block a whole TLD). Hard limits: line under 4,096 bytes, decoded stream at most 64 MiB, at most 1,000,000 unique domains per list, and a list with zero valid domains is rejected so an HTML error page can never wipe protection.
 
-**Parser** (daftar dianggap masukan tak tepercaya):
-- abaikan baris kosong dan komentar (`#`, `!`, `;`), buang komentar di ujung baris, dan kupas UTF-8 BOM di baris pertama;
-- huruf kecil ASCII; buang awalan `*.` dan titik akhir;
-- validasi sintaks nama lewat `engine.ParseEntry`: label 1–63 karakter, total ≤ 253, hanya `a-z 0-9 - _`;
-- tolak alamat IP dan entri satu label (agar satu baris rusak seperti `com` tidak memblokir seluruh TLD);
-- batas keras: panjang baris < 4.096 byte (baris lebih panjang dikuras tanpa alokasi besar dan dihitung sebagai ditolak), aliran terdekode ≤ 64 MiB (`ErrListTooLarge`), dan jumlah domain unik ≤ 1.000.000 per daftar (`ErrTooManyEntries`); daftar dengan 0 domain valid ditolak (`ErrEmptyList`) agar halaman galat HTML tidak pernah menghapus perlindungan;
-- bangun `engine.DomainSet` sekali jalan lewat `engine.DomainSetBuilder` tanpa peta atau slice perantara ganda.
+**Updates:** at start the disk cache is loaded first, then refreshed in the background every `lists.update_interval` (default 24 h, jitter up to 10%); the cache files are polled every 5 s so `hecate lists update` reaches a running server without a restart. `If-None-Match` is sent only when both the cache and its metadata exist, and a `304` reuses the in-memory set. Only `https://` is accepted (at most 5 redirects, none to `http://`), 30 s timeout, 64 MiB cap. Host names resolve through the configured bootstrap servers, so list downloads never loop through hecate itself. Files are written to a temporary file and renamed. A failed download keeps the old copy. Lists and custom rules are separate snapshots, so a rule change never rebuilds hundreds of thousands of entries.
 
-**Pembaruan:**
-- saat start: muat salinan cache di `data/lists/<nama>.txt` lebih dulu (cepat), lalu segarkan di latar belakang;
-- interval `lists.update_interval` (bawaan 24 jam) dengan jitter hingga +10%, ditambah polling ukuran + waktu ubah berkas cache setiap 5 detik agar `hecate lists update` langsung dimuat server yang sedang berjalan tanpa restart (D11);
-- permintaan `If-None-Match` dikirim hanya bila `<nama>.txt` dan `<nama>.meta.json` keduanya ada; saat server membalas `304 Not Modified` dan cap berkas disk tidak berubah, `Manager` memakai kembali `*engine.DomainSet` yang sudah ada di memori tanpa mem-parse ulang berkas dari disk;
-- hanya `https://` (termasuk pada hingga 5 redirect; redirect ke-6 atau redirect ke `http://` ditolak); batas waktu 30 detik; batas ukuran 64 MiB per daftar;
-- nama host URL daftar di-resolve memakai server `bootstrap` secara berurutan lewat `miekg/dns` (UDP port 53 dengan fallback TCP bila terpotong) sehingga unduhan daftar tidak pernah berputar lewat `hecate` sendiri dan tetap berpindah ke bootstrap kedua bila bootstrap pertama diam/mati;
-- tulis ke berkas sementara lalu `rename` (atomik dengan coba-ulang singkat di Windows); simpan metadata (`etag`, `fetched_at`, `count`, `rejected`) di `data/lists/<nama>.meta.json`;
-- bila unduhan gagal atau berkas rusak: pertahankan salinan lama dan catat galat;
-- setelah ada perubahan, bangun snapshot baru lalu tukar atomik (`atomic.Pointer`); snapshot lama tidak pernah diubah.
-
-**Dua snapshot terpisah** (daftar dan aturan kustom) agar perubahan aturan tidak membangun ulang ratusan ribu entri.
-
-**Anggaran sumber daya** (terukur di Fase 2 pada 250.000–250.089 entri): memori heap `DomainSet` bertambah **16,15–16,29 MiB** (`Sys` runtime Go 38–43 MiB; proses `hecate run` hidup: WorkingSet **71,74–74,20 MiB**, Private **103,35–105,25 MiB**, di bawah batas 150 MB), latensi pencarian rata-rata **215–250 ns/op** (0 alokasi), **p95 = 1,04–1,07 µs**, **p99 = 2,01 µs** (jauh di bawah batas 50 µs). Peta string standar Go (`map[string]struct{}`) sudah sangat memadai tanpa perlu diganti peta hash 64-bit.
+**Resource budget** (measured with about 250,000 entries): about 16 MiB of heap for the set, working set 72 to 74 MiB for the running process, lookup 215 to 250 ns on average (zero allocations), p99 about 2 microseconds.
 
 ---
 
-## 8. Aturan kustom dan CLI
+## 8. Custom rules and CLI
 
 `data/rules.txt`:
 
 ```
-# komentar
-block ads.contoh-iklan.com
-allow cdn.situs-yang-rusak.com
+# comment
+block ads.example.net
+allow cdn.broken-site.example
 ```
 
-Semantik sama dengan daftar: berlaku untuk domain dan semua subdomainnya. Urutan prioritas: `allow` kustom → `block` kustom → daftar `allow` → daftar `block`. Baris yang salah dilewati dengan catatan nomor barisnya, tidak menggagalkan muat ulang. Server memeriksa waktu ubah berkas setiap 2 detik (`rules.poll_interval`).
+Same semantics as the lists. A bad line is skipped and reported with its line number. The file is capped at 4 MiB and 4,096 bytes per line. The server checks the modification time every `rules.poll_interval` (default 2 s).
 
-Subperintah (`hecate <perintah>`):
-
-| Perintah | Fungsi |
+| Command | Purpose |
 |---|---|
-| `run [-config f] [-backend dnsproxy\|native]` | Jalankan server |
-| `check [-config f]` | Validasi konfigurasi, muat daftar dari cache, uji mandiri (§11), cetak LULUS/GAGAL |
-| `log [-since 10m] [-grep teks] [-blocked] [-around 14:32 -window 30s]` | Baca log query terformat |
-| `rule add block\|allow <domain>` / `rule remove <domain>` / `rule list` | Kelola `rules.txt` secara atomik |
-| `lists status` / `lists update` | Lihat status atau paksa unduh ulang daftar |
+| `run [-config f] [-backend dnsproxy\|native]` | Run the server |
+| `check [-config f]` | Validate the config, load cached lists, run the self-check, print PASS or FAIL |
+| `log [-since 10m] [-grep text] [-blocked] [-around 14:32 -window 30s]` | Read the query log |
+| `rule add block\|allow <domain>` / `rule remove <domain>` / `rule list` | Edit `rules.txt` atomically |
+| `lists status` / `lists update` | Show the list status or force a re-download |
 
-Alur pelacakan redirect: picu redirect di HP → catat jam → `hecate log -around 14:32 -window 30s` → tentukan domain pemicu → `hecate rule add block <domain>` → ulangi.
+Redirect-hunting workflow: trigger the redirect, note the time, run `hecate log -around 14:32 -window 30s`, find the trigger domain, run `hecate rule add block <domain>`, repeat.
 
 ---
 
-## 9. Log query
+## 9. Logging
 
-`data/logs/queries-YYYYMMDD.jsonl`, satu JSON per baris, waktu lokal dengan offset:
+**Query log:** `data/logs/queries-YYYYMMDD.jsonl`, one JSON object per line, local time with offset:
 
 ```json
-{"ts":"2026-10-18T14:32:07.412+07:00","client":"192.168.1.23","proto":"udp","qname":"ads.contoh.com","qtype":"A","action":"block","reason":"list","source":"hagezi-popups","rcode":"NOERROR","ms":0}
-{"ts":"...","client":"192.168.1.23","proto":"udp","qname":"www.contoh.com","qtype":"A","action":"pass","upstream":"https://1.1.1.1/dns-query","rcode":"NOERROR","ms":38,"cached":false}
-{"ts":"...","qname":"smetrics.situs.com","action":"block","reason":"cname","source":"hagezi-pro","via":"x.pelacak.net"}
+{"ts":"2026-10-18T14:32:07.412+07:00","client":"192.168.1.23","proto":"udp","qname":"ads.example.com","qtype":"A","action":"block","reason":"list","source":"hagezi-popups","rcode":"NOERROR","ms":0}
 ```
 
-- **Log operasional** (peringatan dan galat server, bukan query): ditulis ke layar *dan*, bila `log.enabled`, ke `<log.dir>/hecate.log` (`internal/runlog`), supaya tugas terjadwal tanpa konsol tetap meninggalkan jejak. Berkas dibatasi 5 MB ditambah satu cadangan `hecate.log.1`, jadi paling banyak sekitar 10 MB. Gagal menulis berkas hanya menjadi peringatan di layar, tidak pernah menghentikan server. Galat yang mengakhiri server (misalnya gagal mengikat `192.168.1.99:53` karena Wi-Fi belum siap saat boot) ikut ditulis ke berkas ini sebelum ditutup; **galat memuat konfigurasi tidak bisa**, karena folder log berasal dari konfigurasi itu, jadi jalankan `hecate check` setelah mengubah `hecate.yaml`. Bila rotasi gagal (di Windows, program lain yang membuka `hecate.log`, misalnya `Get-Content -Wait`, menghalangi penggantian nama), baris tetap ditambahkan ke berkas sekarang sampai dua kali batas, lalu dibuang sampai rotasi berhasil lagi; berkas yang gagal dibuka ulang dibuka lagi pada penulisan berikutnya;
-- rotasi harian menurut tanggal lokal; retensi `log.retention_days` (bawaan 7, hari ini ikut dihitung); hanya berkas biasa `queries-YYYYMMDD.jsonl` yang pernah dihapus, saat start, saat rotasi, dan sesaat setelah tengah malam;
-- penulisan lewat saluran berpenyangga: bila penuh, catatan dibuang dan penghitung `dropped` dicatat; query tidak pernah menunggu disk;
-- **disk penuh** (diperbaiki di Fase 5, `73647aa`): `bufio.Writer` menyimpan galat pertamanya, sehingga satu saat disk penuh dulu mengakhiri log untuk sisa hari itu dan catatan yang hilang tetap dihitung tertulis. Sekarang penyangga di-reset setelah tulis atau flush gagal, catatan yang belum terkonfirmasi dihitung `dropped`, dan catatan berikutnya mulai di baris baru (tulis yang gagal bisa meninggalkan setengah baris). Diuji dengan disk palsu yang penuh lalu lega; belum diuji pada drive penuh yang asli;
-- **batas ukuran harian** `log.max_mb_per_day` (bawaan 256, minimal 1): catatan yang melewati batas dibuang dan dihitung, peringatan satu kali per hari, ukuran berkas yang sudah ada ikut dihitung setelah restart. Tanpa batas, satu pengirim UDP bisa menulis sekitar 14 MB/detik lewat penolakan ACL yang dicatat satu per query;
-- nama dan galat disanitasi (karakter kontrol dan bidi diganti `?`), baris di atas 64 KiB dilewati pembaca; `hecate log` membaca log yang sedang ditulis server (di Windows ukuran berkas yang terbuka dilaporkan 0, jangan jadikan patokan);
-- cincin memori 5.000 catatan terakhir disiapkan untuk UI di Fase 7;
-- log berisi riwayat domain yang dibuka; berada hanya di PC ini dan dapat dimatikan (`log.enabled: false`).
+- Written through a buffered channel; when it is full a record is dropped and counted, so a query never waits for the disk.
+- Daily rotation by local date; retention `log.retention_days` (default 7); only regular `queries-YYYYMMDD.jsonl` files are ever deleted.
+- Daily size cap `log.max_mb_per_day` (default 256): excess records are dropped and counted, with one warning per day. Without it one UDP sender could write about 14 MB/s through logged ACL refusals.
+- A full disk no longer ends the log for the day: the buffer is reset after a failed write and unconfirmed records are counted as dropped.
+- Names and errors are sanitised (control and bidi characters become `?`).
+- The log contains browsing history. It lives only on the host and can be turned off (`log.enabled: false`).
+
+**Operational log:** warnings and errors go to the screen and, if `log.enabled`, to `<log.dir>/hecate.log` (5 MB plus one backup), so a scheduled task without a console still leaves a trace. A failed write only warns. An error that ends the server (for example a bind failure at boot because Wi-Fi is not ready) is written there before exit; a config load error cannot be, because the log directory comes from the config, so run `hecate check` after editing it.
 
 ---
 
-## 10. Konfigurasi
+## 10. Configuration
 
-`configs/hecate.example.yaml`:
-
-```yaml
-backend: dnsproxy                # dnsproxy | native
-
-listen:
-  - 127.0.0.1:5300               # pengembangan; tes HP (Fase 3): ganti ke alamat LAN PC, mis. 192.168.1.99:53
-
-allowed_clients:                 # CIDR; di luar ini dijawab REFUSED
-  - 127.0.0.0/8
-  - "::1/128"
-  - 10.0.0.0/8
-  - 172.16.0.0/12
-  - 192.168.0.0/16
-
-upstreams:                       # satu dipilih acak berbobot, lainnya cadangan bila gagal
-  - https://1.1.1.1/dns-query
-  - https://8.8.8.8/dns-query
-bootstrap: [1.1.1.1, 8.8.8.8]    # untuk upstream berupa nama host
-
-cache:
-  enabled: true
-  size_mb: 16
-  min_ttl: 0s
-  max_ttl: 1h
-
-block:
-  mode: null_ip                  # null_ip | nxdomain | nodata | refused
-  ttl: 10s
-
-special_names:
-  firefox_canary: true           # use-application-dns.net -> NXDOMAIN
-  ddr: true                      # _dns.resolver.arpa -> NODATA
-
-lists:
-  update_interval: 24h
-  sources:
-    - { name: hagezi-pro,    kind: block, format: domains, enabled: true,
-        url: "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro-onlydomains.txt" }
-    - { name: hagezi-popups, kind: block, format: domains, enabled: true,
-        url: "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/popupads-onlydomains.txt" }
-    - { name: abpindo,       kind: block, format: domains, enabled: true,
-        url: "https://raw.githubusercontent.com/ABPindo/indonesianadblockrules/master/subscriptions/domain.txt" }
-
-rules:
-  file: data/rules.txt
-  poll_interval: 2s
-
-log:
-  enabled: true
-  dir: data/logs
-  retention_days: 7
-  max_mb_per_day: 256            # batas ukuran berkas log per hari; sisanya dibuang dan dihitung
-
-data_dir: data
-```
-
-Validasi saat start (kunci tak dikenal atau berulang, lebih dari satu dokumen YAML, `allowed_clients` kosong (untuk mengizinkan semua tulis `0.0.0.0/0` dan `::/0`), CIDR tak sah, `listen` berupa nama host, upstream bernama host tanpa `bootstrap`, URL daftar bukan `https`, nama sumber tak aman sebagai nama berkas atau ganda, `mode` tak dikenal, backend tak dikenal, TTL negatif → galat dengan pesan jelas dan keluar kode ≠ 0; semua masalah dilaporkan sekaligus). Jalur relatif dihitung dari lokasi berkas konfigurasi. Aturan yang ditambahkan di Fase 1 dan Fase 2: `enabled:` yang dihilangkan atau kosong (YAML null) berarti aktif; `rules.file` dan `log.dir` (bila log aktif) wajib terisi; `listen` unik dan port ≠ 0; TTL dibatasi 2147483647 detik sebelum konversi ke `uint32`; `cache.max_ttl: 0` berarti tanpa batas atas; `log.max_mb_per_day` minimal 1; kunci gabung YAML `<<` ditolak di dalam sumber daftar; `LoopWarnings()` (bagian dari `Warnings()`) memperingatkan bila `upstreams` atau `bootstrap` mengarah ke alamat `listen` sendiri (termasuk kombinasi wildcard/loopback dan `localhost`), dan `hecate check` menggagalkan uji mandiri bila ditemukan loop itu. Kunci yang tidak ditulis memakai nilai bawaan yang sama dengan contoh ini (`config.Default()`); daftar blokir tidak punya nilai bawaan, jadi tanpa sumber daftar yang aktif `hecate check` memberi peringatan.
+See `configs/hecate.example.yaml` for every key with its default. Validation at start collects all problems and exits non-zero with clear messages: unknown or duplicate keys, more than one YAML document, an empty `allowed_clients` (to allow everyone write `0.0.0.0/0` and `::/0`), invalid CIDRs, host names in `listen`, host-name upstreams without `bootstrap`, non-`https` list URLs, unsafe or duplicate source names, unknown mode or backend, negative TTLs, empty `rules.file` or `log.dir`, duplicate `listen` entries, port 0, and a `log.max_mb_per_day` below 1. TTLs are capped before conversion to `uint32`; `cache.max_ttl: 0` means no upper bound. Relative paths resolve from the config file's directory. `Warnings()` flags an upstream or bootstrap that points at hecate's own listen address (a DNS loop), and `hecate check` fails on it.
 
 ---
 
 ## 11. SafeSearch
 
-hecate **tidak pernah** menulis ulang `www.google.com`. Syarat agar hasilnya benar:
-- hulu bukan resolver yang memaksa SafeSearch (karena itu varian "family" Cloudflare/AdGuard dilarang sebagai bawaan);
-- hulu terenkripsi supaya ISP atau router tidak membajak jawaban DNS biasa;
-- tidak ada aturan atau daftar yang memetakan Google ke `forcesafesearch.google.com`.
-
-`hecate check` (`internal/selfcheck`) melakukan uji mandiri: resolve `www.google.com` (tipe A) lewat setiap hulu yang dikonfigurasi dan memastikan minimal satu hulu menjawab rekaman A dengan NOERROR serta rantai CNAME pada setiap hulu tidak memuat `forcesafesearch.google.com` (atau subdomainnya); bila ada yang memaksa SafeSearch, uji mandiri gagal dan menyebut hulu mana. Selain itu `selfcheck` memuat daftar blokir yang sudah ter-cache di disk dan memverifikasi bahwa satu domain contoh milik masing-masing daftar benar-benar diblokir oleh engine (serta memberi peringatan bila berkas cache belum diunduh lewat `hecate lists update`). Batas: bila SafeSearch dikunci lewat pengaturan akun Google atau proxy jaringan, DNS tidak dapat membatalkannya.
+hecate never rewrites `www.google.com`. The upstream must not be a resolver that forces SafeSearch (so the "family" variants are not defaults), must be encrypted so the ISP or router cannot hijack plain DNS, and no rule or list may map Google to `forcesafesearch.google.com`. `hecate check` resolves `www.google.com` (type A) through every configured upstream and fails if any chain contains `forcesafesearch.google.com`. If SafeSearch is locked through a Google account or a network proxy, DNS cannot undo it.
 
 ---
 
-## 12. Lingkungan PC ini (fakta terukur 2026-10-18)
+## 12. Host notes (Windows)
 
-- Windows 11 Pro; Go 1.26.4 terpasang, modul memakai 1.26.9 lewat `GOTOOLCHAIN=auto`; git 2.54.0; gcc tersedia lewat w64devkit sehingga `go test -race` berjalan (set `CGO_ENABLED=1` per perintah, jangan global).
-- IP LAN PC `192.168.1.99` (dipesan di router ZTE F663NV3a pada 2026-10-18; sebelumnya DHCP `192.168.1.10`), gateway `192.168.1.1`; HP memakai IP statis `192.168.1.150`. Adapter virtual `172.25.144.1` adalah Hyper-V "Default Switch" (Hyper-V aktif dan WSL2 terpasang). Wi-Fi di PC berkategori Public.
-- **UDP `0.0.0.0:53` dipegang layanan Internet Connection Sharing (ICS / `SharedAccess`, svchost)**; TCP 53 bebas. Android tidak bisa menentukan port DNS di pengaturan Wi-Fi, jadi tes dari HP memerlukan UDP 53 di IP LAN PC. **Terverifikasi di Fase 3:** bind khusus ke `192.168.1.99:53` (UDP dan TCP) berhasil walau ICS memegang wildcard, jadi ICS tidak perlu dihentikan. Dua aturan firewall masuk (grup `hecate`, UDP dan TCP 53, hanya ke `192.168.1.99` dari `LocalSubnet`, program `bin\hecate.exe`).
-- UDP 5353 dipakai banyak proses (mDNS). Port 5300 dan 853 bebas.
-- **`nslookup` Windows menerima `-port` tetapi mengabaikannya** (selalu memakai port 53); pakai `scripts/dnsquery.ps1 <nama> -Port <port>` atau klien miekg/dns.
-- Rentang port yang dikecualikan Windows (Hyper-V/WinNAT, mis. UDP 49674-49973) membuat bind gagal dengan WSAEACCES; tes tidak boleh mengandaikan port TCP dan UDP yang sama selalu sama-sama bebas.
-- **Jalan otomatis saat boot (Fase 5):** `scripts/autostart.ps1 install` (PowerShell Administrator) membuat tugas Task Scheduler `hecate`: pemicu startup dengan tunda 30 detik, diulang tiap 1 menit selama 365 hari sejak tiap boot, akun sekarang lewat S4U (jalan tanpa login, hak biasa: bukan SYSTEM dan bukan "highest"), tersembunyi, tanpa batas waktu, `MultipleInstances = IgnoreNew`. Ulangan itu hanya menghidupkan hecate bila belum jalan, penting karena Wi-Fi bisa belum memberi `192.168.1.99` saat boot dan hecate keluar dengan galat. **Pengaturan "restart bila gagal" Task Scheduler tidak dipakai: diuji, tugas yang keluar dengan kode 1 atau dimatikan paksa tidak dihidupkan lagi.** Pemicu berulang diuji dengan tugas percobaan (hidup lagi tepat 1 menit sesudah keluar kode 1). Perintah lain: `status` dan `remove` (satu-satunya rollback; ikut menghentikan prosesnya). `remove` dan shutdown Windows mengakhiri hecate dengan `TerminateProcess`, tanpa jalur shutdown anggun (log query tetap aman karena penulis mengosongkan penyangga tiap antrean menganggur); tugas bersifat tersembunyi, jadi tidak tampak di antarmuka Task Scheduler tetapi `status` dan `remove` bekerja dengan nama `hecate`; pemicu berulang berakhir 365 hari sesudah tiap boot. Aturan firewall terikat ke `bin\hecate.exe`, jadi bangun ulang ke jalur yang sama; karena pemicunya berulang tiap menit, `Stop-ScheduledTask` saja tidak mematikan hecate untuk seterusnya (menit berikutnya hidup lagi). Untuk mengganti binary (berkas yang sedang berjalan terkunci): `Disable-ScheduledTask`, `Stop-ScheduledTask`, salin berkasnya, lalu `Enable-ScheduledTask` dan `Start-ScheduledTask`. Untuk mematikannya sampai Master menyalakan lagi: `Disable-ScheduledTask` lalu hentikan prosesnya, atau `remove`. (Belum diketahui apakah pemicu yang diganti pada 2026-10-19 sudah berulang sebelum boot berikutnya; pada boot berikutnya ia diharapkan berulang, belum diuji lewat boot sungguhan.)
-- Mode berkas `0600`/`0700` tidak ditegakkan di Windows (berkas mewarisi ACL folder induk); mengganti nama berkas yang sedang dibuka gagal (Go membuka tanpa `FILE_SHARE_DELETE`), karena itu penulisan atomik `hecate rule` mencoba ulang sebentar.
-
-Konsekuensi: pengembangan di `127.0.0.1:5300`; keputusan soal ICS diambil di Fase 3 (opsi: hentikan ICS bila Master tidak memakai Mobile Hotspot/Hyper-V/WSL, pakai perangkat lain untuk server rumah, atau uji pengikatan alamat dengan reuse) [Inferensi: Windows kemungkinan menolak bind spesifik ke port 53 selama ada bind wildcard dari proses lain; diuji, bukan diasumsikan].
+- The Windows Internet Connection Sharing service holds UDP `0.0.0.0:53`, but binding to one specific address (`<LAN-IP>:53`, UDP and TCP) still works, so ICS does not have to be stopped. Android cannot set a DNS port, so a phone test needs port 53 on the LAN address.
+- `nslookup -port` is accepted but ignored; use `scripts/windows/dnsquery.ps1`.
+- Windows excludes some port ranges (Hyper-V/WinNAT), which makes binds fail with `WSAEACCES`; tests must not assume that the same TCP and UDP port are both free.
+- File modes `0600`/`0700` are not enforced; renaming over an open file fails, so atomic writes retry briefly.
+- Task Scheduler autostart is described in [operations.md](operations.md). "Restart on failure" does not work for this program (tested); a trigger that repeats every minute with `IgnoreNew` replaces it. `remove` and Windows shutdown end the process with `TerminateProcess`, so there is no graceful path there; the query log stays safe because the writer flushes whenever its queue is idle.
 
 ---
 
-## 13. Keamanan
+## 13. Security
 
-Ancaman utama: (1) resolver terbuka disalahgunakan (amplifikasi DDoS) setelah dipasang di VPS; (2) daftar atau berkas konfigurasi berisi masukan berbahaya; (3) kebocoran riwayat penelusuran lewat log; (4) hulu atau unduhan daftar dimanipulasi.
+Main threats: an open resolver abused for amplification (once on a VPS), hostile list or config input, browsing history leaking through logs, and manipulated upstreams or list downloads.
 
-| Kontrol | Penerapan |
+| Control | Implementation |
 |---|---|
-| Batasi klien | `allowed_clients` bawaan hanya loopback dan rentang privat; selain itu REFUSED |
-| Bind spesifik | Dengarkan IP tertentu, bukan `0.0.0.0`, kecuali ada alasan |
-| Batas laju | Per IP klien. `native`: `ratelimit.go`, aktif (200/detik, burst 500). `dnsproxy`: paket middleware `ratelimit` yang terpisah, bukan opsi `proxy.Config`, belum dipasang; wajib aktif sebelum Fase 6 |
-| Habisnya slot TCP | `dnsproxy`: satu koneksi TCP menahan satu slot `MaxGoroutines` bersama UDP (§5.3); diterima di LAN rumah, wajib diperbaiki sebelum Fase 6. `native`: batas koneksi TCP sendiri (64 total, 8 per alamat klien) dan batas query hulu sendiri (256 total, 64 per klien) |
-| Datagram UDP terlalu besar | Di Windows, satu datagram lebih besar dari buffer baca menghentikan loop server miekg (galat `WSAEMSGSIZE` dianggap fatal). `native` menanganinya (`tolerantReader`); kasusnya ada di suite kesesuaian dan lulus di kedua backend |
-| Pertumbuhan log | Batas ukuran harian `log.max_mb_per_day` (§9); penolakan ACL dicatat satu per query |
-| Berkas aturan | Maks 4 MiB dan 4096 byte per baris; kelebihan diabaikan dan dilaporkan sebagai masalah berkas, tidak pernah diam-diam |
-| Akses publik (Fase 6) | DoT di port 853 dengan sertifikat valid; identifikasi klien lewat nama host rahasia pada SNI. Desain rincinya ditinjau ulang di awal Fase 6 (Android Private DNS tidak mengirim header autentikasi) |
-| Daftar tak tepercaya | HTTPS saja, batas ukuran dan waktu, validasi tiap baris, tidak pernah dieksekusi |
-| Rahasia | Kunci privat TLS di `data/tls/` (izin ketat, di-.gitignore); tidak ada rahasia di repo atau konfigurasi contoh |
-| Rantai pasok | Versi modul dikunci; `go mod verify`; `GOFLAGS=-mod=readonly` pada build |
-| Pesan galat | Log server boleh rinci; jawaban DNS ke klien tidak pernah memuat detail internal |
-| Hak akses | Berjalan sebagai pengguna biasa (di Linux: pengguna khusus, bukan root, dengan kapabilitas bind port rendah) |
-
-Sebelum setiap commit: periksa daftar keamanan di `.claude/rules/ecc/common/security.md`, dan jalankan agent `security-reviewer` untuk kode yang menghadap jaringan (Fase 1, 4, 6). Tinjauan Fase 1 dilakukan oleh agent `hecate-reviewer` yang menjalankan binary dengan beban ala penyerang (`.agents/state/reviews/phase-1-review.md`).
+| Client restriction | `allowed_clients` defaults to loopback and private ranges; others get REFUSED |
+| Specific bind | Listen on a specific IP, not `0.0.0.0`, unless there is a reason |
+| Rate limit | Per client IP. `native`: active (200/s, burst 500). `dnsproxy`: its separate `ratelimit` middleware is not wired yet; required before phase 6 |
+| TCP slot exhaustion | `dnsproxy`: see 5.3. `native`: own TCP limits (64 total, 8 per client) and own upstream limits (256 total, 64 per client) |
+| Oversized UDP datagram | Handled by `native` (`tolerantReader`); covered by the conformance suite for both backends |
+| Log growth | Daily size cap; ACL refusals logged one per query |
+| Untrusted lists | HTTPS only, size and time limits, per-line validation, never executed |
+| Public access (phase 6) | DoT on 853 with a valid certificate; clients identified by a secret host name in SNI (Android Private DNS sends no auth header); detailed design reviewed at the start of phase 6 |
+| Secrets | TLS private keys in `data/tls/` (strict permissions, git-ignored); no secrets in the repository or example config |
+| Supply chain | Pinned module versions, `go mod verify`, `govulncheck` at the end of each phase |
+| Error messages | Server logs may be detailed; DNS answers never carry internal detail |
+| Privileges | Run as an ordinary user (on Linux a dedicated user with the capability to bind low ports) |
 
 ---
 
-## 14. Penanganan galat dan ketahanan
+## 14. Errors and resilience
 
-- **Fail-open:** bila engine belum siap atau terjadi galat internal, query diteruskan (DNS tetap hidup) dan galat dicatat. Pengecualian: pelanggaran ACL tetap REFUSED, juga bila yang panic adalah pemeriksaan ACL atau handler sebelum `Before` selesai.
-- **Hulu gagal:** coba hulu berikutnya; bila semua gagal, SERVFAIL ke klien dan `Failed` mencatatnya.
-- **Hulu gagal beruntun (Fase 5, `internal/engine/health.go`):** engine menghitung query yang diteruskan dan gagal berturut-turut; hitungannya sama untuk kedua backend karena keduanya melapor lewat `After` dan `Failed`. Lima berturut-turut memicu satu peringatan per menit (jumlah dan galat terakhir); jawaban pertama sesudahnya yang menyebut hulu mencatat pemulihan. Cache hit, jawaban lokal, dan pembatalan oleh klien (`context.Canceled`) diabaikan.
-- **Daftar:** unduhan gagal → pakai cache lama; cache rusak → abaikan berkas itu, pakai yang lain, catat galat.
-- **Aturan:** baris salah dilewati; berkas hilang = tanpa aturan, bukan galat fatal.
-- **Log:** disk penuh, saluran penuh, atau batas ukuran harian tidak boleh memblokir query; catatan yang tidak tertulis dihitung.
-- **Shutdown:** `ctx` dibatalkan saat Ctrl+C; listener ditutup rapi dan log dikosongkan. Diverifikasi di Fase 5 pada konsol Windows asli untuk kedua backend (kode keluar 0, "hecate berhenti", log query ditutup, port UDP dilepas), dan query yang tertahan di hulu polos yang diam dibatalkan dengan menutup koneksinya, tidak menunggu batas waktu.
-- Tidak ada galat yang ditelan diam-diam: setiap galat dibungkus konteks (`fmt.Errorf("...: %w", err)`) dan dicatat sekali pada lapisan yang menanganinya.
+- **Fail-open:** if the engine is not ready or fails internally, the query is forwarded and the error logged. Exception: ACL violations stay REFUSED, also when the ACL check or a handler before `Before` panics.
+- **Upstream failure:** try the next upstream; if all fail, SERVFAIL and `Failed` logs it. Five consecutive failures produce one warning per minute (same for both backends); the first success afterwards logs the recovery. Cache hits, local answers and client cancellations are ignored.
+- **Lists:** a failed download keeps the old cache; a corrupt cache file is ignored and logged.
+- **Rules:** bad lines are skipped; a missing file means no rules.
+- **Logs:** a full disk, a full channel or the daily cap never block a query.
+- **Shutdown:** Ctrl+C cancels the context; listeners close cleanly, the log is flushed, and queries stuck on a silent plain upstream are cancelled by closing their connection.
+- Every error is wrapped with context (`%w`) and logged once, by the layer that handles it.
 
 ---
 
-## 15. Pengujian
+## 15. Design notes
 
-Proyek ini memakai TDD: tes ditulis dulu (merah), implementasi minimal (hijau), lalu rapikan.
+Reasoning that used to live in code comments:
 
-| Lapisan | Isi | Target |
+- The ACL treats an empty list as an error because "no entries" must never read as "everybody". Clients are matched in their IPv4-unmapped form.
+- Domain folding is ASCII only on purpose: Unicode folding can map different characters onto the same name.
+- The matcher walks the full name up to the registrable part and never tests the bare last label, so an entry can never match a whole TLD.
+- Errors from `ParseEntry` never echo the input, so a hostile list line cannot inject text into logs.
+- Snapshots (`DomainSet`, `ListSet`, rules) are built once and never modified; readers load them through atomic pointers and never block.
+- The native cache key includes the DO and CD bits, so a client asking for DNSSEC records never receives a cached answer built for one that did not.
+- Bootstrap resolution uses plain DNS servers given by IP, because hecate's own resolver cannot be used to find the upstream it needs; each server gets a share of the remaining time so one dead server cannot use it all.
+- DoH uses ID 0 (RFC 8484) so identical queries are cacheable, and never the environment proxy, because DNS must not leave through one.
+- `dnsproxy` sends nothing for a nil `dctx.Res`, so the adapter never leaves it nil. A proxy that never started is released through `close`.
+- `hecate rule` rewrites the rules file atomically (temporary file in the same directory, then rename), keeps its comments, and refuses to edit a file the server would reject, because rewriting it would hide the problem.
+- Block answers are built as copies; a block decision without an answer message is an error, because the handler shapes the message in place.
+
+---
+
+## 16. Plan B and out of scope
+
+**Plan B: APK.** Considered if phase 3 tuning does not stop the redirects or stronger blocking is wanted: a local DNS filter (same power as DNS), a DNS plus HTTPS filter (stronger but heavy and risky), or a Private DNS on/off switch (light). The open-source app BlockAds (GPL-3.0) already does the first two and is a reference. The engine is plain Go without network dependencies, so it could be compiled for Android later (inference; BlockAds uses Go with gomobile).
+
+**Out of scope:** web UI (phase 7 if wanted), full adblock syntax, DoQ, DNSSEC validation, per-client profiles, parental control, ECS (disabled for privacy), DHCP.
+
+---
+
+## 17. Risks
+
+| # | Risk | Mitigation |
 |---|---|---|
-| Unit | `engine` (pencocokan, prioritas, jawaban blokir, CNAME, nama khusus), `lists` (parser), `qlog`, `config`, `native` (cache, ACL, upstream dengan hulu palsu) | Cakupan ≥ 80% |
-| Fuzz | Parser daftar dan parser aturan (`go test -fuzz`) | Tanpa panic |
-| Benchmark | Pencarian domain pada ±250 ribu entri; memori proses | p99 < 50 µs; < 150 MB |
-| Kesesuaian | `internal/backend/conformance`: hulu palsu (`miekg/dns` di loopback) + backend yang diuji di port acak. Kasus: A/AAAA/HTTPS terblokir, lolos, `allow` mengalahkan `block`, CNAME terblokir, ACL REFUSED (tanpa bit RA), log tertulis, datagram UDP besar atau rusak tidak menghentikan server, reverse lookup alamat privat dijawab lokal (16 kasus sejak Fase 5). Dijalankan untuk **kedua** backend dari satu tabel konstruktor | Hasil identik |
-| Integrasi manual | `scripts/dnsquery.ps1` (atau `dig`) dari PC, lalu uji dari HP (Fase 3) | Kriteria S1–S3 |
-
-Perintah verifikasi tiap fase: `gofmt -l .` (kosong), `go vet ./...`, `go test ./... -cover`, dan pemindaian kerentanan `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` (yang terdampak harus 0). Detektor race (`CGO_ENABLED=1 go test -race ./...`) berjalan di PC ini lewat w64devkit. Kode konkuren dijaga lewat snapshot tak berubah, tanpa state global, dan tes beban. Mutasi sengaja pada salinan scratch dipakai untuk memastikan tes benar-benar menangkap perubahan perilaku.
-
----
-
-## 16. Plan B dan di luar cakupan
-
-**Plan B: APK.** Dipertimbangkan bila setelah penyetelan di Fase 3 kriteria S2 gagal atau Master ingin pemblokiran lebih kuat. Tiga bentuknya dan perbandingannya ada di `research.md` §9: filter DNS lokal (daya blokir sama dengan DNS), filter DNS + HTTPS (lebih kuat, berat, berisiko), dan switch Private DNS (ringan). Aplikasi open source BlockAds (GPL-3.0) sudah melakukan dua bentuk pertama dan bisa jadi acuan. Karena engine adalah paket Go murni tanpa ketergantungan jaringan, ia dapat dikompilasi untuk Android di kemudian hari [Inferensi; BlockAds memakai pola Go + gomobile].
-
-**Di luar cakupan (YAGNI):** UI web (Fase 7 bila diminta), sintaks adblock penuh, DoQ, validasi DNSSEC, profil per klien, kontrol orang tua, ECS (dimatikan demi privasi), pengaturan DHCP.
-
----
-
-## 17. Risiko dan mitigasi
-
-| # | Risiko | Mitigasi |
-|---|---|---|
-| R1 | API `dnsproxy` masih 0.x dan bisa berubah | Kunci versi; adapter tipis; backend `native` sebagai cadangan |
-| R2 | ICS memegang UDP 53 di PC ini | Pengembangan di port 5300; keputusan di Fase 3; opsi perangkat lain |
-| R3 | Salah blokir (daftar terlalu agresif) | Mulai dari PRO; `rule add allow` berlaku ≤ 10 detik; log menunjukkan sumbernya |
-| R4 | HP lolos dari DNS kita (DNS IPv6 dari router, DoH browser, Private DNS aktif) | Periksa log apakah query HP masuk; cek setelan Secure DNS Chrome dan DoH Firefox; matikan Private DNS saat tes |
-| R5 | Dua backend berperilaku beda | Suite kesesuaian yang sama; perbandingan keputusan pada sampel domain |
-| R6 | Toolchain Go 1.26.9 diunduh otomatis (butuh internet) | Dicatat di Fase 0; `govulncheck` tiap penutup fase |
-| R7 | PC mati → HP tanpa DNS saat DNS Wi-Fi hanya menunjuk PC | Diterima untuk tes; DNS kedua sengaja dikosongkan agar pengukuran tidak bocor ke DNS lain. Solusi tetap: VPS (Fase 6) |
-| R8 | Sumber daftar mati atau berubah format | Cache disk; validasi baris; peringatan di `lists status` |
-| R9 | Domain iklan terus berganti | Pembaruan harian; daftar baru (NRD/DGA) dipertimbangkan di Fase 7 |
-| R10 | Pemicu redirect ternyata skrip domain situs sendiri | Dikatakan terus terang; pelengkap Firefox + uBO; Plan B |
-| R11 | hecate tidak naik setelah boot (Wi-Fi belum memberi `192.168.1.99`, hecate keluar dengan galat) dan "restart bila gagal" Task Scheduler tidak bekerja | Pemicu berulang tiap menit dengan `IgnoreNew` (§12). Diuji dengan tugas percobaan; boot sungguhan belum diuji |
-| R12 | Server rumah dipakai keluarga dan teman (`allowed_clients` tetap `192.168.1.0/24`, keputusan Master) | Batas per IP (laju, koneksi TCP, gerbang hulu) lebih penting daripada untuk satu HP; celahnya: tabel pembatas laju yang penuh melepas sumber baru (I2, Fase 6) |
-
----
-
-## 18. Hal yang diverifikasi saat implementasi
-
-Belum dipastikan; dibuktikan lewat tes dan bukan diasumsikan:
-1. **Terverifikasi di Fase 1:** tanda tangan `proxy.Config.RequestHandler` dan perilaku cache dnsproxy (§5.3, `.agents/notes/dnsproxy-api-facts.md`).
-2. **Terverifikasi di Fase 1:** upstream DoH berupa IP tanpa bootstrap (jawaban DoH nyata dari `https://1.1.1.1/dns-query` pada binary).
-3. **Sebagian terverifikasi di Fase 3:** server menjawab NXDOMAIN dan NODATA dengan SOA sintetis pada kueri dari PC; **Chrome di HP tidak pernah menanyakan** `use-application-dns.net` maupun `_dns.resolver.arpa` (0 kueri), jadi tidak ada reaksi yang bisa diamati. Reaksi Firefox di HP belum diuji.
-4. **Terverifikasi di Fase 2:** ketiga daftar bawaan diunduh dan di-parse pada binary asli (`hagezi-pro` 202.297 domain, `hagezi-popups` 47.668 domain, `abpindo` 124 domain — total 250.089 entri sebelum de-duplikasi, 0 baris ditolak).
-5. **Terverifikasi di Fase 2:** memori dan latensi pencarian dengan daftar penuh (250.000–250.089 entri): `heap_inuse_delta` = 16,15–16,29 MiB, memori proses hidup WorkingSet = 71,74–74,20 MiB / Private = 103,35–105,25 MiB (< 150 MB), rata-rata = 215–250 ns/op (0 alokasi), p95 = 1,04–1,07 µs, p99 = 2,01 µs (< 50 µs).
-6. **Sebagian terverifikasi di Fase 3 (Chrome saja):** jawaban `0.0.0.0` pada Chrome HP RedMagic tidak menimbulkan gangguan yang teramati; permintaan ke domain terblokir gagal cepat ("This site can't be reached"). Belum dibandingkan dengan NODATA atau NXDOMAIN, dan Firefox belum diuji (`test-report.md` bagian 4).
-7. Apakah EDE (RFC 8914) "Filtered" pada jawaban blokir bermanfaat; ditambahkan hanya bila terbukti tidak mengganggu klien. Belum diuji (Fase 3 tidak mencakupnya).
-8. **Terverifikasi di Fase 3:** konflik ICS pada UDP 53 terselesaikan tanpa menyentuh ICS; bind khusus `192.168.1.99:53` UDP dan TCP berhasil (bagian 12).
-9. **Terverifikasi di Fase 3:** pada HP nyata, `adblock.turtlecute.org` 95% (126/132) lalu 97% (128/132) dengan dua aturan kustom; Chrome tidak melewati hecate (tidak ada pencarian host DoH). Redirect Shopee dilacak ke `s.shopee.co.id` dan diblokir; redirect Play Store belum pernah muncul. DNS IPv6 router sebagai jalur lolos belum diperiksa langsung (`test-report.md`).
-10. **Terverifikasi di Fase 4:** suite kesesuaian (15 kasus) hijau pada `dnsproxy` dan `native` dari satu tabel; 2.000 query (1.000 nama, A dan HTTPS) memberi keputusan engine yang sama pada kedua backend (1.732 diblokir di masing-masing, 0 beda keputusan, 1 beda bentuk jawaban akibat hulu). `native` melayani DoH nyata ke 1.1.1.1 (`phase-4-report.md`).
-11. **Temuan Fase 4:** satu datagram UDP lebih besar dari buffer menghentikan loop UDP miekg di Windows; diperbaiki di `native` dan dijadikan kasus suite.
-12. **Terverifikasi di Fase 5:** tes HP dengan `backend: native`: `adblock.turtlecute.org` 97%, 484 query HP dalam ±2,5 menit (322 diblokir daftar, 6 aturan kustom), hulu p50 29 ms / p95 88 ms, proses 41 MB (`test-report.md` bagian 5). Satu query terbuang oleh pembatas laju lama (100/detik) karena halaman tes mengirim ±255 query dalam setengah detik; dinaikkan ke 200/detik, burst 500.
-13. **Terverifikasi di Fase 5:** Ctrl+C anggun pada konsol asli untuk kedua backend; peringatan hulu gagal beruntun; log query pulih sesudah disk penuh (disk palsu); log operasional berbatas ukuran; tugas Task Scheduler terpasang dan menjalankan hecate tersembunyi (sesi 0) dengan DNS menjawab dan `hecate.log` bertambah.
-14. **Belum diverifikasi (sesudah Fase 5):** boot PC sungguhan dengan tugas Task Scheduler (termasuk Wi-Fi yang telat); disk penuh pada drive asli; DoH dan hulu IPv6 nyata di bawah beban lama; galat baca UDP Windows selain `WSAEMSGSIZE`; ketepatan perkiraan memori cache di bawah beban nyata; uji 7 hari S4 (Fase 6, VPS); DoT sebagai hulu (ditunda); Firefox di HP, jalur DNS IPv6 router, EDE.
-
+| R1 | dnsproxy's API is 0.x and may change | Pinned version, thin adapter, `native` as a fallback |
+| R2 | Windows ICS holds UDP 53 | Develop on port 5300; bind a specific address |
+| R3 | False positives from aggressive lists | Start from PRO; `rule add allow` takes effect within 10 s; the log shows the source |
+| R4 | The phone bypasses hecate (router IPv6 DNS, browser DoH, Private DNS on) | Check that phone queries appear in the log; check Secure DNS in Chrome and DoH in Firefox |
+| R5 | The two backends behave differently | Same conformance suite; decision comparison on a sample |
+| R6 | The Go toolchain is downloaded automatically | `govulncheck` at the end of each phase |
+| R7 | Host off means the phone has no DNS if only that host is configured | Accepted for testing; the fix is the VPS (phase 6) |
+| R8 | A list source dies or changes format | Disk cache, per-line validation, warning in `lists status` |
+| R9 | Ad domains keep changing | Daily updates; newly-registered-domain lists considered in phase 7 |
+| R10 | The redirect trigger is a script from the site's own domain | Said plainly; Firefox with uBlock Origin as a complement; Plan B |
+| R11 | hecate is not up after boot (Wi-Fi not ready) | Repeating Task Scheduler trigger; a real boot is not yet tested |
+| R12 | Family and friends use the home server | Per-IP limits matter more; known gap: a full rate-limit table releases new sources (phase 6) |

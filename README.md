@@ -1,43 +1,80 @@
 # HecateDNS
 
-Server DNS pribadi yang memblokir iklan di browser (pop-up, redirect, click-redirect) tanpa memaksa Google SafeSearch dan tanpa aplikasi VPN. Dipakai sendiri, non-komersial. Dulu bernama xdns (diganti 2026-10-19); biner dan perintahnya sekarang `hecate`.
+A personal DNS server that blocks browser ads (pop-ups, redirects, click-redirects) without a VPN app and without forcing Google SafeSearch. Written in Go. Formerly called xdns.
 
-**Status:** Fase 0 (fondasi), Fase 1 (engine inti + backend dnsproxy), Fase 2 (daftar blokir, pemeriksaan rantai CNAME, nama khusus, uji mandiri), dan Fase 3 (tes di HP nyata lewat Wi-Fi rumah: `adblock.turtlecute.org` 95–97%, lihat `docs/test-report.md`) selesai. Fase 4 (backend kedua `native`, dipilih dengan `backend: native`; satu suite tes untuk kedua backend) selesai, termasuk tes HP (97%). Fase 5 (stabilisasi: review penuh Fase 4 dan perbaikannya, Ctrl+C anggun, peringatan hulu gagal beruntun, log berbatas ukuran, jalan otomatis saat boot lewat Task Scheduler) selesai; uji 7 hari dipindah ke Fase 6 di VPS karena PC ini dimatikan tiap malam. Server rumah memakai `native`. Server mengunduh dan memuat ketiga daftar bawaan (HaGeZi Multi PRO, HaGeZi Pop-Up Ads, ABPindo — ±250 ribu domain), memblokir domain iklan baik secara langsung maupun lewat rantai CNAME, menjawab nama khusus (`use-application-dns.net` NXDOMAIN, `_dns.resolver.arpa` NODATA), serta memverifikasi SafeSearch dan daftar blokir lewat `hecate check`. Lihat `docs/roadmap.md` dan laporan fase di `docs/` (`phase-1-report.md` sampai `phase-5-report.md`).
+It resolves queries over encrypted upstreams (DoH), drops ad and tracker domains using the HaGeZi and ABPindo lists (about 250,000 domains), follows CNAME chains to catch cloaked trackers, and lets you add your own allow and block rules that take effect within seconds. A phone uses it as its DNS server on the home Wi-Fi, and later anywhere through Android Private DNS (DoT, planned).
 
-## Perintah
+**Status:** phases 0 to 5 are done: both backends pass the same conformance suite, and a real-phone test blocked 95 to 97% of a public ad-test page. Phase 6 (VPS + DNS-over-TLS) is next. See [docs/roadmap.md](docs/roadmap.md).
 
-```
-go build ./...                                                          # bangun semua paket
-go test ./... -cover                                                    # jalankan tes
-go run ./cmd/hecate lists update -config hecate.yaml                    # unduh/perbarui semua daftar blokir aktif
-go run ./cmd/hecate lists status -config hecate.yaml                    # tampilkan status cache daftar blokir
-go run ./cmd/hecate check -config configs/hecate.example.yaml           # validasi konfigurasi + uji mandiri (hulu, SafeSearch, sampel daftar)
-go run ./cmd/hecate run   -config hecate.yaml                           # jalankan server (Ctrl+C untuk berhenti)
-go run ./cmd/hecate rule add block contoh.com -config hecate.yaml       # blokir contoh.com dan semua subdomainnya
-go run ./cmd/hecate rule add allow baik.contoh.com -config hecate.yaml  # kecualikan (allow mengalahkan block)
-go run ./cmd/hecate rule list   -config hecate.yaml                     # tampilkan aturan
-go run ./cmd/hecate rule remove contoh.com -config hecate.yaml          # hapus aturan
-go run ./cmd/hecate log -since 10m -blocked -config hecate.yaml         # baca log query
-go run ./scripts/compare -a 127.0.0.1:5301 -b 127.0.0.1:5302 -log-a LOG_A -log-b LOG_B  # bandingkan keputusan dua server (backend berbeda)
-powershell -File scripts/autostart.ps1 install                          # PowerShell Administrator: jalan otomatis saat boot (Task Scheduler)
-powershell -File scripts/autostart.ps1 status                           # keadaan tugas dan proses hecate
-powershell -File scripts/autostart.ps1 remove                           # cabut tugas (satu-satunya rollback)
-```
+**Honest limits:** DNS cannot block everything. Ads served from the site's own domain, redirect scripts hosted on the site, and the empty boxes left behind are out of reach. Firefox with uBlock Origin is the recommended complement ([docs/research.md](docs/research.md)).
 
-Salin `configs/hecate.example.yaml` menjadi `hecate.yaml` lalu sesuaikan. Kunci yang tidak ditulis memakai nilai bawaan, sedangkan kunci yang salah ketik, kunci ganda, dan lebih dari satu dokumen YAML ditolak dengan pesan galat. Server membaca ulang berkas aturan sendiri (setiap `rules.poll_interval`, bawaan 2 detik) dan memantau pembaruan cache daftar di disk, jadi `hecate rule` dan `hecate lists update` berlaku tanpa restart.
+## Two backends, one engine
 
-Mengetes server: `nslookup` di Windows mengabaikan `-port`, jadi pakai skrip yang disertakan:
+One shared filter engine runs under two interchangeable servers, chosen by `backend:` in the config:
+
+- `dnsproxy`: a thin adapter around [AdGuard dnsproxy](https://github.com/AdguardTeam/dnsproxy).
+- `native`: own server, cache, rate limiter and upstream pool on [`miekg/dns`](https://github.com/miekg/dns).
+
+## Quick start
 
 ```
-powershell -File scripts/dnsquery.ps1 example.com -Port 5300
-powershell -File scripts/dnsquery.ps1 www.contoh.com -Type HTTPS -Port 5300
+go build -o bin/hecate ./cmd/hecate
+cp configs/hecate.example.yaml hecate.yaml
+./bin/hecate check -config hecate.yaml          # validate the config, run the self-check
+./bin/hecate lists update -config hecate.yaml   # download the block lists
+./bin/hecate run -config hecate.yaml            # serve on 127.0.0.1:5300
 ```
 
-## Dokumen
+On Windows use `bin\hecate.exe` and `scripts\windows\dnsquery.ps1 example.com -Port 5300` to test a query (Windows `nslookup` ignores `-port`).
 
-- `docs/architecture.md`: desain, keputusan, dan kriteria sukses
-- `docs/roadmap.md`: fase kerja dan gerbang keputusan
-- `docs/phase-0-report.md` sampai `docs/phase-5-report.md`, dan `docs/test-report.md`: laporan tiap fase dan tes HP
-- `docs/research.md`: riset pemblokiran iklan beserta sumbernya
-- `docs/superpowers/plans/`: rencana tugas Fase 0 (arsip)
+## Commands
 
+```
+hecate run   -config hecate.yaml
+hecate check -config hecate.yaml
+hecate log   -since 10m -blocked -config hecate.yaml
+hecate rule add block example.com -config hecate.yaml      # blocks the domain and its subdomains
+hecate rule add allow ok.example.com -config hecate.yaml   # allow beats block
+hecate rule list | remove example.com -config hecate.yaml
+hecate lists status | update -config hecate.yaml
+```
+
+Keys left out of the config use defaults; unknown or duplicate keys are rejected with a clear error. The server re-reads the rules file and the list cache by itself, so rule and list changes need no restart. CLI output is currently in Indonesian; an English pass is planned.
+
+## Layout
+
+```
+cmd/hecate/          entry point
+backend/controller/  CLI commands
+backend/core/        backend contract, dnsproxy adapter, native server
+backend/engine/      the filter (ACL, rules, matcher, CNAME check)
+backend/service/     lists, query log, self-check
+backend/lib/         config, operational log
+backend/test/        conformance suite and source-rule gates
+configs/             example configuration
+scripts/windows/     Task Scheduler autostart, DNS query helper
+docs/                architecture, roadmap, research, testing, operations
+```
+
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md): design, decisions, security
+- [docs/roadmap.md](docs/roadmap.md): phases and what is next
+- [docs/research.md](docs/research.md): the research behind the design, with sources
+- [docs/testing.md](docs/testing.md): automated tests and real-phone results
+- [docs/operations.md](docs/operations.md): running it, autostart, deployment
+
+## Development
+
+```
+gofmt -l .
+go vet ./...
+go test ./... -cover
+CGO_ENABLED=1 go test -race ./...
+```
+
+Source files carry no comments (enforced by a test in `backend/test/nocomment`); the reasoning lives in `docs/`.
+
+## License
+
+No license has been chosen yet, so all rights are reserved until one is added.

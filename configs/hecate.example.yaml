@@ -1,19 +1,19 @@
 backend: dnsproxy                # dnsproxy | native
 
 listen:
-  - 127.0.0.1:5300               # pengembangan; tes HP: ganti ke alamat LAN PC, mis. 192.168.1.99:53
+  - 127.0.0.1:5300               # development; for a phone test use the PC's LAN address, e.g. 192.168.1.10:53
 
-allowed_clients:                 # CIDR; di luar ini dijawab REFUSED
+allowed_clients:                 # CIDR; clients outside these get REFUSED
   - 127.0.0.0/8
   - "::1/128"
   - 10.0.0.0/8
   - 172.16.0.0/12
   - 192.168.0.0/16
 
-upstreams:                       # satu dipilih acak berbobot, lainnya cadangan bila gagal
+upstreams:                       # one is picked at random (weighted), the others are fallbacks
   - https://1.1.1.1/dns-query
   - https://8.8.8.8/dns-query
-bootstrap: [1.1.1.1, 8.8.8.8]    # untuk upstream berupa nama host
+bootstrap: [1.1.1.1, 8.8.8.8]    # used to resolve upstreams given as host names
 
 cache:
   enabled: true
@@ -47,6 +47,6 @@ log:
   enabled: true
   dir: data/logs
   retention_days: 7
-  max_mb_per_day: 256            # batas ukuran berkas log per hari; sisanya dibuang dan dihitung
+  max_mb_per_day: 256            # daily size cap of the query log; the rest is dropped and counted
 
 data_dir: data
