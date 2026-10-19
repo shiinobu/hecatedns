@@ -34,7 +34,10 @@ const (
 	alpnDoT  = "dot"
 )
 
-var errServerNameNotServed = errors.New("tls server name is not served")
+var (
+	errServerNameNotServed = errors.New("tls server name is not served")
+	errOutsideValidity     = errors.New("the certificate is outside its validity dates")
+)
 
 type certStamp struct {
 	certTime, keyTime time.Time
@@ -53,9 +56,10 @@ type certStore struct {
 	now               func() time.Time
 	log               *slog.Logger
 
-	cur          atomic.Pointer[loadedCert]
-	rejected     certStamp
-	lastExpiryAt time.Time
+	cur           atomic.Pointer[loadedCert]
+	rejected      certStamp
+	lastExpiryAt  time.Time
+	lastReadErrAt time.Time
 }
 
 func newCertStore(d config.DoT, now func() time.Time, log *slog.Logger) (*certStore, error) {
@@ -96,9 +100,9 @@ func (s *certStore) load() (*loadedCert, error) {
 	now := s.now()
 	switch {
 	case now.After(leaf.NotAfter):
-		return nil, fmt.Errorf("dot: the certificate expired at %s", leaf.NotAfter.UTC().Format(time.RFC3339))
+		return nil, fmt.Errorf("dot: the certificate expired at %s: %w", leaf.NotAfter.UTC().Format(time.RFC3339), errOutsideValidity)
 	case now.Before(leaf.NotBefore):
-		return nil, fmt.Errorf("dot: the certificate is not valid before %s", leaf.NotBefore.UTC().Format(time.RFC3339))
+		return nil, fmt.Errorf("dot: the certificate is not valid before %s: %w", leaf.NotBefore.UTC().Format(time.RFC3339), errOutsideValidity)
 	}
 	for i, name := range s.names {
 		if leaf.VerifyHostname(name) != nil {
@@ -128,16 +132,31 @@ func (s *certStore) watch(ctx context.Context, every time.Duration) {
 
 func (s *certStore) check() {
 	cur := s.cur.Load()
-	if stamp, err := s.stamp(); err == nil && stamp != cur.stamp && stamp != s.rejected {
+	stamp, err := s.stamp()
+	switch {
+	case err != nil:
+		s.reportUnreadable(err)
+	case stamp != cur.stamp && stamp != s.rejected:
 		cur = s.reload(stamp, cur)
 	}
 	s.warnIfExpiring(cur)
 }
 
+func (s *certStore) reportUnreadable(err error) {
+	now := s.now()
+	if now.Sub(s.lastReadErrAt) < certExpiryLogEvery {
+		return
+	}
+	s.lastReadErrAt = now
+	s.log.Error("the DoT certificate files cannot be read, the old certificate stays in use", "err", err)
+}
+
 func (s *certStore) reload(stamp certStamp, cur *loadedCert) *loadedCert {
 	next, err := s.load()
 	if err != nil {
-		s.rejected = stamp
+		if !errors.Is(err, errOutsideValidity) {
+			s.rejected = stamp
+		}
 		s.log.Error("the DoT certificate could not be reloaded, the old one stays in use", "err", err)
 		return cur
 	}
