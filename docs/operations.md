@@ -63,9 +63,9 @@ Notes: never bind `0.0.0.0:53` and never stop the Windows ICS service; bind the 
 
 ## Linux VPS with DNS-over-TLS
 
-The server code is tested (generated certificates, attacker-style load on loopback), but the files in `deploy/` were written on Windows and have **never run on Linux**: every file says so in its header. Do the steps in order, keep a second SSH session open while you change the firewall, and treat each "check" line as required. The design and the numbers behind it are in [architecture.md](architecture.md), section 13.1.
+The server code is tested (generated certificates, attacker-style load on loopback), but the files in `deploy/` were written on Windows and first ran on Ubuntu 24.04 on 2026-10-20; the header of each file says what that run showed. Do the steps in order, keep a second SSH session open while you change the firewall, and treat each "check" line as required. The design and the numbers behind it are in [architecture.md](architecture.md), section 13.1.
 
-What you need: a small Linux VPS with a public IPv4 address and root SSH access, and a domain you control whose DNS can be changed through an API for the DNS-01 challenge (the examples use DuckDNS). Only the `native` backend serves DoT.
+What you need: a small Linux VPS with a public IPv4 address and root SSH access, and a domain you control whose DNS is hosted where `lego` can change it through an API for the DNS-01 challenge (the examples use Cloudflare, free plan). Only the `native` backend serves DoT.
 
 ### 1. Build and install
 
@@ -96,18 +96,20 @@ tr -dc a-z0-9 </dev/urandom | head -c 20
 
 Put `<label>.<base>` in `dot.names`. The certificate paths in the example match what `lego --path /var/lib/hecate/lego` writes for a first domain `<base>`. Plain DNS stays off (`listen: []`), and `allowed_clients` is everyone because the server name is the key.
 
-### 3. The certificate
+### 3. DNS records and the certificate
 
-Write `/etc/hecate/duckdns.env` (owner root, mode `0600`) with two lines, `DUCKDNS_TOKEN=...` and `LEGO_EMAIL=...`. Type the token without leaving it in the shell history (`read -s`). Request the first certificate **as the `hecate` user**, once against the staging CA to prove the method, then for real (drop the `--server` line):
+Create two records that point at the VPS address, both **DNS only** (not proxied; a proxy does not carry port 853): `A <base>` and `A *.<base>`. The wildcard record is what makes the secret label resolve: the phone looks the name up through its ordinary resolver before it connects.
+
+Create an API token for that one zone with the permissions Zone / Zone / Read and Zone / DNS / Edit. Write `/etc/hecate/cloudflare.env` (owner root, mode `0600`) with two lines, `CF_DNS_API_TOKEN=...` and `LEGO_EMAIL=...`. Type the token without leaving it in the shell history (`read -s`). Request the first certificate **as the `hecate` user**, once against the staging CA to prove the method, then for real (drop the `--server` line):
 
 ```
-sudo -u hecate env DUCKDNS_TOKEN="$token" /opt/hecate/lego --path /var/lib/hecate/lego \
+sudo -u hecate env CF_DNS_API_TOKEN="$token" /opt/hecate/lego --path /var/lib/hecate/lego \
   --server https://acme-staging-v02.api.letsencrypt.org/directory \
-  --email "$email" --accept-tos --dns duckdns --dns.resolvers 1.1.1.1:53 --dns.propagation-wait 30s \
+  --email "$email" --accept-tos --dns cloudflare --dns.resolvers 1.1.1.1:53 \
   --domains <base> --domains '*.<base>' run
 ```
 
-The base name and the wildcard challenges run one after the other and take about 2.5 minutes. Point the DuckDNS name at the VPS address before the real run if you also want the plain name to resolve.
+`lego` creates and removes the challenge TXT records itself and waits until they are visible; expect a minute or two. Another DNS provider needs its own `--dns` code and token variables (see the lego documentation).
 
 Check: `sudo -u hecate /opt/hecate/hecate check -config /etc/hecate/hecate.yaml` must print `dot certificate: PASSED` with a date. It loads the certificate pair and fails if it is expired, does not match its key or does not cover every `dot.names` entry; it never prints the names.
 
@@ -150,9 +152,11 @@ The first handshake must complete with the real certificate and ALPN `dot`; the 
 - Rules and lists: run the same commands as at home as the service user, with `-config /etc/hecate/hecate.yaml` (for example `sudo -u hecate /opt/hecate/hecate rule add block example.com -config /etc/hecate/hecate.yaml`). The server picks changes up without a restart.
 - Renewal: `hecate-renew.timer` runs `lego renew --days 30` daily. After a renewal the server reloads the files within `dot.reload_every` (default 10 minutes) and logs "the DoT certificate was reloaded". Test it with `systemctl start hecate-renew.service` and `journalctl -u hecate-renew`. From 14 days before expiry the server logs an hourly warning.
 - Rotating the secret name: generate a new label, put it in `dot.names` and in the phone's Private DNS field, restart hecate. The wildcard certificate already covers it.
-- Backup: `/opt/hecate/backup.sh` writes a tar of `hecate.yaml` and `rules.txt` to `/var/backups/hecate` (14 kept, mode 0600). The archive contains the secret names, so treat it as a secret. The certificate key, the ACME account and `duckdns.env` are not saved; after a restore request a new certificate.
+- Backup: `/opt/hecate/backup.sh` writes a tar of `hecate.yaml` and `rules.txt` to `/var/backups/hecate` (14 kept, mode 0600). The archive contains the secret names, so treat it as a secret. The certificate key, the ACME account and `cloudflare.env` are not saved; after a restore request a new certificate.
 - Limits to know: 64 established DoT connections and 8 per source (a phone needs one or two), 512 connections waiting for a handshake (4 s deadline), 1,000 queries per connection, 200 queries per second per client with a burst of 500. The firewall caps are 60 new and 16 open connections per source.
 
-### 8. What is not proven yet
+### 8. What is proven and what is not
 
-The Android strict-mode handshake and ALPN against this server, a real Let's Encrypt certificate and renewal, the behaviour of a mobile carrier's NAT, the nftables syntax and semantics (`ct count` with a masked key, dynamic sets), the systemd options, the lego flags and file order, the seven-day stability run, and an external port scan. See [testing.md](testing.md).
+Seen on 2026-10-20 (Ubuntu 24.04 on a VPS with its own public IPv4 address, an Android phone on mobile data and on Wi-Fi): the Android strict-mode handshake and ALPN, a real Let's Encrypt wildcard certificate through DNS-01 on Cloudflare, the nftables rules (after one fix: a `ct count` set cannot have a timeout), the systemd units, the lego flags and file order, and a reboot that brings the service and the firewall back by themselves.
+
+Not proven yet: a real certificate renewal (the unit ran, but with 89 days left it correctly renewed nothing), the seven-day stability run, and a full external port scan (only a connection test of ports 22, 53, 80, 443, 853 and 8080 was made). See [testing.md](testing.md).

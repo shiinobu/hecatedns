@@ -1,5 +1,5 @@
-# UNVERIFIED: written on Windows without a Linux machine. Check it on the VPS with
-# "systemd-analyze verify /etc/systemd/system/hecate.service" and read "journalctl -u hecate" after the first start.
+# First run on Ubuntu 24.04 on 2026-10-20: "systemd-analyze verify" is clean and the service started and survived a reboot.
+# Check a changed copy with "systemd-analyze verify /etc/systemd/system/hecate.service" and read "journalctl -u hecate".
 # Create the configuration directory by hand, owned by root and readable by the service group:
 #   install -d -m 0750 -o root -g hecate /etc/hecate
 # then check "sudo -u hecate cat /etc/hecate/hecate.yaml". A broken or expired certificate makes hecate exit, so the

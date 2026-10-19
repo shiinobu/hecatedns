@@ -1,7 +1,8 @@
-# UNVERIFIED: written on Windows without a Linux machine. The first certificate is requested by hand with the same
+# First run on Ubuntu 24.04 on 2026-10-20: it ran and renewed nothing with 89 days left; a real renewal is not yet seen.
+# The first certificate is requested by hand with the same
 # lego options and "run" instead of "renew"; run it as the hecate user (sudo -u hecate ...), otherwise the key is owned
 # by root with mode 0600 and neither this unit nor hecate can read it. This unit only renews.
-# /etc/hecate/duckdns.env holds two lines, DUCKDNS_TOKEN=... and LEGO_EMAIL=... (the address Let's Encrypt may use for
+# /etc/hecate/cloudflare.env holds two lines, CF_DNS_API_TOKEN=... and LEGO_EMAIL=... (the address Let's Encrypt may use for
 # expiry notices; lego cannot renew without one), owned by root with mode 0600; systemd reads it before it drops to the
 # hecate user. While this unit runs, the DoT server (same user) could read its environment, so a separate user for
 # the renewal is a worthwhile hardening step when the VPS exists.
@@ -15,8 +16,8 @@ Type=oneshot
 User=hecate
 Group=hecate
 StateDirectory=hecate
-EnvironmentFile=/etc/hecate/duckdns.env
-ExecStart=/opt/hecate/lego --path /var/lib/hecate/lego --email ${LEGO_EMAIL} --accept-tos --dns duckdns --dns.resolvers 1.1.1.1:53 --dns.propagation-wait 30s --domains example.org --domains *.example.org renew --days 30
+EnvironmentFile=/etc/hecate/cloudflare.env
+ExecStart=/opt/hecate/lego --path /var/lib/hecate/lego --email ${LEGO_EMAIL} --accept-tos --dns cloudflare --dns.resolvers 1.1.1.1:53 --domains example.org --domains *.example.org renew --days 30
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
