@@ -117,6 +117,30 @@ Same setup; only `backend: native` changed. 484 queries from the phone: 322 bloc
 
 ---
 
+## DNS-over-TLS on a real VPS (2026-10-20)
+
+Setup: Ubuntu 24.04 VPS with its own public IPv4 address, `native` backend, DoT only on port 853, a real Let's Encrypt wildcard certificate (DNS-01 on Cloudflare), the nftables rules from `deploy/`, and an Android phone with Private DNS set to the secret host name.
+
+| Check | Result |
+|---|---|
+| `hecate check` on the VPS | Passed: certificate, SafeSearch not forced, self-check |
+| Handshake from a PC test client with the right name | TLS 1.3, ALPN `dot`, issuer Let's Encrypt, real answers |
+| Handshake with the bare base name, a random wrong name and no server name | Refused ("tls: internal error"), no answer |
+| Ad hosts such as `g.doubleclick.net` and `pagead2.googlesyndication.com` | Answered `0.0.0.0` |
+| Ports 22 and 853 from outside | Connect |
+| Ports 53, 80, 443 and 8080 from outside | Time out (only a connect test of these six ports; no full scan yet) |
+| Firewall and service after a reboot | Both back by themselves |
+| Renewal unit started by hand | Exit 0, "89 days left", nothing renewed (correct); a real renewal is not seen yet |
+| Phone, Private DNS strict mode, mobile data | Works; the log shows the carrier address with 138, then 402 queries (about 252 blocked) |
+| Public ad-test page (S1) | 95% on mobile data, 97% on Wi-Fi |
+| Server-side latency of uncached queries (n = 24) | median 10 ms, p95 54 ms (excludes the network between phone and server) |
+
+**Finding:** the first load of `deploy/nftables.conf` failed with "Operation not supported" on the `ct count` rules. On kernel 6.8 and nftables 1.0.9 a dynamic set used with `ct count` cannot have a `timeout`. The timeout was removed from the two per-source sets and the file loaded.
+
+**Open:** the ad-test score is 95% on mobile data against 97% on Wi-Fi (98% on the home network). The server answered every query it received, with no drops and no firewall hits, and six test domains that were blocked at home in every run were never asked on mobile data. So the cause is on the phone or carrier side (not found; a browser Secure DNS setting, a data saver or a cache are guesses). Copying the three custom rules to the VPS did not change the score.
+
+---
+
 ## Stability and robustness checks done
 
 - Both backends: graceful Ctrl+C on a real Windows console (exit code 0, log closed, UDP port released); queries stuck on a silent plain upstream are cancelled by closing their connection.
@@ -130,8 +154,9 @@ Same setup; only `backend: native` changed. 484 queries from the phone: 322 bloc
 - A real PC boot with the scheduled task (including late Wi-Fi).
 - Behaviour on a real full disk (only a fake disk was tested).
 - Real DoH providers and IPv6 upstreams under long load; Windows UDP read errors other than `WSAEMSGSIZE`; accuracy of the cache memory estimate under real load.
-- The 7-day stability run (S4), planned on the VPS.
-- DoT on a real VPS and from a real phone: the Android strict-mode handshake and ALPN against this server, a real Let's Encrypt wildcard certificate and its renewal, mobile-carrier NAT behaviour, real IPv6 `/64` sockets (loopback only has `::1`), and an external port scan.
-- Everything in `deploy/` on Linux: the nftables syntax and semantics (`ct count` with a masked IPv6 key, dynamic sets), the systemd options, the lego flags and file order, and the Linux behaviour of the dual-family bind (checked on Windows and from the Go source only).
+- The 7-day stability run (S4) on the VPS: started 2026-10-20, in progress.
+- A real certificate renewal (the certificate is valid until 2027-01-17 and renews at 30 days left), a full external port scan, a connection burst from a second host that is dropped while the phone keeps working, and real IPv6 `/64` sockets (the DNS records are IPv4 only so far).
+- Why mobile data scores 95% against 97% on Wi-Fi (see above).
+- The ad-test S2 (redirect) check on mobile data, and the phone with the browser's Secure DNS and any data saver switched off.
 - DoT as an upstream (deferred).
 - Redirect to the Play Store (never appeared), Firefox on the phone, IPv6 DNS from the router as a bypass path, EDE (RFC 8914) on block answers, and a complete "without hecate" baseline.

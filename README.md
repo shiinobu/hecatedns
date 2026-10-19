@@ -29,7 +29,7 @@ HecateDNS answers DNS queries for your phone or computer and drops the ones that
 
 ## How well does it work?
 
-In a real-phone test on home Wi-Fi, HecateDNS blocked 95 to 97% of a public ad-test page.
+In a real-phone test on home Wi-Fi, HecateDNS blocked 95 to 97% of a public ad-test page. Over DNS-over-TLS from a VPS the same page scored 95% on mobile data and 97% on Wi-Fi; the small gap on mobile data is not explained yet.
 
 DNS has limits. It cannot block ads served from a site's own domain, redirect scripts hosted on the site itself, or the empty boxes left behind. For the rest, pair it with a browser blocker such as uBlock Origin on Firefox. The research behind this is in [docs/research.md](docs/research.md).
 
@@ -71,7 +71,7 @@ The example config listens on port 5300 so it never clashes with a system resolv
 
 `configs/hecate.vps.example.yaml` serves only DoT (`backend: native`, no plain DNS). Clients are identified by a long random host name under a wildcard certificate (`dot.names`); a handshake for any other name is refused before a single DNS message is read. `hecate check` loads the certificate and warns about weak names. Android: Settings, Network, Private DNS, then the host name.
 
-The files in `deploy/` (systemd unit, certificate renewal, nftables rules, backup script) are **drafts that have never run on Linux**. The step-by-step guide, including how to load the firewall without locking yourself out, is in [operations.md](docs/operations.md); the design is in [architecture.md](docs/architecture.md), section 13.1.
+The files in `deploy/` (systemd unit, certificate renewal, nftables rules, backup script) ran on a real Ubuntu 24.04 VPS on 2026-10-20 and brought up DoT, a Let's Encrypt wildcard certificate and the firewall; the first run found one firewall defect, which is fixed. A real certificate renewal and the seven-day stability run have not been seen yet (see [testing.md](docs/testing.md)). The step-by-step guide, including how to load the firewall without locking yourself out, is in [operations.md](docs/operations.md); the design is in [architecture.md](docs/architecture.md), section 13.1.
 
 ## Commands
 
@@ -98,7 +98,7 @@ backend/service/     lists, query log, self-check
 backend/lib/         config, operational log
 backend/test/        conformance suite and source-rule gates
 configs/             example configurations (home, VPS with DoT)
-deploy/              draft Linux files for a VPS (unverified)
+deploy/              Linux files for a VPS (systemd, nftables, certificate renewal, backup)
 scripts/windows/     Task Scheduler autostart, DNS query helper
 docs/                architecture, research, testing, operations
 ```

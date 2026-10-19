@@ -2,7 +2,7 @@
 
 HecateDNS is a personal, non-commercial DNS server that blocks browser ads (pop-ups, auto-redirects, click-redirects) on a phone, without a VPN app and without forcing Google SafeSearch. This document is the design specification. The research behind it is in [research.md](research.md), test results in [testing.md](testing.md), and how to run it in [operations.md](operations.md).
 
-Status: both backends pass the same conformance suite and a real-phone test. The `native` backend also serves DNS-over-TLS (section 13.1), tested with generated certificates and attacker-style load on loopback. Running it on a VPS and using it from a phone on mobile data has not been done yet; the deployment files in `deploy/` are drafts that have never run on Linux.
+Status: both backends pass the same conformance suite and a real-phone test. The `native` backend also serves DNS-over-TLS (section 13.1), tested with generated certificates and attacker-style load on loopback, and since 2026-10-20 on a real VPS from an Android phone on mobile data and on Wi-Fi. The seven-day stability run (S4) is in progress, and a real certificate renewal has not been seen yet.
 
 ---
 
@@ -93,7 +93,7 @@ backend/
     conformance/          one suite run against both backends
     nocomment/            fails the build if a comment appears in Go or PowerShell sources
 configs/                  hecate.example.yaml (home), hecate.vps.example.yaml (DoT only)
-deploy/                   draft Linux files: systemd unit, certificate renewal, nftables rules, backup script
+deploy/                   Linux files: systemd unit, certificate renewal, nftables rules, backup script
 scripts/windows/          autostart.ps1 (Task Scheduler), dnsquery.ps1 (query on any port)
 data/                     runtime data, git-ignored: rules.txt, lists/, logs/, tls/
 ```
@@ -377,7 +377,7 @@ Reasoning that used to live in code comments:
 | R4 | The phone bypasses hecate (router IPv6 DNS, browser DoH, Private DNS on) | Check that phone queries appear in the log; check Secure DNS in Chrome and DoH in Firefox |
 | R5 | The two backends behave differently | Same conformance suite; decision comparison on a sample |
 | R6 | The Go toolchain is downloaded automatically | `govulncheck` at the end of each milestone |
-| R7 | Host off means the phone has no DNS if only that host is configured | Accepted for testing; the fix is the VPS |
+| R7 | Host off means the phone has no DNS if only that host is configured | Accepted for testing; the VPS, which runs around the clock (live since 2026-10-20), removes the dependency on the home host |
 | R8 | A list source dies or changes format | Disk cache, per-line validation, warning in `lists status` |
 | R9 | Ad domains keep changing | Daily updates; newly-registered-domain lists considered later |
 | R10 | The redirect trigger is a script from the site's own domain | Said plainly; Firefox with uBlock Origin as a complement; Plan B |
@@ -385,7 +385,7 @@ Reasoning that used to live in code comments:
 | R12 | Family and friends use the home server | Per-client limits (IPv6 per `/64`) with an overflow bucket; while a flood of 4,096+ sources keeps the table full a new legitimate client shares the overflow budget |
 | R13 | The secret DoT name leaks (SNI in clear text, the phone's ordinary resolver logs) | It is a speed bump by design; rotate the label in `dot.names` and on the phone; limits and deadlines apply to anyone who knows it |
 | R14 | The DoT certificate expires and strict Private DNS leaves the phone without DNS | Renewal timer with a 30-day threshold, expiry warnings from 14 days, the old certificate kept if a renewal is broken |
-| R15 | `deploy/` (systemd, nftables, lego units) has never run on Linux | Marked unverified in the files; syntax checks and a safe loading procedure are in operations.md |
-| R16 | Android strict-mode handshake, ALPN and carrier NAT behaviour are untested | Planned phone tests on mobile data; fall back to opportunistic mode or to the home server |
+| R15 | `deploy/` (systemd, nftables, lego units) is a small set of files that behave differently per kernel and distribution | First run on Ubuntu 24.04 on 2026-10-20 found one defect (a dynamic set used with `ct count` cannot have a timeout there), fixed; the file headers record what the first run showed, `nft -c` and a safe loading procedure are in operations.md. A real certificate renewal has not been seen yet |
+| R16 | Android strict-mode handshake, ALPN and carrier NAT behaviour | Seen working on 2026-10-20 on mobile data and on Wi-Fi. The ad-test score was 95% on mobile data against 97% on Wi-Fi; the server answered every query it received, so the cause is on the phone or carrier side (not found). Fall back to opportunistic mode or to the home server if a carrier ever blocks 853 |
 | R17 | A botnet of about 64+ sources (cheap with IPv6) fills the pool of connections waiting for a handshake and new clients are refused | Established connections keep working; the firewall limits per source raise the number of sources needed; a provider-level DDoS defence is out of scope for a personal server |
 | R18 | Whoever knows the secret name can hold slots or ask for large answers | Deadlines, 8 connections per source, 16 queries in flight per connection and 256 overall, 1,000 queries per connection; rotate the label |
