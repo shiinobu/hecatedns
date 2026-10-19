@@ -108,6 +108,34 @@ func TestDoT_RejectsWhatCannotWork(t *testing.T) {
 	}
 }
 
+const vpsExamplePath = "../../../configs/hecate.vps.example.yaml"
+
+func TestLoad_VPSExampleConfigServesOnlyDoTWithAbsolutePaths(t *testing.T) {
+	cfg, err := Load(vpsExamplePath)
+	if err != nil {
+		t.Fatalf("Load VPS example: %v", err)
+	}
+	raw, err := os.ReadFile(vpsExamplePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Backend != BackendNative || len(cfg.Listen) != 0 || !cfg.DoT.Enabled {
+		t.Errorf("backend %q, listen %v, dot enabled %v; want native, no plain listener and DoT on", cfg.Backend, cfg.Listen, cfg.DoT.Enabled)
+	}
+	for _, want := range []string{
+		"data_dir: /var/lib/hecate\n", "file: /var/lib/hecate/rules.txt\n", "dir: /var/lib/hecate/logs\n",
+		"cert_file: /var/lib/hecate/lego/certificates/", "key_file: /var/lib/hecate/lego/certificates/",
+	} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("the VPS example does not contain %q; paths must be absolute so they do not depend on the read-only config directory", strings.TrimSpace(want))
+		}
+	}
+	if len(cfg.AllowedClients) != 2 || cfg.AllowedClients[0] != "0.0.0.0/0" || cfg.AllowedClients[1] != "::/0" {
+		t.Errorf("allowed_clients = %v, want everyone: the server name is the key on the internet", cfg.AllowedClients)
+	}
+}
+
 func TestLoad_ReadsAndResolvesTheDoTSection(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hecate.yaml")

@@ -1,0 +1,57 @@
+backend: native                  # DoT is served by the native backend only
+
+listen: []                       # no plain DNS on the VPS; the firewall closes port 53 as well
+
+allowed_clients:                 # everyone may open a connection; the TLS server name below is the key
+  - 0.0.0.0/0
+  - "::/0"
+
+dot:
+  enabled: true
+  listen: ["0.0.0.0:853", "[::]:853"]
+  cert_file: /var/lib/hecate/lego/certificates/example.org.crt
+  key_file: /var/lib/hecate/lego/certificates/example.org.key
+  names:                         # a long random label under the wildcard certificate, 16 or more characters of a-z0-9
+    - k7x9p2qm4t8v3w6z.example.org
+  reload_every: 10m
+
+upstreams:
+  - https://1.1.1.1/dns-query
+  - https://8.8.8.8/dns-query
+bootstrap: [1.1.1.1, 8.8.8.8]
+
+cache:
+  enabled: true
+  size_mb: 16
+  min_ttl: 0s
+  max_ttl: 1h
+
+block:
+  mode: null_ip
+  ttl: 10s
+
+special_names:
+  firefox_canary: true
+  ddr: true
+
+lists:
+  update_interval: 24h
+  sources:
+    - { name: hagezi-pro,    kind: block, format: domains, enabled: true,
+        url: "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro-onlydomains.txt" }
+    - { name: hagezi-popups, kind: block, format: domains, enabled: true,
+        url: "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/popupads-onlydomains.txt" }
+    - { name: abpindo,       kind: block, format: domains, enabled: true,
+        url: "https://raw.githubusercontent.com/ABPindo/indonesianadblockrules/master/subscriptions/domain.txt" }
+
+rules:
+  file: /var/lib/hecate/rules.txt
+  poll_interval: 2s
+
+log:
+  enabled: true
+  dir: /var/lib/hecate/logs
+  retention_days: 7
+  max_mb_per_day: 64
+
+data_dir: /var/lib/hecate
