@@ -1,8 +1,8 @@
 # HecateDNS architecture
 
-HecateDNS is a personal, non-commercial DNS server that blocks browser ads (pop-ups, auto-redirects, click-redirects) on a phone, without a VPN app and without forcing Google SafeSearch. This document is the design specification. The work plan is in [roadmap.md](roadmap.md), the research behind it in [research.md](research.md), test results in [testing.md](testing.md), and how to run it in [operations.md](operations.md).
+HecateDNS is a personal, non-commercial DNS server that blocks browser ads (pop-ups, auto-redirects, click-redirects) on a phone, without a VPN app and without forcing Google SafeSearch. This document is the design specification. The research behind it is in [research.md](research.md), test results in [testing.md](testing.md), and how to run it in [operations.md](operations.md).
 
-Status: phases 0 to 5 are done (both backends pass the same conformance suite and a real-phone test). Phase 6 (VPS + DNS-over-TLS) is next.
+Status: both backends pass the same conformance suite and a real-phone test. The VPS deployment with DNS-over-TLS is planned next.
 
 ---
 
@@ -19,7 +19,7 @@ Status: phases 0 to 5 are done (both backends pass the same conformance suite an
 | S1 | Domains on the block lists are blocked | `hecate check` (a sample domain from every list answers `0.0.0.0`); ad-test pages before and after; target at least 90% of the test hosts |
 | S2 | The trigger of a redirect can be found and stopped | Query log around the time of the redirect, then a rule or list entry, then repeated attempts |
 | S3 | SafeSearch is not forced | `www.google.com` does not chain to `forcesafesearch.google.com` |
-| S4 | Stable | 7 days without a crash or manual restart, stable memory, p95 cache-miss latency under 150 ms (measured in phase 6 on the VPS) |
+| S4 | Stable | 7 days without a crash or manual restart, stable memory, p95 cache-miss latency under 150 ms (measured on the VPS) |
 | S5 | A false positive is easy to fix | `hecate rule add allow <domain>` takes effect within 10 seconds, without a restart |
 
 ---
@@ -138,7 +138,7 @@ type Bound interface { Ready() <-chan struct{}; Addr(network string) net.Addr }
 - dnsproxy has no client ACL, so the engine enforces `allowed_clients` and both backends behave the same.
 - dnsproxy answers some queries before the handler, without ACL or log: ANY gives NOTIMP, a question count other than 1 gives FORMERR, private ARPA from public clients gives NXDOMAIN. Other opcodes are forwarded upstream, so the engine answers them itself.
 - The package does not use `recover()`; the adapter adds it per stage (before `Before`: REFUSED; in `Resolve`: SERVFAIL; afterwards: keep the answer).
-- Every TCP connection holds one `MaxGoroutines` slot for its lifetime, shared with UDP. One LAN host can hold 256 connections and stall the service. Accepted at home, to be fixed before the server is exposed (phase 6).
+- Every TCP connection holds one `MaxGoroutines` slot for its lifetime, shared with UDP. One LAN host can hold 256 connections and stall the service. Accepted at home, to be fixed before the server is exposed to the internet.
 - On Linux dnsproxy uses `SO_REUSEPORT`, so a second instance can bind the same port silently; on Windows the second bind fails.
 
 ### 5.4 The `native` backend
@@ -155,7 +155,7 @@ Own code on `miekg/dns`, serving the home server since 2026-10-19.
 | `ratelimit.go` | Token bucket per client IP (200/s, burst 500), table capped at 4,096 clients; a client over the limit gets no reply (a reply to a spoofed address would amplify) |
 | `localreverse.go` | PTR, SOA and NS for RFC 6303 zones answered locally with NXDOMAIN |
 
-Differences from the `dnsproxy` adapter, none relevant for private LAN clients: `native` does not deduplicate identical in-flight queries; `native` answers ANY after `Before`, so the ACL applies and the query is logged; the rate-limit table, IPv6 `/64` keys and TCP-per-address limits have known gaps listed in the roadmap as phase 6 debt.
+Differences from the `dnsproxy` adapter, none relevant for private LAN clients: `native` does not deduplicate identical in-flight queries; `native` answers ANY after `Before`, so the ACL applies and the query is logged; the rate-limit table, IPv6 `/64` keys and TCP-per-address limits have known gaps to close before the server is exposed to the internet.
 
 ---
 
@@ -280,14 +280,14 @@ Main threats: an open resolver abused for amplification (once on a VPS), hostile
 |---|---|
 | Client restriction | `allowed_clients` defaults to loopback and private ranges; others get REFUSED |
 | Specific bind | Listen on a specific IP, not `0.0.0.0`, unless there is a reason |
-| Rate limit | Per client IP. `native`: active (200/s, burst 500). `dnsproxy`: its separate `ratelimit` middleware is not wired yet; required before phase 6 |
+| Rate limit | Per client IP. `native`: active (200/s, burst 500). `dnsproxy`: its separate `ratelimit` middleware is not wired yet; required before public exposure |
 | TCP slot exhaustion | `dnsproxy`: see 5.3. `native`: own TCP limits (64 total, 8 per client) and own upstream limits (256 total, 64 per client) |
 | Oversized UDP datagram | Handled by `native` (`tolerantReader`); covered by the conformance suite for both backends |
 | Log growth | Daily size cap; ACL refusals logged one per query |
 | Untrusted lists | HTTPS only, size and time limits, per-line validation, never executed |
-| Public access (phase 6) | DoT on 853 with a valid certificate; clients identified by a secret host name in SNI (Android Private DNS sends no auth header); detailed design reviewed at the start of phase 6 |
+| Public access (planned) | DoT on 853 with a valid certificate; clients identified by a secret host name in SNI (Android Private DNS sends no auth header); detailed design reviewed at the start of the VPS work |
 | Secrets | TLS private keys in `data/tls/` (strict permissions, git-ignored); no secrets in the repository or example config |
-| Supply chain | Pinned module versions, `go mod verify`, `govulncheck` at the end of each phase |
+| Supply chain | Pinned module versions, `go mod verify`, `govulncheck` at the end of each milestone |
 | Error messages | Server logs may be detailed; DNS answers never carry internal detail |
 | Privileges | Run as an ordinary user (on Linux a dedicated user with the capability to bind low ports) |
 
@@ -325,9 +325,9 @@ Reasoning that used to live in code comments:
 
 ## 16. Plan B and out of scope
 
-**Plan B: APK.** Considered if phase 3 tuning does not stop the redirects or stronger blocking is wanted: a local DNS filter (same power as DNS), a DNS plus HTTPS filter (stronger but heavy and risky), or a Private DNS on/off switch (light). The open-source app BlockAds (GPL-3.0) already does the first two and is a reference. The engine is plain Go without network dependencies, so it could be compiled for Android later (inference; BlockAds uses Go with gomobile).
+**Plan B: APK.** Considered if tuning does not stop the redirects or stronger blocking is wanted: a local DNS filter (same power as DNS), a DNS plus HTTPS filter (stronger but heavy and risky), or a Private DNS on/off switch (light). The open-source app BlockAds (GPL-3.0) already does the first two and is a reference. The engine is plain Go without network dependencies, so it could be compiled for Android later (inference; BlockAds uses Go with gomobile).
 
-**Out of scope:** web UI (phase 7 if wanted), full adblock syntax, DoQ, DNSSEC validation, per-client profiles, parental control, ECS (disabled for privacy), DHCP.
+**Out of scope:** web UI (optional, later), full adblock syntax, DoQ, DNSSEC validation, per-client profiles, parental control, ECS (disabled for privacy), DHCP.
 
 ---
 
@@ -340,10 +340,10 @@ Reasoning that used to live in code comments:
 | R3 | False positives from aggressive lists | Start from PRO; `rule add allow` takes effect within 10 s; the log shows the source |
 | R4 | The phone bypasses hecate (router IPv6 DNS, browser DoH, Private DNS on) | Check that phone queries appear in the log; check Secure DNS in Chrome and DoH in Firefox |
 | R5 | The two backends behave differently | Same conformance suite; decision comparison on a sample |
-| R6 | The Go toolchain is downloaded automatically | `govulncheck` at the end of each phase |
-| R7 | Host off means the phone has no DNS if only that host is configured | Accepted for testing; the fix is the VPS (phase 6) |
+| R6 | The Go toolchain is downloaded automatically | `govulncheck` at the end of each milestone |
+| R7 | Host off means the phone has no DNS if only that host is configured | Accepted for testing; the fix is the VPS |
 | R8 | A list source dies or changes format | Disk cache, per-line validation, warning in `lists status` |
-| R9 | Ad domains keep changing | Daily updates; newly-registered-domain lists considered in phase 7 |
+| R9 | Ad domains keep changing | Daily updates; newly-registered-domain lists considered later |
 | R10 | The redirect trigger is a script from the site's own domain | Said plainly; Firefox with uBlock Origin as a complement; Plan B |
 | R11 | hecate is not up after boot (Wi-Fi not ready) | Repeating Task Scheduler trigger; a real boot is not yet tested |
-| R12 | Family and friends use the home server | Per-IP limits matter more; known gap: a full rate-limit table releases new sources (phase 6) |
+| R12 | Family and friends use the home server | Per-IP limits matter more; known gap: a full rate-limit table releases new sources (to be fixed before public exposure) |

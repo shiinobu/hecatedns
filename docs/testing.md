@@ -103,6 +103,6 @@ Same setup; only `backend: native` changed. 484 queries from the phone: 322 bloc
 - A real PC boot with the scheduled task (including late Wi-Fi).
 - Behaviour on a real full disk (only a fake disk was tested).
 - Real DoH providers and IPv6 upstreams under long load; Windows UDP read errors other than `WSAEMSGSIZE`; accuracy of the cache memory estimate under real load.
-- The 7-day stability run (S4), planned for phase 6 on the VPS.
+- The 7-day stability run (S4), planned on the VPS.
 - DoT as an upstream (deferred).
 - Redirect to the Play Store (never appeared), Firefox on the phone, IPv6 DNS from the router as a bypass path, EDE (RFC 8914) on block answers, and a complete "without hecate" baseline.

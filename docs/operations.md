@@ -63,4 +63,4 @@ Notes: never bind `0.0.0.0:53` and never stop the Windows ICS service; bind the 
 
 ## Linux / VPS
 
-Planned for phase 6 (systemd service, DoT on 853, Let's Encrypt, hardening). See [roadmap.md](roadmap.md).
+Planned: systemd service, DoT on 853, Let's Encrypt, hardening.

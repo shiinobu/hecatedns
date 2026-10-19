@@ -92,7 +92,7 @@ backend/lib/         config, operational log
 backend/test/        conformance suite and source-rule gates
 configs/             example configuration
 scripts/windows/     Task Scheduler autostart, DNS query helper
-docs/                architecture, roadmap, research, testing, operations
+docs/                architecture, research, testing, operations
 ```
 
 ## Documentation
@@ -103,7 +103,6 @@ docs/                architecture, roadmap, research, testing, operations
 | [operations.md](docs/operations.md) | Running it, autostart, deployment |
 | [testing.md](docs/testing.md) | Automated tests and real-phone results |
 | [research.md](docs/research.md) | The research behind the design, with sources |
-| [roadmap.md](docs/roadmap.md) | What is done and what is planned |
 
 ## Development
 

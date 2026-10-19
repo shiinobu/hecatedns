@@ -10,3 +10,4 @@
 *.pem
 *.key
 /hecate.yaml
+/docs/roadmap.md
