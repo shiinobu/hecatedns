@@ -1,17 +1,17 @@
 # Laporan Fase 5 — Stabilisasi
 
-*2026-10-19 | Claude (Sonnet 5.5; review penuh Fase 4 oleh agent Opus `xdns-reviewer`) | Status: selesai. Uji 7 hari (S4) dipindah ke Fase 6 di VPS atas keputusan Master. Satu hal masih terbuka: tugas boot belum dicoba lewat boot PC yang sebenarnya.*
+*2026-10-19 | Claude (Sonnet 5.5; review penuh Fase 4 oleh agent Opus `hecate-reviewer`) | Status: selesai. Uji 7 hari (S4) dipindah ke Fase 6 di VPS atas keputusan Master. Satu hal masih terbuka: tugas boot belum dicoba lewat boot PC yang sebenarnya.*
 
 ## Hasil singkat
 
-Backend `native` sudah lulus tes di HP (turtlecute 97%, "semua aman") dan sekarang menjadi backend server rumah. Review penuh Fase 4, yang terutang dari fase lalu, selesai: 0 Critical, 2 Important, 7 Minor; semua yang wajib diperbaiki dengan tes lebih dulu, dan dua temuan ternyata menyentuh bug nyata di kode kami sendiri. xdns kini mati dengan rapi pada Ctrl+C, memperingatkan bila hulu gagal beruntun, tidak kehilangan log query setelah disk penuh, menulis log operasional berbatas ukuran, dan jalan otomatis saat PC menyala lewat Task Scheduler.
+Backend `native` sudah lulus tes di HP (turtlecute 97%, "semua aman") dan sekarang menjadi backend server rumah. Review penuh Fase 4, yang terutang dari fase lalu, selesai: 0 Critical, 2 Important, 7 Minor; semua yang wajib diperbaiki dengan tes lebih dulu, dan dua temuan ternyata menyentuh bug nyata di kode kami sendiri. hecate kini mati dengan rapi pada Ctrl+C, memperingatkan bila hulu gagal beruntun, tidak kehilangan log query setelah disk penuh, menulis log operasional berbatas ukuran, dan jalan otomatis saat PC menyala lewat Task Scheduler.
 
 ## Keputusan Master untuk fase ini
 
 | Keputusan | Akibat |
 |---|---|
 | `allowed_clients` tetap `192.168.1.0/24` | Keluarga dan teman di Wi-Fi rumah ikut memakai server. Batas per IP (laju, koneksi TCP, gerbang hulu) jadi lebih penting daripada untuk satu HP |
-| Server rumah memakai `native` | Rollback satu baris: `backend: dnsproxy` di `xdns.yaml`, lalu restart |
+| Server rumah memakai `native` | Rollback satu baris: `backend: dnsproxy` di `hecate.yaml`, lalu restart |
 | Batas laju `native` dinaikkan ke 200/detik, burst 500 | Halaman tes iklan mengirim ±255 query dalam setengah detik dan kehilangan satu |
 | Uji 7 hari (P5-05, S4) dipindah ke Fase 6 di VPS | PC dimatikan tiap malam, jadi 7 hari tanpa putus tidak mungkin di sini. Fase 5 berakhir pada P5-00 sampai P5-04 dan P5-06 |
 | Hemat kuota Opus | Satu agent Opus untuk review penuh; sisanya dikerjakan langsung. Review akhir fase ini memakai Sonnet |
@@ -22,7 +22,7 @@ Backend `native` sudah lulus tes di HP (turtlecute 97%, "semua aman") dan sekara
 |---|---|---|
 | P5-00 review penuh Fase 4 | 0 Critical, 2 Important, 7 Minor; laporan `.agents/state/reviews/phase-4-review.md` | `e10a006` (I1), `1db1d1d` (M1), `ed9e3d4` (M3, M4), `dcc5347` (ARPA privat), `28e0769` (M2) |
 | P5-01 tes HP dengan `native` | 97%; 484 query HP dalam ±2,5 menit; hulu p50 29 ms, p95 88 ms; proses 41 MB (`test-report.md` bagian 5) | `70a484c`, `4361b64` (batas laju) |
-| P5-02 jalan saat boot | Tugas Task Scheduler `xdns` dipasang dan diuji (bagian Bukti) | `scripts/autostart.ps1`, di commit penutup fase |
+| P5-02 jalan saat boot | Tugas Task Scheduler `hecate` dipasang dan diuji (bagian Bukti) | `scripts/autostart.ps1`, di commit penutup fase |
 | P5-03 shutdown dan peringatan | Ctrl+C pada konsol asli di kedua backend; peringatan setelah 5 kegagalan beruntun | `1bd4396` |
 | P5-04 batas disk | Audit; bug log query setelah disk penuh diperbaiki; log operasional berbatas ukuran | `73647aa`, `0ecb371` |
 | P5-05 uji 7 hari | Dipindah ke Fase 6 (VPS) | — |
@@ -37,14 +37,14 @@ Backend `native` sudah lulus tes di HP (turtlecute 97%, "semua aman") dan sekara
 |---|---|---|
 | 1 | `gofmt -l .` | kosong |
 | 2-3 | `go vet ./...`, `go build ./...` | bersih |
-| 4 | `go test ./... -cover -count=1` | semua `ok`: `cmd/xdns` 92,9%, `backend` 100%, `conformance` 80,1%, `dnsproxybe` 95,4%, `native` 93,8%, `config` 95,5%, `engine` 97,2%, `lists` 86,7%, `qlog` 90,9%, `runlog` 96,0%, `selfcheck` 92,5%, `scripts/compare` 0% (tanpa tes) |
+| 4 | `go test ./... -cover -count=1` | semua `ok`: `cmd/hecate` 92,9%, `backend` 100%, `conformance` 80,1%, `dnsproxybe` 95,4%, `native` 93,8%, `config` 95,5%, `engine` 97,2%, `lists` 86,7%, `qlog` 90,9%, `runlog` 96,0%, `selfcheck` 92,5%, `scripts/compare` 0% (tanpa tes) |
 | 5 | `CGO_ENABLED=1 go test -race ./... -count=1` | semua `ok`, 0 balapan |
 | 6-7 | `go mod verify`, `go mod tidy -diff` | bersih (golibs kini persyaratan langsung) |
 | 8 | `govulncheck ./...` | 0 terdampak; 1 advisori pada modul yang tidak dipanggil |
-| 9 | `xdns check -config configs/xdns.example.yaml` | lulus |
+| 9 | `hecate check -config configs/hecate.example.yaml` | lulus |
 | 10 | cross-build `GOOS=linux GOARCH=amd64` | bersih |
 
-**Ctrl+C anggun pada konsol Windows asli, kedua backend.** Proses dijalankan di jendela konsol baru, lalu `GenerateConsoleCtrlEvent` dikirim dari skrip pembantu: kode keluar 0, pesan "xdns berhenti", log query ditutup, port UDP dilepas.
+**Ctrl+C anggun pada konsol Windows asli, kedua backend.** Proses dijalankan di jendela konsol baru, lalu `GenerateConsoleCtrlEvent` dikirim dari skrip pembantu: kode keluar 0, pesan "hecate berhenti", log query ditutup, port UDP dilepas.
 
 **Peringatan hulu gagal beruntun.** Sembilan tes baru di `internal/engine/health_test.go`: lima kegagalan beruntun memicu satu peringatan per menit; jawaban hulu pertama sesudahnya mencatat pemulihan; cache hit, jawaban lokal, dan `context.Canceled` diabaikan; bebas balapan. Kedua backend memanggil `Failed` dan `After`, jadi satu penghitung melayani keduanya.
 
@@ -52,9 +52,9 @@ Backend `native` sudah lulus tes di HP (turtlecute 97%, "semua aman") dan sekara
 
 **Tugas Task Scheduler (P5-02).**
 - Terpasang sesuai rancangan: pemicu startup dengan tunda 30 detik, S4U, hak terbatas, tersembunyi, tanpa batas waktu.
-- Setelah `Start-ScheduledTask`: proses xdns di sesi 0 (tanpa jendela), memegang `192.168.1.99:53`; `example.com` menjawab; `ad.doubleclick.net` dan `s.shopee.co.id` menjawab `0.0.0.0`; `data\logs\xdns.log` bertambah dari 827 ke 1.654 byte.
+- Setelah `Start-ScheduledTask`: proses hecate di sesi 0 (tanpa jendela), memegang `192.168.1.99:53`; `example.com` menjawab; `ad.doubleclick.net` dan `s.shopee.co.id` menjawab `0.0.0.0`; `data\logs\hecate.log` bertambah dari 827 ke 1.654 byte.
 - **Percobaan restart gagal:** (1) proses dimatikan dengan `Stop-Process`, tugas tidak menghidupkannya lagi dalam 120 detik; (2) tugas percobaan yang keluar dengan kode 1 dan "restart tiap 1 menit, 3 kali" hanya jalan sekali dalam 215 detik (seharusnya empat). Pengaturan restart-bila-gagal Task Scheduler tidak dapat diandalkan di sini.
-- **Pemicu berulang tiap 1 menit** (dengan `IgnoreNew`) menggantikannya. Tugas percobaan dengan pemicu itu keluar dengan kode 1 dan dijalankan lagi tepat satu menit kemudian (01:31:27, 01:32:28). Pemicu itu dipasang ke tugas `xdns` yang asli tanpa menghentikan prosesnya.
+- **Pemicu berulang tiap 1 menit** (dengan `IgnoreNew`) menggantikannya. Tugas percobaan dengan pemicu itu keluar dengan kode 1 dan dijalankan lagi tepat satu menit kemudian (01:31:27, 01:32:28). Pemicu itu dipasang ke tugas `hecate` yang asli tanpa menghentikan prosesnya.
 - Batas durasi pengulangan: nilai terbesar (`TimeSpan.MaxValue`) ditolak Task Scheduler (`0x80041318`), jadi dipakai 365 hari; hitungannya mulai lagi pada tiap boot.
 
 ## Temuan dan bug yang ditemukan
@@ -70,7 +70,7 @@ Backend `native` sudah lulus tes di HP (turtlecute 97%, "semua aman") dan sekara
 
 ## Review penuh Fase 4 (P5-00)
 
-Oleh `xdns-reviewer` (Opus, konteks baru, hanya baca; sekitar 16 menit), rentang `7fd1ac0..4c7220e`; laporan lengkap dengan tabel status perbaikan ada di `.agents/state/reviews/phase-4-review.md`.
+Oleh `hecate-reviewer` (Opus, konteks baru, hanya baca; sekitar 16 menit), rentang `7fd1ac0..4c7220e`; laporan lengkap dengan tabel status perbaikan ada di `.agents/state/reviews/phase-4-review.md`.
 
 | Temuan | Tingkat | Perbaikan |
 |---|---|---|
@@ -87,12 +87,12 @@ Oleh `xdns-reviewer` (Opus, konteks baru, hanya baca; sekitar 16 menit), rentang
 
 ## Review akhir fase (hemat)
 
-Oleh `xdns-reviewer` yang dijalankan di model Sonnet (konteks baru, hanya baca, sekitar 8 menit, tiga percobaan di salinan scratch), rentang `4c7220e..28e0769` ditambah `scripts/autostart.ps1`. Master meminta kuota Opus dihemat, jadi ini review hemat, bukan review penuh; review penuh yang menyerang pendengar DoT dijadwalkan sebelum server dibuka (Fase 6, tugas P6-13). Laporan: `.agents/state/reviews/phase-5-review.md`. Hasil: **0 Critical, 1 Important, 5 Minor**.
+Oleh `hecate-reviewer` yang dijalankan di model Sonnet (konteks baru, hanya baca, sekitar 8 menit, tiga percobaan di salinan scratch), rentang `4c7220e..28e0769` ditambah `scripts/autostart.ps1`. Master meminta kuota Opus dihemat, jadi ini review hemat, bukan review penuh; review penuh yang menyerang pendengar DoT dijadwalkan sebelum server dibuka (Fase 6, tugas P6-13). Laporan: `.agents/state/reviews/phase-5-review.md`. Hasil: **0 Critical, 1 Important, 5 Minor**.
 
 | Temuan | Tingkat | Keputusan |
 |---|---|---|
-| I1 galat yang mengakhiri server tidak masuk `xdns.log` (tugas tersembunyi yang gagal mengikat alamat saat boot tidak meninggalkan jejak sama sekali) | Important | Diperbaiki `4b0754a`, tes merah dulu |
-| M1 rotasi `runlog` gagal: pegangan tertutup membuat log mati sampai restart; `Get-Content -Wait` pada `xdns.log` membuat semua baris hilang | Minor | Diperbaiki `6b58d4b`, empat tes merah dulu (cakupan `runlog` 86,0% jadi 96,0%) |
+| I1 galat yang mengakhiri server tidak masuk `hecate.log` (tugas tersembunyi yang gagal mengikat alamat saat boot tidak meninggalkan jejak sama sekali) | Important | Diperbaiki `4b0754a`, tes merah dulu |
+| M1 rotasi `runlog` gagal: pegangan tertutup membuat log mati sampai restart; `Get-Content -Wait` pada `hecate.log` membuat semua baris hilang | Minor | Diperbaiki `6b58d4b`, empat tes merah dulu (cakupan `runlog` 86,0% jadi 96,0%) |
 | M2 `qlog` menghitung catatan yang sudah di-flush sendiri oleh bufio sebagai dibuang (330 di disk, `Written()` 0) | Minor | Diperbaiki `9e81576`, tes merah dulu |
 | M3 peringatan hulu: koneksi yang naik turun membanjiri log; `errBusy` (batas lokal) terhitung kegagalan hulu; hulu yang menjawab SERVFAIL tidak pernah memicu peringatan | Minor | Ditunda: (a) bertabrakan dengan aturan yang sengaja diuji ("outage baru diumumkan seketika"), banjir dibatasi berkas 5 MB; (b)(c) butuh engine membedakan batas lokal dari kegagalan hulu |
 | M4 celah pembaruan hilang antara `failed` dan `answered` | Minor | Ditunda bersama M3 (struct yang sama); dampaknya paling banyak satu baris peringatan basi |
@@ -103,7 +103,7 @@ Yang dinyatakan benar oleh reviewer: penghitung kegagalan tidak terpicu atau ter
 ## Keputusan bernomor
 
 1. **Uji 7 hari di VPS, bukan di PC** (Master). Risiko: S4 baru terukur di Fase 6; sampai itu, kestabilan jangka panjang `native` hanya terbukti lewat satu sesi tes HP dan sekitar satu jam jalan tersembunyi di rumah sejak 00:29.
-2. **Tugas boot memakai hak biasa dan pemicu berulang.** Risiko: pemicu berulang membuka kembali xdns paling lama satu menit setelah mati, bukan seketika; dan boot sungguhan belum diuji.
+2. **Tugas boot memakai hak biasa dan pemicu berulang.** Risiko: pemicu berulang membuka kembali hecate paling lama satu menit setelah mati, bukan seketika; dan boot sungguhan belum diuji.
 3. **Log operasional tanpa kunci konfigurasi baru** (5 MB + satu cadangan, mengikuti `log.dir` dan `log.enabled`). Risiko: bila `log.enabled: false`, tugas tersembunyi tidak meninggalkan jejak sama sekali.
 4. **Peringatan hulu gagal beruntun ada di engine**, bukan di tiap backend: satu penghitung untuk dua backend.
 5. **Aturan reverse lookup privat disalin dari dnsproxy** lewat fungsi golibs yang sama, demi kesamaan perilaku dan privasi.
@@ -126,4 +126,4 @@ I2 dan kunci IPv6 /64; slot TCP sesudah REFUSED; batas TCP per IP dan pembatas l
 
 - Mulai dari gerbang G3: pilih VPS, biaya, dan subdomain; tidak ada yang disewa tanpa persetujuan Master.
 - Sebelum server dibuka ke internet: seluruh utang di bagian "Ditunda" yang menyangkut backend yang dipakai di VPS, lalu review penuh yang menyerang pendengar DoT.
-- Setelah PC menyala berikutnya, periksa bahwa xdns jalan sendiri (`powershell -File scripts/autostart.ps1 status`).
+- Setelah PC menyala berikutnya, periksa bahwa hecate jalan sendiri (`powershell -File scripts/autostart.ps1 status`).

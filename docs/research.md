@@ -1,4 +1,4 @@
-# Riset: Pemblokiran Iklan di Browser — Metode, Batas, dan Dampaknya ke xdns
+# Riset: Pemblokiran Iklan di Browser — Metode, Batas, dan Dampaknya ke HecateDNS
 
 *Dibuat: 2026-10-18 | Sumber dibaca: ±45 (sebagian hanya ringkasan hasil pencarian, ditandai) | Keyakinan keseluruhan: **Sedang***
 
@@ -14,7 +14,7 @@ Label yang dipakai: **[Fakta]** ada sumbernya, **[Vendor]** klaim penjual produk
 2. **Vendor DNS sendiri mengakui batas ini.** AdGuard (menjual pemblokir DNS dan ekstensi) menulis bahwa DNS "tidak akan menggantikan pemblokir berbasis browser" dan tidak bisa menangani iklan satu-domain ([AdGuard DNS blog](https://adguard-dns.io/en/blog/dns-content-blocking-at-scale.html)).
 3. **Koreksi dari saya:** angka "85–95%" yang saya sebut sebelumnya **tidak punya sumber** dan sebaiknya diabaikan. Satu-satunya data kuantitatif yang saya temukan (vendor, situs berita AS) menunjukkan DNS menghemat sekitar **74%** bandwidth dibanding ekstensi browser, dan menyisakan lebih banyak domain pelacak (489 vs 364 dari baseline 829). Tidak ada studi independen yang membandingkan keduanya, dan tidak ada data khusus pop-up/redirect.
 4. **Untuk pop-up dan redirect, DNS efektif hanya jika pemicunya domain pihak ketiga yang sudah masuk daftar.** Redirect ke Play Store biasanya melewati rantai domain pelacak klik. Memblokir satu mata rantai menghentikan seluruhnya ([Malwarebytes](https://www.malwarebytes.com/blog/news/2014/02/ad2store-redirections-the-latest-annoyance-for-mobile-users), 2014). Jika pemicunya skrip dari domain situs itu sendiri atau overlay klik yang membuka `window.open` dengan klik asli, DNS tidak bisa menghentikannya.
-5. **Temuan yang mengubah desain xdns:** log query dan aturan kustom harus ada di versi pertama; server sebaiknya memeriksa rantai CNAME; jawaban untuk query tipe HTTPS/SVCB (type 65) pada domain terblokir harus ditangani; ada daftar khusus **Pop-Up Ads** (HaGeZi) dan daftar domain Indonesia (ABPindo) yang siap pakai; dan ada pustaka Go yang bisa dipakai ulang (AdGuard `dnsproxy`, Apache-2.0).
+5. **Temuan yang mengubah desain hecate:** log query dan aturan kustom harus ada di versi pertama; server sebaiknya memeriksa rantai CNAME; jawaban untuk query tipe HTTPS/SVCB (type 65) pada domain terblokir harus ditangani; ada daftar khusus **Pop-Up Ads** (HaGeZi) dan daftar domain Indonesia (ABPindo) yang siap pakai; dan ada pustaka Go yang bisa dipakai ulang (AdGuard `dnsproxy`, Apache-2.0).
 
 ---
 
@@ -22,7 +22,7 @@ Label yang dipakai: **[Fakta]** ada sumbernya, **[Vendor]** klaim penjual produk
 
 | Metode | Cara kerja | Yang bisa | Yang tidak bisa | Root? |
 |---|---|---|---|---|
-| **DNS sinkhole** (Pi-hole, AdGuard Home, Blocky, NextDNS, xdns) | Domain terblokir dijawab `0.0.0.0`/NXDOMAIN | Semua domain iklan/pelacak pihak ketiga, semua aplikasi di jaringan, tanpa pasang apa pun di HP (via Private DNS) | Iklan satu-domain, URL-path, menyembunyikan kotak iklan, skrip pop-up dari domain situs | Tidak |
+| **DNS sinkhole** (Pi-hole, AdGuard Home, Blocky, NextDNS, hecate) | Domain terblokir dijawab `0.0.0.0`/NXDOMAIN | Semua domain iklan/pelacak pihak ketiga, semua aplikasi di jaringan, tanpa pasang apa pun di HP (via Private DNS) | Iklan satu-domain, URL-path, menyembunyikan kotak iklan, skrip pop-up dari domain situs | Tidak |
 | **Pemblokir konten di browser** (uBlock Origin, Brave Shields, dll.) | Aturan URL/konteks, cosmetic filtering, scriptlet | Hampir semua yang di atas, plus opsi `popup`/`popunder`, hide elemen, scriptlet | Hanya di browser itu; tidak untuk aplikasi lain | Tidak |
 | **Pengaturan bawaan browser** (Chrome: Pop-ups and redirects, blok notifikasi) | Blokir jendela tanpa gestur | Pop-up tanpa klik | Pop-under yang menumpang klik asli | Tidak |
 | **Filter lokal via VpnService** (RethinkDNS, personalDNSfilter, NetGuard, AdGuard non-root) | Aplikasi mencegat DNS (dan opsional HTTPS) | Seperti DNS, sistem-wide, tanpa server | Seperti DNS; HTTPS hanya jika sertifikat dipercaya | Tidak |
@@ -96,7 +96,7 @@ Ringkasan hasil pencarian menyebut jaringan iklan menjual fitur pelewat pembloki
 
 ---
 
-## 4. Teknik DNS yang menambah kekuatan (relevan untuk xdns)
+## 4. Teknik DNS yang menambah kekuatan (relevan untuk HecateDNS)
 
 ### 4.1 Daftar blokir
 | Daftar | Isi | Catatan |
@@ -113,7 +113,7 @@ Detail HaGeZi (2026-10-18): jumlah entri LIGHT 62.932, NORMAL 165.192, PRO 201.7
 ### 4.2 CNAME uncloaking
 Pelacak/iklan menyamar sebagai subdomain situs lewat rekaman CNAME, dan ekstensi di Chrome/Safari tidak bisa melihat CNAME. Resolver DNS bisa: NextDNS menerapkan daftar blokir ke **setiap CNAME perantara** selain nama yang ditanyakan; daftarnya perlu dicocokkan secara wildcard ([NextDNS](https://medium.com/nextdns/nextdns-added-cname-uncloaking-support-becomes-the-first-cross-platform-solution-to-the-problem-e3f437f84342), [daftar CNAME NextDNS](https://github.com/nextdns/cname-cloaking-blocklist)). AdGuard menyusun daftar CNAME tersembunyi (>6.000 entri pada 2021) ([AdGuard](https://adguard.com/en/blog/cname-tracking.html), [repo](https://github.com/AdguardTeam/cname-trackers/)). Penelitian: 1.739 situs (0,58%) dari Alexa 300K memakai pelacakan CNAME-cloaking per Januari 2020, dan naik tiap tahun ([APNIC](https://blog.apnic.net/2020/08/04/characterizing-cname-cloaking-based-tracking/), [paper](http://www.fukuda-lab.org/publications/2021/DMF_tnsm2021.pdf)). NextDNS juga mengonfirmasi CNAME cloaking bisa dipakai untuk menyajikan iklan. **[Fakta]**
 Peringatan AdGuard: sebagian CNAME-tracker mengarah ke mikrosite/halaman tujuan atau dipakai untuk redirect ke sumber akhir, sehingga memblokirnya mengubah pengalaman pengguna. **[Fakta]**
-uBO hanya bisa uncloak CNAME di Firefox (API DNS browser); sumber 2019 menyebut hanya Firefox desktop ([NextDNS](https://medium.com/nextdns/nextdns-added-cname-uncloaking-support-becomes-the-first-cross-platform-solution-to-the-problem-e3f437f84342)). **[Inferensi]** Jika berlaku juga di Firefox Android, pemeriksaan CNAME di xdns mengisi celah nyata di HP.
+uBO hanya bisa uncloak CNAME di Firefox (API DNS browser); sumber 2019 menyebut hanya Firefox desktop ([NextDNS](https://medium.com/nextdns/nextdns-added-cname-uncloaking-support-becomes-the-first-cross-platform-solution-to-the-problem-e3f437f84342)). **[Inferensi]** Jika berlaku juga di Firefox Android, pemeriksaan CNAME di hecate mengisi celah nyata di HP.
 
 ### 4.3 Bentuk jawaban untuk domain terblokir
 | Mode | Perilaku | Catatan |
@@ -128,16 +128,16 @@ Catatan: Pi-hole memakai TTL 2 detik untuk jawaban terblokir agar pengecualian (
 
 ### 4.4 Rekaman HTTPS/SVCB (type 65) dan DDR
 Rekaman HTTPS/SVCB bisa membawa `ipv4hint`/`ipv6hint`, sehingga klien dapat tersambung tanpa jawaban A/AAAA; pengguna Pi-hole melaporkan ini mengakali pemblokiran DNS, dan solusi yang dibahas adalah menjawab NODATA untuk query tipe itu. `_dns.resolver.arpa` (DDR) dapat mengarahkan klien ke DoH milik penyedia dan melewati pemblokiran lokal ([forum Pi-hole](https://discourse.pi-hole.net/t/are-svcb-queries-sent-through-pi-hole-of-blocking-concern/59983), [usulan fitur](https://discourse.pi-hole.net/t/implement-dns-resolver-arpa-as-a-special-domain-or-add-block-svcb-as-a-configuration-option/77099), [RFC 9460](https://www.iana.org/go/rfc9460)). **[Fakta]**
-Penanganan di AdGuard Home **[Belum terverifikasi]**. **[Inferensi]** Untuk xdns: domain terblokir harus mendapat NODATA juga untuk tipe 65, dan `_dns.resolver.arpa` dijawab NODATA kecuali kita memang mengimplementasikan DDR.
+Penanganan di AdGuard Home **[Belum terverifikasi]**. **[Inferensi]** Untuk hecate: domain terblokir harus mendapat NODATA juga untuk tipe 65, dan `_dns.resolver.arpa` dijawab NODATA kecuali kita memang mengimplementasikan DDR.
 
 ### 4.5 Jalan keluar dari DNS kita
 - Chrome "Secure DNS" mode otomatis hanya meng-upgrade ke DoH jika penyedia DNS saat ini ada di daftar bawaan Chrome, dan bisa jatuh kembali ke DNS biasa ([Chromium blog 2020](https://blog.chromium.org/2020/09/a-safer-and-more-private-browsing.html), [9to5Google](https://9to5google.com/2020/09/02/chrome-secure-dns-android/)). **[Fakta, usang]**
 - Firefox Android: "Default Protection" mengaktifkan DoH jika tersedia di wilayah dengan mitra, dan mati bila jaringan memberi tahu Firefox untuk tidak memakainya ([Mozilla](https://support.mozilla.org/fi/kb/configure-dns-over-https-protection-levels-firefox-android)). **[Fakta, hanya ringkasan]**
 - **[Belum terverifikasi]** Domain "canary" Firefox (`use-application-dns.net`) dan bypass lewat IPv6 DNS dari router tidak saya verifikasi di sini.
-- Cara menguji di HP: periksa setelan Secure DNS di Chrome dan DoH di Firefox, lalu cocokkan dengan log xdns apakah query HP benar-benar masuk.
+- Cara menguji di HP: periksa setelan Secure DNS di Chrome dan DoH di Firefox, lalu cocokkan dengan log hecate apakah query HP benar-benar masuk.
 
 ### 4.6 Menguji hasil
-Situs uji siap pakai: [adblock.turtlecute.org](https://adblock.turtlecute.org/) (128 host iklan/pelacak; untuk filter DNS hanya menilai kategori host) dan [canyoublockit.com](https://canyoublockit.com/results/). Pembanding terbaik tetap log query xdns sendiri. **[Fakta]**
+Situs uji siap pakai: [adblock.turtlecute.org](https://adblock.turtlecute.org/) (128 host iklan/pelacak; untuk filter DNS hanya menilai kategori host) dan [canyoublockit.com](https://canyoublockit.com/results/). Pembanding terbaik tetap log query hecate sendiri. **[Fakta]**
 
 ---
 
@@ -171,9 +171,9 @@ Lisensi daftar: HaGeZi GPL-3.0 (hanya diunduh saat berjalan, tidak ditautkan ke 
 
 ---
 
-## 7. Dampak ke xdns dan rekomendasi
+## 7. Dampak ke HecateDNS dan rekomendasi
 
-**Ekspektasi yang jujur:** xdns akan mengurangi sebagian besar iklan lintas-domain (termasuk jaringan pop-up dan pelacak klik yang sudah dikenal daftar), tidak akan menghapus 100% iklan di browser, dan tidak membersihkan kotak iklan kosong.
+**Ekspektasi yang jujur:** hecate akan mengurangi sebagian besar iklan lintas-domain (termasuk jaringan pop-up dan pelacak klik yang sudah dikenal daftar), tidak akan menghapus 100% iklan di browser, dan tidak membersihkan kotak iklan kosong.
 
 **Versi pertama sebaiknya sudah punya:**
 1. **Log query** (waktu, klien, nama, tipe, aksi, daftar/aturan yang cocok, rantai CNAME) dan **aturan blokir/izin kustom** dengan muat ulang tanpa restart. Alasannya: tanpa log, kita menebak pemicu redirect Master.
@@ -185,7 +185,7 @@ Lisensi daftar: HaGeZi GPL-3.0 (hanya diunduh saat berjalan, tidak ditautkan ke 
 **Pelengkap yang menutup celah DNS:** Firefox + uBlock Origin di HP. Hanya itu yang terdokumentasi bisa menghentikan pop-under yang menumpang klik asli dan skrip dari domain situs sendiri.
 
 **Langkah tes berikutnya:**
-- Ukur baseline dengan turtlecute / canyoublockit sebelum dan sesudah xdns.
+- Ukur baseline dengan turtlecute / canyoublockit sebelum dan sesudah hecate.
 - Picu redirect Play Store, catat jam, baca log.
 - Cek setelan Secure DNS di Chrome dan DoH di Firefox saat tes di rumah.
 
@@ -212,7 +212,7 @@ Pertanyaan Master: apakah APK bisa "full block" atau sama saja dengan DNS? Jawab
 |---|---|---|---|---|
 | **1. Filter DNS lokal** | VpnService mencegat DNS; daftar domain yang sama | **Sama** (hanya tanpa server, jadi tanpa biaya hosting) | Ya | Sedang |
 | **2. Filter DNS + HTTPS** | VpnService + tumpukan TCP/IP di ruang pengguna + MITM dengan sertifikat CA buatan sendiri; CSS dan skrip disuntik ke halaman | **Lebih banyak** (sembunyikan kotak iklan, skrip penahan pop-up, aturan URL), tetapi hanya di browser yang mempercayai CA | Ya | Berat |
-| **3. Switch Private DNS** | Aplikasi/tile kecil yang menyalakan dan mematikan setelan Private DNS ke server xdns | **Sama** (ini tetap DNS server) | Tidak | Ringan |
+| **3. Switch Private DNS** | Aplikasi/tile kecil yang menyalakan dan mematikan setelan Private DNS ke server hecate | **Sama** (ini tetap DNS server) | Tidak | Ringan |
 
 **Fakta**
 - **BlockAds** adalah aplikasi Android open source yang sudah melakukan bentuk 1 dan 2 tanpa root: Kotlin untuk aplikasi, Go untuk tunnel (gomobile), GPL-3.0, 2.192 bintang, dibuat 2026-02-10, rilis v7.0.0 pada 2026-10-14, commit terakhir 2026-10-18. Filter DNS memakai trie; pemfilteran HTTPS memakai tumpukan TCP/IP ruang pengguna (gVisor netstack via tun2socks), hanya mencegat aliran dari browser terpilih, menyuntik CSS kosmetik dan skrip (sintaks EasyList `##+js(...)` dan AdGuard `#%#//scriptlet(...)`), dan punya daftar pengecualian 284 domain (bank/pembayaran). Aplikasi yang memakai certificate pinning tidak dicegat. Ada Quick Settings tile dan widget untuk on/off. README tidak menyebut penanganan pop-up. Butuh JDK 17+, Android SDK 36, minSdk 24 untuk membangun ([repo](https://github.com/pass-with-high-score/blockads-android)). **[Fakta; belum saya audit kodenya]**
@@ -223,7 +223,7 @@ Pertanyaan Master: apakah APK bisa "full block" atau sama saja dengan DNS? Jawab
 **Inferensi**
 - Bentuk 2 pun **tidak "full"**: kualitasnya mengikuti daftar filter dan skrip yang dirawat pihak lain (EasyList, AdGuard); iklan yang disisipkan server ke dalam aliran video (mis. YouTube) tetap di luar jangkauan; dan aplikasi selain browser yang tidak percaya CA pengguna tidak tersaring.
 - Bentuk 2 menambah risiko keamanan: aplikasi memegang kunci privat CA yang bisa membaca seluruh HTTPS browser. Master harus memasang sertifikat itu secara manual dan mempercayai kode aplikasinya (membuat sendiri atau memakai BlockAds).
-- Bentuk 2 membutuhkan subsistem besar yang tidak ada di rencana "sederhana": tumpukan TCP/IP, TLS per-host, HTTP/2, penanganan QUIC, dan pengecualian aplikasi bank. Bentuk 1 dan 3 memakai mesin blokir DNS yang sama dengan xdns.
+- Bentuk 2 membutuhkan subsistem besar yang tidak ada di rencana "sederhana": tumpukan TCP/IP, TLS per-host, HTTP/2, penanganan QUIC, dan pengecualian aplikasi bank. Bentuk 1 dan 3 memakai mesin blokir DNS yang sama dengan hecate.
 
 **Belum terverifikasi:** penanganan pop-up di BlockAds, penanganan QUIC di semua bentuk, perilaku di RedMagic OS (izin `adb`, penghematan baterai), dan kualitas serta keamanan kode BlockAds (proyek berumur sekitar 8 bulan).
 
@@ -294,4 +294,4 @@ Pertanyaan Master: apakah APK bisa "full block" atau sama saja dengan DNS? Jawab
 
 ## Metodologi
 
-Sekitar 20 pencarian web (WebSearch, mode standar dan extended; Exa dengan batas gratis tercapai pada 3 query), sekitar 12 halaman dibaca penuh via WebFetch (AdGuard report, uBO wiki x2, HaGeZi x2, Malwarebytes, Chrome intents, dnsproxy x2, ABPindo, MakeUseOf), dan beberapa panggilan API GitHub/proxy modul Go untuk status repo dan lisensi. Sub-pertanyaan: (1) seberapa jauh DNS tertinggal dari pemblokir browser; (2) metode di browser Android saat ini; (3) kemampuan dan batas filter sistem, HTTPS, dan root; (4) mekanisme pop-up/redirect dan penghentinya; (5) teknik DNS yang memperkuat xdns; (6) pustaka yang bisa dipakai ulang. Sumber di web diperlakukan sebagai data; tidak ada instruksi dari sumber yang dijalankan.
+Sekitar 20 pencarian web (WebSearch, mode standar dan extended; Exa dengan batas gratis tercapai pada 3 query), sekitar 12 halaman dibaca penuh via WebFetch (AdGuard report, uBO wiki x2, HaGeZi x2, Malwarebytes, Chrome intents, dnsproxy x2, ABPindo, MakeUseOf), dan beberapa panggilan API GitHub/proxy modul Go untuk status repo dan lisensi. Sub-pertanyaan: (1) seberapa jauh DNS tertinggal dari pemblokir browser; (2) metode di browser Android saat ini; (3) kemampuan dan batas filter sistem, HTTPS, dan root; (4) mekanisme pop-up/redirect dan penghentinya; (5) teknik DNS yang memperkuat hecate; (6) pustaka yang bisa dipakai ulang. Sumber di web diperlakukan sebagai data; tidak ada instruksi dari sumber yang dijalankan.

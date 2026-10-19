@@ -1,4 +1,4 @@
-# xdns — Roadmap
+# HecateDNS — Roadmap
 
 *Versi 1.5 | 2026-10-19 | Status: **Fase 0 sampai Fase 5 selesai** (laporan: `phase-0-report.md` sampai `phase-5-report.md`, `test-report.md`). Uji 7 hari (S4) dipindah ke Fase 6 di VPS atas keputusan Master. Berikutnya Fase 6, dimulai dari gerbang G3, hanya setelah Master bilang "lanjut".*
 
@@ -22,7 +22,7 @@ Roadmap ini adalah alur kerja bertahap. Desain teknisnya ada di `architecture.md
 |---|---|---|---|---|
 | 0 | Fondasi | Repo git, `go.mod`, kerangka paket, pemuat konfigurasi | ½–1 sesi | Rp0 |
 | 1 | Engine inti + backend `dnsproxy` | Forwarder DoH jalan di `127.0.0.1:5300`, aturan kustom, log, CLI | 1–2 sesi | Rp0 |
-| 2 | Daftar + CNAME + nama khusus | HaGeZi PRO/Pop-Up + ABPindo termuat, pemeriksaan CNAME, HTTPS/SVCB, `xdns check` | 1–2 sesi | Rp0 |
+| 2 | Daftar + CNAME + nama khusus | HaGeZi PRO/Pop-Up + ABPindo termuat, pemeriksaan CNAME, HTTPS/SVCB, `hecate check` | 1–2 sesi | Rp0 |
 | 3 | **Tes di HP (Wi-Fi rumah)** | S1–S3 terukur, penyetelan | 1 sesi + waktu tes Master | Rp0 |
 | 4 | Backend `native` + suite kesesuaian | Ganti backend dengan satu baris | 2 sesi | Rp0 |
 | 5 | Stabilisasi | Jalan otomatis saat boot, review penuh Fase 4, log berbatas; uji 7 hari (S4) dipindah ke Fase 6 | 1 sesi | Rp0 |
@@ -39,13 +39,13 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 
 **Tugas**
 1. `git init`; `.gitignore` (`data/`, `*.exe`, `*.pem`, `*.key`); commit awal berisi `architecture.md`, `roadmap.md`, `research.md`.
-2. `go mod init xdns`; `go 1.26.9`; dependensi terkunci: `github.com/miekg/dns v1.1.73`, `github.com/AdguardTeam/dnsproxy v0.86.0`, `gopkg.in/yaml.v3`; `go mod tidy` dan `go mod verify`.
+2. `go mod init hecate`; `go 1.26.9`; dependensi terkunci: `github.com/miekg/dns v1.1.73`, `github.com/AdguardTeam/dnsproxy v0.86.0`, `gopkg.in/yaml.v3`; `go mod tidy` dan `go mod verify`.
 3. Kerangka direktori sesuai `architecture.md` §4.
 4. `internal/config`: tes dulu (konfigurasi sah; kunci tak dikenal; CIDR salah; URL daftar bukan `https`; backend atau mode tak dikenal; TTL negatif), lalu pemuat ketat dan validasi.
-5. `cmd/xdns`: subperintah `check` yang memuat dan memvalidasi konfigurasi; subperintah lain berupa kerangka yang mencetak "belum diimplementasi" dan keluar dengan kode ≠ 0.
-6. `configs/xdns.example.yaml` (dari `architecture.md` §10) dan `README.md` singkat.
+5. `cmd/hecate`: subperintah `check` yang memuat dan memvalidasi konfigurasi; subperintah lain berupa kerangka yang mencetak "belum diimplementasi" dan keluar dengan kode ≠ 0.
+6. `configs/hecate.example.yaml` (dari `architecture.md` §10) dan `README.md` singkat.
 
-**Selesai bila.** `go build ./...`, `go vet ./...`, `gofmt -l .` (kosong), `go test ./... -cover` hijau (`config` ≥ 80%); `xdns check -config configs/xdns.example.yaml` menyatakan konfigurasi valid.
+**Selesai bila.** `go build ./...`, `go vet ./...`, `gofmt -l .` (kosong), `go test ./... -cover` hijau (`config` ≥ 80%); `hecate check -config configs/hecate.example.yaml` menyatakan konfigurasi valid.
 
 **Catatan.** Toolchain Go 1.26.8 diunduh otomatis saat build pertama (butuh internet, R6). Tidak ada instalasi lain.
 
@@ -65,12 +65,12 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 7. `conformance` v1 (blokir, lolos, `allow` mengalahkan `block`, ACL, log tertulis) dijalankan pada backend `dnsproxy`.
 8. CLI: `run`, `log`, `rule`.
 9. `engine/acl`: ACL `allowed_clients` sebagai langkah pertama `Before` (REFUSED di luar daftar); tes tabel IPv4/IPv6, batas CIDR, daftar satu CIDR. dnsproxy tidak punya ACL klien, jadi ini milik engine (`architecture.md` §5.3).
-10. Penguatan konfigurasi dari tinjauan Fase 0: sumber tanpa `enabled` dianggap aktif; `rules.file` dan `log.dir` wajib terisi; `listen` unik dan port ≠ 0; TTL dibatasi sebelum konversi ke uint32; `run` mencetak `Warnings()`; tambahkan `/xdns.yaml` ke `.gitignore`.
+10. Penguatan konfigurasi dari tinjauan Fase 0: sumber tanpa `enabled` dianggap aktif; `rules.file` dan `log.dir` wajib terisi; `listen` unik dan port ≠ 0; TTL dibatasi sebelum konversi ke uint32; `run` mencetak `Warnings()`; tambahkan `/hecate.yaml` ke `.gitignore`.
 11. Peninjauan fase (sekali, setelah semua tugas selesai): `code-reviewer` dan `security-reviewer` (ACL, penanganan masukan).
 
 **Selesai bila.**
-- `xdns run` mendengarkan di `127.0.0.1:5300` dan `scripts/dnsquery.ps1 example.com -Port 5300` menjawab lewat DoH (`nslookup` Windows menerima `-port` tetapi mengabaikannya);
-- `xdns rule add block contoh.test` membuat nama itu menjawab `0.0.0.0` dalam ≤ 10 detik tanpa restart (S5);
+- `hecate run` mendengarkan di `127.0.0.1:5300` dan `scripts/dnsquery.ps1 example.com -Port 5300` menjawab lewat DoH (`nslookup` Windows menerima `-port` tetapi mengabaikannya);
+- `hecate rule add block contoh.test` membuat nama itu menjawab `0.0.0.0` dalam ≤ 10 detik tanpa restart (S5);
 - log memuat kedua query; klien di luar `allowed_clients` dijawab REFUSED; suite kesesuaian hijau; cakupan `engine` ≥ 80%.
 
 ---
@@ -86,14 +86,14 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 4. Sambungkan ke engine sebagai daftar `block`; prioritas lengkap.
 5. `engine/cname`: pemeriksaan rantai CNAME di `After`; tes untuk target terblokir, target diizinkan, rantai panjang, tanpa CNAME.
 6. HTTPS/SVCB → NODATA untuk nama terblokir; `engine/special` (canary Firefox, DDR) dengan saklar konfigurasi.
-7. `selfcheck` dan `xdns check` (hulu terjangkau, SafeSearch, domain contoh tiap daftar → `0.0.0.0`); `xdns lists status|update`.
+7. `selfcheck` dan `hecate check` (hulu terjangkau, SafeSearch, domain contoh tiap daftar → `0.0.0.0`); `hecate lists status|update`.
 8. Benchmark pencarian dan memori (`architecture.md` §7).
 9. Peninjauan fase (sekali, setelah semua tugas selesai).
 
 **Selesai bila.**
 - ketiga daftar termuat (± 249 ribu entri sebelum de-duplikasi) dan domain contoh tiap daftar menjawab `0.0.0.0`;
 - tes CNAME dan HTTPS/SVCB hijau;
-- `xdns check` LULUS, termasuk S3 (tidak ada `forcesafesearch.google.com`);
+- `hecate check` LULUS, termasuk S3 (tidak ada `forcesafesearch.google.com`);
 - p99 pencarian < 50 µs dan memori < 150 MB, atau angka aktual dicatat beserta rencana optimasi.
 
 **Gerbang G1.** Setelah PC dipakai beberapa jam, saya meninjau statistik blokir di log dan menyesuaikan daftar (mis. menambah `allow` untuk salah blokir) sebelum lanjut.
@@ -110,8 +110,8 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 1. Selesaikan konflik UDP 53; ubah `listen` ke `192.168.1.10:53`; tambah aturan Windows Defender Firewall (masuk UDP dan TCP 53, profil Private).
 2. Reservasi alamat PC di router agar IP-nya tetap.
 3. Di HP: Wi-Fi → IP statis → DNS 1 = IP PC, DNS 2 kosong; Private DNS = Mati; periksa pengaturan Secure DNS di Chrome dan DoH di Firefox.
-4. Ukur baseline di adblock.turtlecute.org dan canyoublockit.com sebelum xdns, lalu sesudahnya.
-5. Picu redirect ke Play Store/Shopee → `xdns log -around` → tambah aturan atau daftar → ulangi 10 kali.
+4. Ukur baseline di adblock.turtlecute.org dan canyoublockit.com sebelum hecate, lalu sesudahnya.
+5. Picu redirect ke Play Store/Shopee → `hecate log -around` → tambah aturan atau daftar → ulangi 10 kali.
 6. Pastikan query HP benar-benar masuk ke log (waspadai DNS IPv6 dari router dan DoH di browser).
 7. Catat hasil S1–S3, angka latensi, dan temuan di `docs/test-report.md`.
 
@@ -144,7 +144,7 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 
 **Tujuan.** Berjalan sendiri tanpa dijaga.
 
-**Hasil.** Review penuh Fase 4 (0 Critical, 2 Important, 7 Minor; semua yang wajib sudah diperbaiki dengan tes lebih dulu), tes HP dengan `native` (97%, server rumah kini memakai `native`), batas laju `native` dinaikkan ke 200/detik burst 500, Ctrl+C anggun terbukti pada konsol asli di kedua backend, peringatan hulu gagal beruntun, log query pulih sesudah disk penuh, log operasional `xdns.log` berbatas ukuran, dan tugas Task Scheduler `xdns` terpasang. Diubah dari rencana atas keputusan Master: **uji 7 hari (S4) dipindah ke Fase 6 di VPS** karena PC ini dimatikan tiap malam, dan tugas Task Scheduler memakai hak biasa (bukan "tertinggi") serta pemicu berulang tiap menit, karena "restart bila gagal" terbukti tidak bekerja. Lihat `phase-5-report.md`. Teks di bawah adalah rencana awal.
+**Hasil.** Review penuh Fase 4 (0 Critical, 2 Important, 7 Minor; semua yang wajib sudah diperbaiki dengan tes lebih dulu), tes HP dengan `native` (97%, server rumah kini memakai `native`), batas laju `native` dinaikkan ke 200/detik burst 500, Ctrl+C anggun terbukti pada konsol asli di kedua backend, peringatan hulu gagal beruntun, log query pulih sesudah disk penuh, log operasional `hecate.log` berbatas ukuran, dan tugas Task Scheduler `hecate` terpasang. Diubah dari rencana atas keputusan Master: **uji 7 hari (S4) dipindah ke Fase 6 di VPS** karena PC ini dimatikan tiap malam, dan tugas Task Scheduler memakai hak biasa (bukan "tertinggi") serta pemicu berulang tiap menit, karena "restart bila gagal" terbukti tidak bekerja. Lihat `phase-5-report.md`. Teks di bawah adalah rencana awal.
 
 **Tugas**
 1. Jalan otomatis saat boot lewat Task Scheduler (hak tertinggi, mulai saat startup, restart bila gagal).
@@ -212,7 +212,7 @@ Perkiraan total sampai HP bisa dites (Fase 0–3): sekitar 4–6 sesi kerja. Sam
 | 2026-10-18 | Peninjauan Fase 0 oleh agent: 0 Critical, 4 Important, semuanya diperbaiki dengan TDD (dokumen YAML ganda ditolak; argumen tak terduga pada `check` ditolak; `allowed_clients` wajib terisi; nama sumber daftar harus aman sebagai nama berkas). `govulncheck` menemukan 6 kerentanan pustaka standar, diperbaiki dengan Go 1.26.9 dan x/net v0.60.0 (0 terdampak). ACL dipindah ke engine karena dnsproxy tidak punya ACL klien. Aturan baru dari Master: tugas dulu dan dokumen di akhir; peninjauan agent sekali per fase sebelum fase berikutnya. Master memindahkan dokumen ke `docs/` |
 | 2026-10-18 | Fase 1 selesai (laporan: `phase-1-report.md`). Tinjauan oleh agent Opus berkonteks baru yang menjalankan binary dengan beban ala penyerang: 0 Critical, 4 Important (I2, I3, I4 diperbaiki dengan TDD; I1, kolam TCP bersama UDP, diterima untuk LAN dan menjadi prasyarat Fase 6), 12 Minor. Perubahan desain yang tercatat: prioritas aturan kustom di atas daftar; engine menjawab FORMERR/NOTIMP sendiri; batas harian log `log.max_mb_per_day`; `enabled:` yang dihilangkan berarti aktif; `nslookup -port` diganti `scripts/dnsquery.ps1` |
 | 2026-10-18 | Fase 3 selesai (laporan: `phase-3-report.md`, `test-report.md`). Tidak ada perubahan kode Go. G2 terjawab: ICS tidak perlu dihentikan (bind khusus `192.168.1.99:53` berhasil), dua aturan firewall sempit, PC dipesan di router pada `192.168.1.99`, HP memakai `192.168.1.150`. S1: 95% lalu 97% (126 lalu 128 dari 132) pada `adblock.turtlecute.org`; `canyoublockit.com` eXtreme terblokir semua menurut pengamatan Master. S2: pemicu redirect Shopee adalah `s.shopee.co.id` (diblokir); Play Store belum pernah muncul. Aturan kustom ditambah: `ad.doubleclick.net`, `adservice.google.com`, `s.shopee.co.id`. `AGENTS.md` ditambahkan di root |
-| 2026-10-18 | Fase 2 selesai (laporan: `phase-2-report.md`). Ketiga daftar bawaan diunduh dan termuat (`hagezi-pro` 202.297, `hagezi-popups` 47.668, `abpindo` 124 — total 250.089 entri); pemeriksaan rantai CNAME di `After` (termasuk pada cache hit); nama khusus (`use-application-dns.net` NXDOMAIN, `_dns.resolver.arpa` NODATA); `selfcheck` + `xdns check` (termasuk S3 SafeSearch dan deteksi loop Q3) + `xdns lists status|update`. Benchmark 250 ribu entri: rata-rata 215–250 ns/op (0 alokasi), p99 2,01 µs (< 50 µs), memori proses hidup WorkingSet 71,74–74,20 MiB (< 150 MB). Tinjauan berkonteks baru: 0 Critical, 2 Important (I1 failover bootstrap DNS pada pengunduh daftar, I2 pemilihan sampel per daftar di `selfcheck`), 8 Minor — seluruhnya diperbaiki dengan TDD |
+| 2026-10-18 | Fase 2 selesai (laporan: `phase-2-report.md`). Ketiga daftar bawaan diunduh dan termuat (`hagezi-pro` 202.297, `hagezi-popups` 47.668, `abpindo` 124 — total 250.089 entri); pemeriksaan rantai CNAME di `After` (termasuk pada cache hit); nama khusus (`use-application-dns.net` NXDOMAIN, `_dns.resolver.arpa` NODATA); `selfcheck` + `hecate check` (termasuk S3 SafeSearch dan deteksi loop Q3) + `hecate lists status|update`. Benchmark 250 ribu entri: rata-rata 215–250 ns/op (0 alokasi), p99 2,01 µs (< 50 µs), memori proses hidup WorkingSet 71,74–74,20 MiB (< 150 MB). Tinjauan berkonteks baru: 0 Critical, 2 Important (I1 failover bootstrap DNS pada pengunduh daftar, I2 pemilihan sampel per daftar di `selfcheck`), 8 Minor — seluruhnya diperbaiki dengan TDD |
 | 2026-10-19 | Fase 4 selesai di sisi kode dan tes (laporan: `phase-4-report.md`); versi 1.4. Backend `native` (cache, hulu DoH/UDP/TCP dengan failover, server UDP+TCP, handler, pembatas laju) lulus suite 15 kasus yang sama dengan `dnsproxy`; 2.000 query sampel: 0 beda keputusan. Atas keputusan Master: DoT sebagai hulu ditunda, review fase dibuat singkat (review penuh wajib di Fase 5 dan paling lambat sebelum Fase 6). Temuan: satu datagram UDP besar menghentikan loop UDP miekg di Windows (diperbaiki, jadi kasus suite). Tes HP dengan `native` menunggu Master |
-| 2026-10-19 | Fase 5 selesai (laporan: `phase-5-report.md`); versi 1.5. Review penuh Fase 4 oleh agent Opus: 0 Critical, 2 Important (I1 tenggat bootstrap diperbaiki, I2 tabel pembatas laju ditunda ke Fase 6), 7 Minor; diperbaiki dengan tes lebih dulu, termasuk dua bug nyata (query ke hulu polos tidak dibatalkan saat shutdown, reverse lookup privat diteruskan ke hulu). Tes HP dengan `native` lulus (97%); batas laju `native` 200/detik burst 500; server rumah memakai `native`. Ctrl+C anggun, peringatan hulu gagal beruntun, log query pulih sesudah disk penuh, log operasional `xdns.log` berbatas ukuran. Tugas Task Scheduler terpasang dengan pemicu berulang tiap menit, karena "restart bila gagal" terbukti tidak bekerja. Atas keputusan Master uji 7 hari (S4) dipindah ke Fase 6 di VPS (PC mati tiap malam). Review akhir fase (Sonnet, hemat): 0 Critical, 1 Important (galat yang mengakhiri server tidak masuk `xdns.log`, diperbaiki), 5 Minor (dua diperbaiki, sisanya ditunda). Koreksi pada dokumen Fase 4 (FORMERR, "5 detik", ARPA) |
+| 2026-10-19 | Fase 5 selesai (laporan: `phase-5-report.md`); versi 1.5. Review penuh Fase 4 oleh agent Opus: 0 Critical, 2 Important (I1 tenggat bootstrap diperbaiki, I2 tabel pembatas laju ditunda ke Fase 6), 7 Minor; diperbaiki dengan tes lebih dulu, termasuk dua bug nyata (query ke hulu polos tidak dibatalkan saat shutdown, reverse lookup privat diteruskan ke hulu). Tes HP dengan `native` lulus (97%); batas laju `native` 200/detik burst 500; server rumah memakai `native`. Ctrl+C anggun, peringatan hulu gagal beruntun, log query pulih sesudah disk penuh, log operasional `hecate.log` berbatas ukuran. Tugas Task Scheduler terpasang dengan pemicu berulang tiap menit, karena "restart bila gagal" terbukti tidak bekerja. Atas keputusan Master uji 7 hari (S4) dipindah ke Fase 6 di VPS (PC mati tiap malam). Review akhir fase (Sonnet, hemat): 0 Critical, 1 Important (galat yang mengakhiri server tidak masuk `hecate.log`, diperbaiki), 5 Minor (dua diperbaiki, sisanya ditunda). Koreksi pada dokumen Fase 4 (FORMERR, "5 detik", ARPA) |
 

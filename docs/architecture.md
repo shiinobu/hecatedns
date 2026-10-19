@@ -1,8 +1,8 @@
-# xdns — Arsitektur
+# HecateDNS — Arsitektur
 
-*Versi 1.5 | 2026-10-19 | Status: Fase 0 sampai Fase 5 selesai. Backend `native` lulus tes HP dan menjadi backend server rumah; xdns jalan otomatis saat boot lewat Task Scheduler. Uji 7 hari (S4) dipindah ke Fase 6 di VPS atas keputusan Master (lihat `phase-1-report.md` sampai `phase-5-report.md`, `test-report.md`) | Penulis: Claude & Gemini 4 Argon (keputusan desain didelegasikan penuh oleh Master)*
+*Versi 1.5 | 2026-10-19 | Status: Fase 0 sampai Fase 5 selesai. Backend `native` lulus tes HP dan menjadi backend server rumah; hecate jalan otomatis saat boot lewat Task Scheduler. Uji 7 hari (S4) dipindah ke Fase 6 di VPS atas keputusan Master (lihat `phase-1-report.md` sampai `phase-5-report.md`, `test-report.md`) | Penulis: Claude & Gemini 4 Argon (keputusan desain didelegasikan penuh oleh Master)*
 
-Dokumen ini adalah spesifikasi desain xdns. Urutan kerja ada di `roadmap.md`. Dasar riset dan sumbernya ada di `research.md` (rujukan "riset §N" di bawah menunjuk ke sana).
+Dokumen ini adalah spesifikasi desain HecateDNS (dulu xdns). Urutan kerja ada di `roadmap.md`. Dasar riset dan sumbernya ada di `research.md` (rujukan "riset §N" di bawah menunjuk ke sana).
 
 ---
 
@@ -24,11 +24,11 @@ Pelengkap terdokumentasi: Firefox + uBlock Origin. Plan B: APK (§16).
 
 | Kode | Kriteria | Cara ukur | Diukur di |
 |---|---|---|---|
-| S1 | Domain iklan pada daftar terblokir | `xdns check`: domain contoh tiap daftar dijawab `0.0.0.0`. Hasil adblock.turtlecute.org dan canyoublockit.com dicatat sebelum dan sesudah. Target awal: ≥ 90% host uji terblokir (disesuaikan setelah baseline) | Fase 3 |
+| S1 | Domain iklan pada daftar terblokir | `hecate check`: domain contoh tiap daftar dijawab `0.0.0.0`. Hasil adblock.turtlecute.org dan canyoublockit.com dicatat sebelum dan sesudah. Target awal: ≥ 90% host uji terblokir (disesuaikan setelah baseline) | Fase 3 |
 | S2 | Pemicu redirect Play Store ditemukan dan dihentikan | Log query di sekitar waktu kejadian → aturan atau daftar → 10 percobaan ulang tanpa redirect yang sama | Fase 3 |
 | S3 | SafeSearch tidak dipaksa oleh DNS | `www.google.com` tidak berantai ke `forcesafesearch.google.com`; self-check lulus | Fase 2 dan 3 |
 | S4 | Stabil | 7 hari berjalan tanpa crash atau restart manual, memori stabil, latensi query lolos (cache miss) p95 < 150 ms (target awal) | Fase 6, di VPS (dipindah dari Fase 5 pada 2026-10-19: PC ini dimatikan tiap malam, jadi 7 hari tanpa putus tidak bisa dicapai di sini) |
-| S5 | Salah blokir mudah diperbaiki | Satu perintah `xdns rule add allow <domain>` berlaku ≤ 10 detik tanpa restart | Fase 1 |
+| S5 | Salah blokir mudah diperbaiki | Satu perintah `hecate rule add allow <domain>` berlaku ≤ 10 detik tanpa restart | Fase 1 |
 
 ---
 
@@ -86,13 +86,13 @@ Prinsip: engine tidak tahu apa pun tentang jaringan, TLS, atau cache. Backend ti
 ## 4. Struktur proyek
 
 ```
-xdns/
+hecate/
 ├── docs/                                       # dokumen proyek
 │   ├── architecture.md  roadmap.md  research.md
 │   ├── test-report.md                          # hasil tes HP, dibuat di Fase 3
 │   └── superpowers/plans/                      # rencana tugas Fase 0 (arsip)
 ├── go.mod  go.sum  .gitignore  .gitattributes  README.md
-├── cmd/xdns/
+├── cmd/hecate/
 │   └── main.go                 # titik masuk; subperintah: run, check, log, rule, lists
 ├── internal/
 │   ├── config/                 # skema YAML, pemuat ketat, validasi
@@ -107,14 +107,14 @@ xdns/
 │   │   └── health.go           #   peringatan bila hulu gagal beruntun (kedua backend)
 │   ├── lists/                  # sumber daftar: unduh, parser, cache disk, penjadwal
 │   ├── qlog/                   # log query: penulis JSONL, rotasi, pembaca
-│   ├── runlog/                 # log operasional xdns.log: berkas berbatas ukuran + Tee ke layar
+│   ├── runlog/                 # log operasional hecate.log: berkas berbatas ukuran + Tee ke layar
 │   ├── backend/
 │   │   ├── backend.go          #   antarmuka Backend, Deps, registri
 │   │   ├── dnsproxybe/         #   adapter AdGuard dnsproxy (pendekatan 4)
 │   │   ├── native/             #   server + upstream + cache sendiri (pendekatan 1)
 │   │   └── conformance/        #   suite tes yang sama untuk kedua backend
 │   └── selfcheck/              # uji mandiri: SafeSearch, hulu, domain contoh
-├── configs/xdns.example.yaml
+├── configs/hecate.example.yaml
 ├── scripts/                    # dnsquery.ps1, compare (pembanding backend), autostart.ps1 (Task Scheduler)
 ├── testdata/                   # daftar contoh, fixture
 └── data/                       # data runtime, di-.gitignore
@@ -183,7 +183,7 @@ type Registry map[string]Factory   // dibuat oleh pemanggil; paket backend tidak
 type Bound interface { Ready() <-chan struct{}; Addr(network string) net.Addr }
 ```
 
-`cmd/xdns` (`defaultRegistry`) dan suite kesesuaian membangun `Registry` berisi `dnsproxy` (dan `native` mulai Fase 4); dengan begitu tidak ada siklus impor. `main.go` memilih backend dari `backend:` pada konfigurasi. Nama tak dikenal = galat saat start yang menyebut nama yang dikenal. Sebuah backend hanya dijalankan sekali (`Run` kedua adalah galat).
+`cmd/hecate` (`defaultRegistry`) dan suite kesesuaian membangun `Registry` berisi `dnsproxy` (dan `native` mulai Fase 4); dengan begitu tidak ada siklus impor. `main.go` memilih backend dari `backend:` pada konfigurasi. Nama tak dikenal = galat saat start yang menyebut nama yang dikenal. Sebuah backend hanya dijalankan sekali (`Run` kedua adalah galat).
 
 ### 5.3 Adapter `dnsproxy` (pendekatan 4)
 
@@ -288,17 +288,17 @@ Ketiganya sudah diunduh dan diverifikasi pada binary asli (total **250.089 entri
 
 **Pembaruan:**
 - saat start: muat salinan cache di `data/lists/<nama>.txt` lebih dulu (cepat), lalu segarkan di latar belakang;
-- interval `lists.update_interval` (bawaan 24 jam) dengan jitter hingga +10%, ditambah polling ukuran + waktu ubah berkas cache setiap 5 detik agar `xdns lists update` langsung dimuat server yang sedang berjalan tanpa restart (D11);
+- interval `lists.update_interval` (bawaan 24 jam) dengan jitter hingga +10%, ditambah polling ukuran + waktu ubah berkas cache setiap 5 detik agar `hecate lists update` langsung dimuat server yang sedang berjalan tanpa restart (D11);
 - permintaan `If-None-Match` dikirim hanya bila `<nama>.txt` dan `<nama>.meta.json` keduanya ada; saat server membalas `304 Not Modified` dan cap berkas disk tidak berubah, `Manager` memakai kembali `*engine.DomainSet` yang sudah ada di memori tanpa mem-parse ulang berkas dari disk;
 - hanya `https://` (termasuk pada hingga 5 redirect; redirect ke-6 atau redirect ke `http://` ditolak); batas waktu 30 detik; batas ukuran 64 MiB per daftar;
-- nama host URL daftar di-resolve memakai server `bootstrap` secara berurutan lewat `miekg/dns` (UDP port 53 dengan fallback TCP bila terpotong) sehingga unduhan daftar tidak pernah berputar lewat `xdns` sendiri dan tetap berpindah ke bootstrap kedua bila bootstrap pertama diam/mati;
+- nama host URL daftar di-resolve memakai server `bootstrap` secara berurutan lewat `miekg/dns` (UDP port 53 dengan fallback TCP bila terpotong) sehingga unduhan daftar tidak pernah berputar lewat `hecate` sendiri dan tetap berpindah ke bootstrap kedua bila bootstrap pertama diam/mati;
 - tulis ke berkas sementara lalu `rename` (atomik dengan coba-ulang singkat di Windows); simpan metadata (`etag`, `fetched_at`, `count`, `rejected`) di `data/lists/<nama>.meta.json`;
 - bila unduhan gagal atau berkas rusak: pertahankan salinan lama dan catat galat;
 - setelah ada perubahan, bangun snapshot baru lalu tukar atomik (`atomic.Pointer`); snapshot lama tidak pernah diubah.
 
 **Dua snapshot terpisah** (daftar dan aturan kustom) agar perubahan aturan tidak membangun ulang ratusan ribu entri.
 
-**Anggaran sumber daya** (terukur di Fase 2 pada 250.000–250.089 entri): memori heap `DomainSet` bertambah **16,15–16,29 MiB** (`Sys` runtime Go 38–43 MiB; proses `xdns run` hidup: WorkingSet **71,74–74,20 MiB**, Private **103,35–105,25 MiB**, di bawah batas 150 MB), latensi pencarian rata-rata **215–250 ns/op** (0 alokasi), **p95 = 1,04–1,07 µs**, **p99 = 2,01 µs** (jauh di bawah batas 50 µs). Peta string standar Go (`map[string]struct{}`) sudah sangat memadai tanpa perlu diganti peta hash 64-bit.
+**Anggaran sumber daya** (terukur di Fase 2 pada 250.000–250.089 entri): memori heap `DomainSet` bertambah **16,15–16,29 MiB** (`Sys` runtime Go 38–43 MiB; proses `hecate run` hidup: WorkingSet **71,74–74,20 MiB**, Private **103,35–105,25 MiB**, di bawah batas 150 MB), latensi pencarian rata-rata **215–250 ns/op** (0 alokasi), **p95 = 1,04–1,07 µs**, **p99 = 2,01 µs** (jauh di bawah batas 50 µs). Peta string standar Go (`map[string]struct{}`) sudah sangat memadai tanpa perlu diganti peta hash 64-bit.
 
 ---
 
@@ -314,7 +314,7 @@ allow cdn.situs-yang-rusak.com
 
 Semantik sama dengan daftar: berlaku untuk domain dan semua subdomainnya. Urutan prioritas: `allow` kustom → `block` kustom → daftar `allow` → daftar `block`. Baris yang salah dilewati dengan catatan nomor barisnya, tidak menggagalkan muat ulang. Server memeriksa waktu ubah berkas setiap 2 detik (`rules.poll_interval`).
 
-Subperintah (`xdns <perintah>`):
+Subperintah (`hecate <perintah>`):
 
 | Perintah | Fungsi |
 |---|---|
@@ -324,7 +324,7 @@ Subperintah (`xdns <perintah>`):
 | `rule add block\|allow <domain>` / `rule remove <domain>` / `rule list` | Kelola `rules.txt` secara atomik |
 | `lists status` / `lists update` | Lihat status atau paksa unduh ulang daftar |
 
-Alur pelacakan redirect: picu redirect di HP → catat jam → `xdns log -around 14:32 -window 30s` → tentukan domain pemicu → `xdns rule add block <domain>` → ulangi.
+Alur pelacakan redirect: picu redirect di HP → catat jam → `hecate log -around 14:32 -window 30s` → tentukan domain pemicu → `hecate rule add block <domain>` → ulangi.
 
 ---
 
@@ -338,12 +338,12 @@ Alur pelacakan redirect: picu redirect di HP → catat jam → `xdns log -around
 {"ts":"...","qname":"smetrics.situs.com","action":"block","reason":"cname","source":"hagezi-pro","via":"x.pelacak.net"}
 ```
 
-- **Log operasional** (peringatan dan galat server, bukan query): ditulis ke layar *dan*, bila `log.enabled`, ke `<log.dir>/xdns.log` (`internal/runlog`), supaya tugas terjadwal tanpa konsol tetap meninggalkan jejak. Berkas dibatasi 5 MB ditambah satu cadangan `xdns.log.1`, jadi paling banyak sekitar 10 MB. Gagal menulis berkas hanya menjadi peringatan di layar, tidak pernah menghentikan server. Galat yang mengakhiri server (misalnya gagal mengikat `192.168.1.99:53` karena Wi-Fi belum siap saat boot) ikut ditulis ke berkas ini sebelum ditutup; **galat memuat konfigurasi tidak bisa**, karena folder log berasal dari konfigurasi itu, jadi jalankan `xdns check` setelah mengubah `xdns.yaml`. Bila rotasi gagal (di Windows, program lain yang membuka `xdns.log`, misalnya `Get-Content -Wait`, menghalangi penggantian nama), baris tetap ditambahkan ke berkas sekarang sampai dua kali batas, lalu dibuang sampai rotasi berhasil lagi; berkas yang gagal dibuka ulang dibuka lagi pada penulisan berikutnya;
+- **Log operasional** (peringatan dan galat server, bukan query): ditulis ke layar *dan*, bila `log.enabled`, ke `<log.dir>/hecate.log` (`internal/runlog`), supaya tugas terjadwal tanpa konsol tetap meninggalkan jejak. Berkas dibatasi 5 MB ditambah satu cadangan `hecate.log.1`, jadi paling banyak sekitar 10 MB. Gagal menulis berkas hanya menjadi peringatan di layar, tidak pernah menghentikan server. Galat yang mengakhiri server (misalnya gagal mengikat `192.168.1.99:53` karena Wi-Fi belum siap saat boot) ikut ditulis ke berkas ini sebelum ditutup; **galat memuat konfigurasi tidak bisa**, karena folder log berasal dari konfigurasi itu, jadi jalankan `hecate check` setelah mengubah `hecate.yaml`. Bila rotasi gagal (di Windows, program lain yang membuka `hecate.log`, misalnya `Get-Content -Wait`, menghalangi penggantian nama), baris tetap ditambahkan ke berkas sekarang sampai dua kali batas, lalu dibuang sampai rotasi berhasil lagi; berkas yang gagal dibuka ulang dibuka lagi pada penulisan berikutnya;
 - rotasi harian menurut tanggal lokal; retensi `log.retention_days` (bawaan 7, hari ini ikut dihitung); hanya berkas biasa `queries-YYYYMMDD.jsonl` yang pernah dihapus, saat start, saat rotasi, dan sesaat setelah tengah malam;
 - penulisan lewat saluran berpenyangga: bila penuh, catatan dibuang dan penghitung `dropped` dicatat; query tidak pernah menunggu disk;
 - **disk penuh** (diperbaiki di Fase 5, `73647aa`): `bufio.Writer` menyimpan galat pertamanya, sehingga satu saat disk penuh dulu mengakhiri log untuk sisa hari itu dan catatan yang hilang tetap dihitung tertulis. Sekarang penyangga di-reset setelah tulis atau flush gagal, catatan yang belum terkonfirmasi dihitung `dropped`, dan catatan berikutnya mulai di baris baru (tulis yang gagal bisa meninggalkan setengah baris). Diuji dengan disk palsu yang penuh lalu lega; belum diuji pada drive penuh yang asli;
 - **batas ukuran harian** `log.max_mb_per_day` (bawaan 256, minimal 1): catatan yang melewati batas dibuang dan dihitung, peringatan satu kali per hari, ukuran berkas yang sudah ada ikut dihitung setelah restart. Tanpa batas, satu pengirim UDP bisa menulis sekitar 14 MB/detik lewat penolakan ACL yang dicatat satu per query;
-- nama dan galat disanitasi (karakter kontrol dan bidi diganti `?`), baris di atas 64 KiB dilewati pembaca; `xdns log` membaca log yang sedang ditulis server (di Windows ukuran berkas yang terbuka dilaporkan 0, jangan jadikan patokan);
+- nama dan galat disanitasi (karakter kontrol dan bidi diganti `?`), baris di atas 64 KiB dilewati pembaca; `hecate log` membaca log yang sedang ditulis server (di Windows ukuran berkas yang terbuka dilaporkan 0, jangan jadikan patokan);
 - cincin memori 5.000 catatan terakhir disiapkan untuk UI di Fase 7;
 - log berisi riwayat domain yang dibuka; berada hanya di PC ini dan dapat dimatikan (`log.enabled: false`).
 
@@ -351,7 +351,7 @@ Alur pelacakan redirect: picu redirect di HP → catat jam → `xdns log -around
 
 ## 10. Konfigurasi
 
-`configs/xdns.example.yaml`:
+`configs/hecate.example.yaml`:
 
 ```yaml
 backend: dnsproxy                # dnsproxy | native
@@ -408,18 +408,18 @@ log:
 data_dir: data
 ```
 
-Validasi saat start (kunci tak dikenal atau berulang, lebih dari satu dokumen YAML, `allowed_clients` kosong (untuk mengizinkan semua tulis `0.0.0.0/0` dan `::/0`), CIDR tak sah, `listen` berupa nama host, upstream bernama host tanpa `bootstrap`, URL daftar bukan `https`, nama sumber tak aman sebagai nama berkas atau ganda, `mode` tak dikenal, backend tak dikenal, TTL negatif → galat dengan pesan jelas dan keluar kode ≠ 0; semua masalah dilaporkan sekaligus). Jalur relatif dihitung dari lokasi berkas konfigurasi. Aturan yang ditambahkan di Fase 1 dan Fase 2: `enabled:` yang dihilangkan atau kosong (YAML null) berarti aktif; `rules.file` dan `log.dir` (bila log aktif) wajib terisi; `listen` unik dan port ≠ 0; TTL dibatasi 2147483647 detik sebelum konversi ke `uint32`; `cache.max_ttl: 0` berarti tanpa batas atas; `log.max_mb_per_day` minimal 1; kunci gabung YAML `<<` ditolak di dalam sumber daftar; `LoopWarnings()` (bagian dari `Warnings()`) memperingatkan bila `upstreams` atau `bootstrap` mengarah ke alamat `listen` sendiri (termasuk kombinasi wildcard/loopback dan `localhost`), dan `xdns check` menggagalkan uji mandiri bila ditemukan loop itu. Kunci yang tidak ditulis memakai nilai bawaan yang sama dengan contoh ini (`config.Default()`); daftar blokir tidak punya nilai bawaan, jadi tanpa sumber daftar yang aktif `xdns check` memberi peringatan.
+Validasi saat start (kunci tak dikenal atau berulang, lebih dari satu dokumen YAML, `allowed_clients` kosong (untuk mengizinkan semua tulis `0.0.0.0/0` dan `::/0`), CIDR tak sah, `listen` berupa nama host, upstream bernama host tanpa `bootstrap`, URL daftar bukan `https`, nama sumber tak aman sebagai nama berkas atau ganda, `mode` tak dikenal, backend tak dikenal, TTL negatif → galat dengan pesan jelas dan keluar kode ≠ 0; semua masalah dilaporkan sekaligus). Jalur relatif dihitung dari lokasi berkas konfigurasi. Aturan yang ditambahkan di Fase 1 dan Fase 2: `enabled:` yang dihilangkan atau kosong (YAML null) berarti aktif; `rules.file` dan `log.dir` (bila log aktif) wajib terisi; `listen` unik dan port ≠ 0; TTL dibatasi 2147483647 detik sebelum konversi ke `uint32`; `cache.max_ttl: 0` berarti tanpa batas atas; `log.max_mb_per_day` minimal 1; kunci gabung YAML `<<` ditolak di dalam sumber daftar; `LoopWarnings()` (bagian dari `Warnings()`) memperingatkan bila `upstreams` atau `bootstrap` mengarah ke alamat `listen` sendiri (termasuk kombinasi wildcard/loopback dan `localhost`), dan `hecate check` menggagalkan uji mandiri bila ditemukan loop itu. Kunci yang tidak ditulis memakai nilai bawaan yang sama dengan contoh ini (`config.Default()`); daftar blokir tidak punya nilai bawaan, jadi tanpa sumber daftar yang aktif `hecate check` memberi peringatan.
 
 ---
 
 ## 11. SafeSearch
 
-xdns **tidak pernah** menulis ulang `www.google.com`. Syarat agar hasilnya benar:
+hecate **tidak pernah** menulis ulang `www.google.com`. Syarat agar hasilnya benar:
 - hulu bukan resolver yang memaksa SafeSearch (karena itu varian "family" Cloudflare/AdGuard dilarang sebagai bawaan);
 - hulu terenkripsi supaya ISP atau router tidak membajak jawaban DNS biasa;
 - tidak ada aturan atau daftar yang memetakan Google ke `forcesafesearch.google.com`.
 
-`xdns check` (`internal/selfcheck`) melakukan uji mandiri: resolve `www.google.com` (tipe A) lewat setiap hulu yang dikonfigurasi dan memastikan minimal satu hulu menjawab rekaman A dengan NOERROR serta rantai CNAME pada setiap hulu tidak memuat `forcesafesearch.google.com` (atau subdomainnya); bila ada yang memaksa SafeSearch, uji mandiri gagal dan menyebut hulu mana. Selain itu `selfcheck` memuat daftar blokir yang sudah ter-cache di disk dan memverifikasi bahwa satu domain contoh milik masing-masing daftar benar-benar diblokir oleh engine (serta memberi peringatan bila berkas cache belum diunduh lewat `xdns lists update`). Batas: bila SafeSearch dikunci lewat pengaturan akun Google atau proxy jaringan, DNS tidak dapat membatalkannya.
+`hecate check` (`internal/selfcheck`) melakukan uji mandiri: resolve `www.google.com` (tipe A) lewat setiap hulu yang dikonfigurasi dan memastikan minimal satu hulu menjawab rekaman A dengan NOERROR serta rantai CNAME pada setiap hulu tidak memuat `forcesafesearch.google.com` (atau subdomainnya); bila ada yang memaksa SafeSearch, uji mandiri gagal dan menyebut hulu mana. Selain itu `selfcheck` memuat daftar blokir yang sudah ter-cache di disk dan memverifikasi bahwa satu domain contoh milik masing-masing daftar benar-benar diblokir oleh engine (serta memberi peringatan bila berkas cache belum diunduh lewat `hecate lists update`). Batas: bila SafeSearch dikunci lewat pengaturan akun Google atau proxy jaringan, DNS tidak dapat membatalkannya.
 
 ---
 
@@ -427,12 +427,12 @@ xdns **tidak pernah** menulis ulang `www.google.com`. Syarat agar hasilnya benar
 
 - Windows 11 Pro; Go 1.26.4 terpasang, modul memakai 1.26.9 lewat `GOTOOLCHAIN=auto`; git 2.54.0; gcc tersedia lewat w64devkit sehingga `go test -race` berjalan (set `CGO_ENABLED=1` per perintah, jangan global).
 - IP LAN PC `192.168.1.99` (dipesan di router ZTE F663NV3a pada 2026-10-18; sebelumnya DHCP `192.168.1.10`), gateway `192.168.1.1`; HP memakai IP statis `192.168.1.150`. Adapter virtual `172.25.144.1` adalah Hyper-V "Default Switch" (Hyper-V aktif dan WSL2 terpasang). Wi-Fi di PC berkategori Public.
-- **UDP `0.0.0.0:53` dipegang layanan Internet Connection Sharing (ICS / `SharedAccess`, svchost)**; TCP 53 bebas. Android tidak bisa menentukan port DNS di pengaturan Wi-Fi, jadi tes dari HP memerlukan UDP 53 di IP LAN PC. **Terverifikasi di Fase 3:** bind khusus ke `192.168.1.99:53` (UDP dan TCP) berhasil walau ICS memegang wildcard, jadi ICS tidak perlu dihentikan. Dua aturan firewall masuk (grup `xdns`, UDP dan TCP 53, hanya ke `192.168.1.99` dari `LocalSubnet`, program `bin\xdns.exe`).
+- **UDP `0.0.0.0:53` dipegang layanan Internet Connection Sharing (ICS / `SharedAccess`, svchost)**; TCP 53 bebas. Android tidak bisa menentukan port DNS di pengaturan Wi-Fi, jadi tes dari HP memerlukan UDP 53 di IP LAN PC. **Terverifikasi di Fase 3:** bind khusus ke `192.168.1.99:53` (UDP dan TCP) berhasil walau ICS memegang wildcard, jadi ICS tidak perlu dihentikan. Dua aturan firewall masuk (grup `hecate`, UDP dan TCP 53, hanya ke `192.168.1.99` dari `LocalSubnet`, program `bin\hecate.exe`).
 - UDP 5353 dipakai banyak proses (mDNS). Port 5300 dan 853 bebas.
 - **`nslookup` Windows menerima `-port` tetapi mengabaikannya** (selalu memakai port 53); pakai `scripts/dnsquery.ps1 <nama> -Port <port>` atau klien miekg/dns.
 - Rentang port yang dikecualikan Windows (Hyper-V/WinNAT, mis. UDP 49674-49973) membuat bind gagal dengan WSAEACCES; tes tidak boleh mengandaikan port TCP dan UDP yang sama selalu sama-sama bebas.
-- **Jalan otomatis saat boot (Fase 5):** `scripts/autostart.ps1 install` (PowerShell Administrator) membuat tugas Task Scheduler `xdns`: pemicu startup dengan tunda 30 detik, diulang tiap 1 menit selama 365 hari sejak tiap boot, akun sekarang lewat S4U (jalan tanpa login, hak biasa: bukan SYSTEM dan bukan "highest"), tersembunyi, tanpa batas waktu, `MultipleInstances = IgnoreNew`. Ulangan itu hanya menghidupkan xdns bila belum jalan, penting karena Wi-Fi bisa belum memberi `192.168.1.99` saat boot dan xdns keluar dengan galat. **Pengaturan "restart bila gagal" Task Scheduler tidak dipakai: diuji, tugas yang keluar dengan kode 1 atau dimatikan paksa tidak dihidupkan lagi.** Pemicu berulang diuji dengan tugas percobaan (hidup lagi tepat 1 menit sesudah keluar kode 1). Perintah lain: `status` dan `remove` (satu-satunya rollback; ikut menghentikan prosesnya). `remove` dan shutdown Windows mengakhiri xdns dengan `TerminateProcess`, tanpa jalur shutdown anggun (log query tetap aman karena penulis mengosongkan penyangga tiap antrean menganggur); tugas bersifat tersembunyi, jadi tidak tampak di antarmuka Task Scheduler tetapi `status` dan `remove` bekerja dengan nama `xdns`; pemicu berulang berakhir 365 hari sesudah tiap boot. Aturan firewall terikat ke `bin\xdns.exe`, jadi bangun ulang ke jalur yang sama; karena pemicunya berulang tiap menit, `Stop-ScheduledTask` saja tidak mematikan xdns untuk seterusnya (menit berikutnya hidup lagi). Untuk mengganti binary (berkas yang sedang berjalan terkunci): `Disable-ScheduledTask`, `Stop-ScheduledTask`, salin berkasnya, lalu `Enable-ScheduledTask` dan `Start-ScheduledTask`. Untuk mematikannya sampai Master menyalakan lagi: `Disable-ScheduledTask` lalu hentikan prosesnya, atau `remove`. (Belum diketahui apakah pemicu yang diganti pada 2026-10-19 sudah berulang sebelum boot berikutnya; pada boot berikutnya ia diharapkan berulang, belum diuji lewat boot sungguhan.)
-- Mode berkas `0600`/`0700` tidak ditegakkan di Windows (berkas mewarisi ACL folder induk); mengganti nama berkas yang sedang dibuka gagal (Go membuka tanpa `FILE_SHARE_DELETE`), karena itu penulisan atomik `xdns rule` mencoba ulang sebentar.
+- **Jalan otomatis saat boot (Fase 5):** `scripts/autostart.ps1 install` (PowerShell Administrator) membuat tugas Task Scheduler `hecate`: pemicu startup dengan tunda 30 detik, diulang tiap 1 menit selama 365 hari sejak tiap boot, akun sekarang lewat S4U (jalan tanpa login, hak biasa: bukan SYSTEM dan bukan "highest"), tersembunyi, tanpa batas waktu, `MultipleInstances = IgnoreNew`. Ulangan itu hanya menghidupkan hecate bila belum jalan, penting karena Wi-Fi bisa belum memberi `192.168.1.99` saat boot dan hecate keluar dengan galat. **Pengaturan "restart bila gagal" Task Scheduler tidak dipakai: diuji, tugas yang keluar dengan kode 1 atau dimatikan paksa tidak dihidupkan lagi.** Pemicu berulang diuji dengan tugas percobaan (hidup lagi tepat 1 menit sesudah keluar kode 1). Perintah lain: `status` dan `remove` (satu-satunya rollback; ikut menghentikan prosesnya). `remove` dan shutdown Windows mengakhiri hecate dengan `TerminateProcess`, tanpa jalur shutdown anggun (log query tetap aman karena penulis mengosongkan penyangga tiap antrean menganggur); tugas bersifat tersembunyi, jadi tidak tampak di antarmuka Task Scheduler tetapi `status` dan `remove` bekerja dengan nama `hecate`; pemicu berulang berakhir 365 hari sesudah tiap boot. Aturan firewall terikat ke `bin\hecate.exe`, jadi bangun ulang ke jalur yang sama; karena pemicunya berulang tiap menit, `Stop-ScheduledTask` saja tidak mematikan hecate untuk seterusnya (menit berikutnya hidup lagi). Untuk mengganti binary (berkas yang sedang berjalan terkunci): `Disable-ScheduledTask`, `Stop-ScheduledTask`, salin berkasnya, lalu `Enable-ScheduledTask` dan `Start-ScheduledTask`. Untuk mematikannya sampai Master menyalakan lagi: `Disable-ScheduledTask` lalu hentikan prosesnya, atau `remove`. (Belum diketahui apakah pemicu yang diganti pada 2026-10-19 sudah berulang sebelum boot berikutnya; pada boot berikutnya ia diharapkan berulang, belum diuji lewat boot sungguhan.)
+- Mode berkas `0600`/`0700` tidak ditegakkan di Windows (berkas mewarisi ACL folder induk); mengganti nama berkas yang sedang dibuka gagal (Go membuka tanpa `FILE_SHARE_DELETE`), karena itu penulisan atomik `hecate rule` mencoba ulang sebentar.
 
 Konsekuensi: pengembangan di `127.0.0.1:5300`; keputusan soal ICS diambil di Fase 3 (opsi: hentikan ICS bila Master tidak memakai Mobile Hotspot/Hyper-V/WSL, pakai perangkat lain untuk server rumah, atau uji pengikatan alamat dengan reuse) [Inferensi: Windows kemungkinan menolak bind spesifik ke port 53 selama ada bind wildcard dari proses lain; diuji, bukan diasumsikan].
 
@@ -458,7 +458,7 @@ Ancaman utama: (1) resolver terbuka disalahgunakan (amplifikasi DDoS) setelah di
 | Pesan galat | Log server boleh rinci; jawaban DNS ke klien tidak pernah memuat detail internal |
 | Hak akses | Berjalan sebagai pengguna biasa (di Linux: pengguna khusus, bukan root, dengan kapabilitas bind port rendah) |
 
-Sebelum setiap commit: periksa daftar keamanan di `.claude/rules/ecc/common/security.md`, dan jalankan agent `security-reviewer` untuk kode yang menghadap jaringan (Fase 1, 4, 6). Tinjauan Fase 1 dilakukan oleh agent `xdns-reviewer` yang menjalankan binary dengan beban ala penyerang (`.agents/state/reviews/phase-1-review.md`).
+Sebelum setiap commit: periksa daftar keamanan di `.claude/rules/ecc/common/security.md`, dan jalankan agent `security-reviewer` untuk kode yang menghadap jaringan (Fase 1, 4, 6). Tinjauan Fase 1 dilakukan oleh agent `hecate-reviewer` yang menjalankan binary dengan beban ala penyerang (`.agents/state/reviews/phase-1-review.md`).
 
 ---
 
@@ -470,7 +470,7 @@ Sebelum setiap commit: periksa daftar keamanan di `.claude/rules/ecc/common/secu
 - **Daftar:** unduhan gagal → pakai cache lama; cache rusak → abaikan berkas itu, pakai yang lain, catat galat.
 - **Aturan:** baris salah dilewati; berkas hilang = tanpa aturan, bukan galat fatal.
 - **Log:** disk penuh, saluran penuh, atau batas ukuran harian tidak boleh memblokir query; catatan yang tidak tertulis dihitung.
-- **Shutdown:** `ctx` dibatalkan saat Ctrl+C; listener ditutup rapi dan log dikosongkan. Diverifikasi di Fase 5 pada konsol Windows asli untuk kedua backend (kode keluar 0, "xdns berhenti", log query ditutup, port UDP dilepas), dan query yang tertahan di hulu polos yang diam dibatalkan dengan menutup koneksinya, tidak menunggu batas waktu.
+- **Shutdown:** `ctx` dibatalkan saat Ctrl+C; listener ditutup rapi dan log dikosongkan. Diverifikasi di Fase 5 pada konsol Windows asli untuk kedua backend (kode keluar 0, "hecate berhenti", log query ditutup, port UDP dilepas), dan query yang tertahan di hulu polos yang diam dibatalkan dengan menutup koneksinya, tidak menunggu batas waktu.
 - Tidak ada galat yang ditelan diam-diam: setiap galat dibungkus konteks (`fmt.Errorf("...: %w", err)`) dan dicatat sekali pada lapisan yang menanganinya.
 
 ---
@@ -513,7 +513,7 @@ Perintah verifikasi tiap fase: `gofmt -l .` (kosong), `go vet ./...`, `go test .
 | R8 | Sumber daftar mati atau berubah format | Cache disk; validasi baris; peringatan di `lists status` |
 | R9 | Domain iklan terus berganti | Pembaruan harian; daftar baru (NRD/DGA) dipertimbangkan di Fase 7 |
 | R10 | Pemicu redirect ternyata skrip domain situs sendiri | Dikatakan terus terang; pelengkap Firefox + uBO; Plan B |
-| R11 | xdns tidak naik setelah boot (Wi-Fi belum memberi `192.168.1.99`, xdns keluar dengan galat) dan "restart bila gagal" Task Scheduler tidak bekerja | Pemicu berulang tiap menit dengan `IgnoreNew` (§12). Diuji dengan tugas percobaan; boot sungguhan belum diuji |
+| R11 | hecate tidak naik setelah boot (Wi-Fi belum memberi `192.168.1.99`, hecate keluar dengan galat) dan "restart bila gagal" Task Scheduler tidak bekerja | Pemicu berulang tiap menit dengan `IgnoreNew` (§12). Diuji dengan tugas percobaan; boot sungguhan belum diuji |
 | R12 | Server rumah dipakai keluarga dan teman (`allowed_clients` tetap `192.168.1.0/24`, keputusan Master) | Batas per IP (laju, koneksi TCP, gerbang hulu) lebih penting daripada untuk satu HP; celahnya: tabel pembatas laju yang penuh melepas sumber baru (I2, Fase 6) |
 
 ---
@@ -529,10 +529,10 @@ Belum dipastikan; dibuktikan lewat tes dan bukan diasumsikan:
 6. **Sebagian terverifikasi di Fase 3 (Chrome saja):** jawaban `0.0.0.0` pada Chrome HP RedMagic tidak menimbulkan gangguan yang teramati; permintaan ke domain terblokir gagal cepat ("This site can't be reached"). Belum dibandingkan dengan NODATA atau NXDOMAIN, dan Firefox belum diuji (`test-report.md` bagian 4).
 7. Apakah EDE (RFC 8914) "Filtered" pada jawaban blokir bermanfaat; ditambahkan hanya bila terbukti tidak mengganggu klien. Belum diuji (Fase 3 tidak mencakupnya).
 8. **Terverifikasi di Fase 3:** konflik ICS pada UDP 53 terselesaikan tanpa menyentuh ICS; bind khusus `192.168.1.99:53` UDP dan TCP berhasil (bagian 12).
-9. **Terverifikasi di Fase 3:** pada HP nyata, `adblock.turtlecute.org` 95% (126/132) lalu 97% (128/132) dengan dua aturan kustom; Chrome tidak melewati xdns (tidak ada pencarian host DoH). Redirect Shopee dilacak ke `s.shopee.co.id` dan diblokir; redirect Play Store belum pernah muncul. DNS IPv6 router sebagai jalur lolos belum diperiksa langsung (`test-report.md`).
+9. **Terverifikasi di Fase 3:** pada HP nyata, `adblock.turtlecute.org` 95% (126/132) lalu 97% (128/132) dengan dua aturan kustom; Chrome tidak melewati hecate (tidak ada pencarian host DoH). Redirect Shopee dilacak ke `s.shopee.co.id` dan diblokir; redirect Play Store belum pernah muncul. DNS IPv6 router sebagai jalur lolos belum diperiksa langsung (`test-report.md`).
 10. **Terverifikasi di Fase 4:** suite kesesuaian (15 kasus) hijau pada `dnsproxy` dan `native` dari satu tabel; 2.000 query (1.000 nama, A dan HTTPS) memberi keputusan engine yang sama pada kedua backend (1.732 diblokir di masing-masing, 0 beda keputusan, 1 beda bentuk jawaban akibat hulu). `native` melayani DoH nyata ke 1.1.1.1 (`phase-4-report.md`).
 11. **Temuan Fase 4:** satu datagram UDP lebih besar dari buffer menghentikan loop UDP miekg di Windows; diperbaiki di `native` dan dijadikan kasus suite.
 12. **Terverifikasi di Fase 5:** tes HP dengan `backend: native`: `adblock.turtlecute.org` 97%, 484 query HP dalam ±2,5 menit (322 diblokir daftar, 6 aturan kustom), hulu p50 29 ms / p95 88 ms, proses 41 MB (`test-report.md` bagian 5). Satu query terbuang oleh pembatas laju lama (100/detik) karena halaman tes mengirim ±255 query dalam setengah detik; dinaikkan ke 200/detik, burst 500.
-13. **Terverifikasi di Fase 5:** Ctrl+C anggun pada konsol asli untuk kedua backend; peringatan hulu gagal beruntun; log query pulih sesudah disk penuh (disk palsu); log operasional berbatas ukuran; tugas Task Scheduler terpasang dan menjalankan xdns tersembunyi (sesi 0) dengan DNS menjawab dan `xdns.log` bertambah.
+13. **Terverifikasi di Fase 5:** Ctrl+C anggun pada konsol asli untuk kedua backend; peringatan hulu gagal beruntun; log query pulih sesudah disk penuh (disk palsu); log operasional berbatas ukuran; tugas Task Scheduler terpasang dan menjalankan hecate tersembunyi (sesi 0) dengan DNS menjawab dan `hecate.log` bertambah.
 14. **Belum diverifikasi (sesudah Fase 5):** boot PC sungguhan dengan tugas Task Scheduler (termasuk Wi-Fi yang telat); disk penuh pada drive asli; DoH dan hulu IPv6 nyata di bawah beban lama; galat baca UDP Windows selain `WSAEMSGSIZE`; ketepatan perkiraan memori cache di bawah beban nyata; uji 7 hari S4 (Fase 6, VPS); DoT sebagai hulu (ditunda); Firefox di HP, jalur DNS IPv6 router, EDE.
 

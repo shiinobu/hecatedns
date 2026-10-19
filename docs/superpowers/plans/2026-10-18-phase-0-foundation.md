@@ -1,10 +1,10 @@
-# xdns Fase 0 — Foundation Implementation Plan
+# HecateDNS Fase 0 — Foundation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (native, single agent, as chosen in `roadmap.md`) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A buildable, tested Go skeleton for xdns: git repo, pinned module graph, strict config loader and validator, and an `xdns check` command.
+**Goal:** A buildable, tested Go skeleton for hecate: git repo, pinned module graph, strict config loader and validator, and an `hecate check` command.
 
-**Architecture:** One Go module `xdns`. `internal/config` owns the YAML schema (defaults, strict decoding, path resolution, validation). `cmd/xdns` is a thin dispatcher whose `check` subcommand loads and validates a config; other subcommands are stubs until later phases. Every other package from `architecture.md` §4 exists only as an empty `doc.go` so the layout is fixed from day one.
+**Architecture:** One Go module `hecate`. `internal/config` owns the YAML schema (defaults, strict decoding, path resolution, validation). `cmd/hecate` is a thin dispatcher whose `check` subcommand loads and validates a config; other subcommands are stubs until later phases. Every other package from `architecture.md` §4 exists only as an empty `doc.go` so the layout is fixed from day one.
 
 **Tech Stack:** Go 1.26.8, `gopkg.in/yaml.v3`, stdlib `testing`. `github.com/miekg/dns` and `github.com/AdguardTeam/dnsproxy` are pinned now (blank imports) and used for real from Phase 1.
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Module path `xdns`; `go 1.26.8` in `go.mod` (`dnsproxy` v0.86.0 requires it; local Go is 1.26.4 and `GOTOOLCHAIN=auto` downloads 1.26.8).
+- Module path `hecate`; `go 1.26.8` in `go.mod` (`dnsproxy` v0.86.0 requires it; local Go is 1.26.4 and `GOTOOLCHAIN=auto` downloads 1.26.8).
 - Pinned versions: `github.com/miekg/dns v1.1.73`, `github.com/AdguardTeam/dnsproxy v0.86.0`, `gopkg.in/yaml.v3 v3.0.1`.
 - YAML decoding is strict (`KnownFields(true)`): unknown keys are errors.
 - Defaults: `listen` = `127.0.0.1:5300`; `allowed_clients` = `127.0.0.0/8`, `::1/128`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`; `upstreams` = `https://1.1.1.1/dns-query`, `https://8.8.8.8/dns-query`; `bootstrap` = `1.1.1.1`, `8.8.8.8`; `backend` = `dnsproxy`; `block` = `null_ip` with TTL `10s`; `cache` = enabled, 16 MB, min `0s`, max `1h`; `special_names` both `true`; `lists.update_interval` = `24h` with no sources; `rules` = `data/rules.txt`, poll `2s`; `log` = enabled, `data/logs`, 7 days; `data_dir` = `data`.
@@ -27,7 +27,7 @@
 1. Config saved by Windows Notepad (UTF-8 BOM, CRLF line endings) must load. → Task 2.
 2. A typo'd key (`bakend:`) or a repeated key must fail loudly, never be ignored. → Task 2.
 3. `listen` written as a hostname (`localhost:5300`) is rejected with a message naming `listen[0]`. → Task 3.
-4. A hostname upstream with empty `bootstrap` is rejected (resolving it through the system resolver could loop back into xdns). → Task 3.
+4. A hostname upstream with empty `bootstrap` is rejected (resolving it through the system resolver could loop back into hecate). → Task 3.
 5. An empty config file loads with defaults, and `check` warns that no blocklist source is enabled (otherwise Master may think blocking is on). → Tasks 3 and 4.
 
 ---
@@ -35,17 +35,17 @@
 ### Task 1: Repository, module, and skeleton
 
 **Files:**
-- Create: `.gitignore`, `go.mod`, `go.sum`, `cmd/xdns/main.go` (placeholder `func main() {}`)
+- Create: `.gitignore`, `go.mod`, `go.sum`, `cmd/hecate/main.go` (placeholder `func main() {}`)
 - Create: `doc.go` (package comment only) in `internal/config`, `internal/engine`, `internal/lists`, `internal/qlog`, `internal/selfcheck`, `internal/backend`, `internal/backend/dnsproxybe`, `internal/backend/native`, `internal/backend/conformance`
 - Existing, to be committed: `architecture.md`, `roadmap.md`, `research.md`, this plan
 
 **Interfaces:**
-- Produces: module `xdns` with the nine empty packages above.
+- Produces: module `hecate` with the nine empty packages above.
 
 - [ ] **Step 1: Initialise git.** `git init -b main` in the project root. If `git config user.name` / `user.email` are unset, set them repo-local (email `nightwishees@gmail.com`; name from `git config --global user.name`, else `nightwishees`).
 - [ ] **Step 2: Write `.gitignore`** with these lines: `/data/`, `/bin/`, `/.claude/`, `*.exe`, `*.test`, `*.out`, `*.pem`, `*.key`.
-- [ ] **Step 3: Create the module.** Run `go mod init xdns` then `go get go@1.26.8`. Expected: `go.mod` contains `go 1.26.8` (first run prints `go: downloading go1.26.8`).
-- [ ] **Step 4: Create the nine `doc.go` files**, each a one-sentence package comment taken from `architecture.md` §4 (e.g. `// Package engine implements the transport-agnostic filtering engine.`). `dnsproxybe/doc.go` additionally has `import _ "github.com/AdguardTeam/dnsproxy/proxy"` and `native/doc.go` has `import _ "github.com/miekg/dns"`, each with a comment saying the blank import pins the dependency until the package gets real code. Create the placeholder `cmd/xdns/main.go`.
+- [ ] **Step 3: Create the module.** Run `go mod init hecate` then `go get go@1.26.8`. Expected: `go.mod` contains `go 1.26.8` (first run prints `go: downloading go1.26.8`).
+- [ ] **Step 4: Create the nine `doc.go` files**, each a one-sentence package comment taken from `architecture.md` §4 (e.g. `// Package engine implements the transport-agnostic filtering engine.`). `dnsproxybe/doc.go` additionally has `import _ "github.com/AdguardTeam/dnsproxy/proxy"` and `native/doc.go` has `import _ "github.com/miekg/dns"`, each with a comment saying the blank import pins the dependency until the package gets real code. Create the placeholder `cmd/hecate/main.go`.
 - [ ] **Step 5: Pin dependencies.** Run `go get github.com/AdguardTeam/dnsproxy@v0.86.0 github.com/miekg/dns@v1.1.73` then `go mod tidy`. Expected: `go list -m github.com/AdguardTeam/dnsproxy github.com/miekg/dns` prints `v0.86.0` and `v1.1.73`.
 - [ ] **Step 6: Verify the skeleton.** Run `go build ./...`, `go vet ./...`, `go mod verify`, and `gofmt -l .`. Expected: no errors; `gofmt -l .` prints nothing; `go mod verify` prints `all modules verified`.
 - [ ] **Step 7: Commit.** `git add -A` then `git commit -m "chore: initial commit with design docs and module skeleton"`. Expected: `git status --short` is empty.
@@ -55,7 +55,7 @@
 ### Task 2: Strict config loading with defaults and path resolution
 
 **Files:**
-- Create: `internal/config/config.go`, `internal/config/config_test.go`, `configs/xdns.example.yaml`
+- Create: `internal/config/config.go`, `internal/config/config_test.go`, `configs/hecate.example.yaml`
 - Modify: `go.mod`, `go.sum` (adds `gopkg.in/yaml.v3 v3.0.1`)
 
 **Interfaces:**
@@ -87,9 +87,9 @@ func Default() Config                  // fresh slices on every call
 func Load(path string) (Config, error) // read, strip BOM, strict-decode over Default(), resolve paths
 ```
 
-- [ ] **Step 1: Write `configs/xdns.example.yaml`** exactly as in `architecture.md` §10 (three sources: `hagezi-pro`, `hagezi-popups`, `abpindo`).
+- [ ] **Step 1: Write `configs/hecate.example.yaml`** exactly as in `architecture.md` §10 (three sources: `hagezi-pro`, `hagezi-popups`, `abpindo`).
 - [ ] **Step 2: Write the failing tests** in `internal/config/config_test.go` (each writes its YAML to `t.TempDir()`):
-  - `TestLoad_ExampleConfig`: `Load("../../configs/xdns.example.yaml")` → no error; `Backend == "dnsproxy"`; `len(Lists.Sources) == 3`; `Lists.Sources[0].Name == "hagezi-pro"`; `Block.TTL == 10*time.Second`.
+  - `TestLoad_ExampleConfig`: `Load("../../configs/hecate.example.yaml")` → no error; `Backend == "dnsproxy"`; `len(Lists.Sources) == 3`; `Lists.Sources[0].Name == "hagezi-pro"`; `Block.TTL == 10*time.Second`.
   - `TestLoad_DefaultsForMissingKeys`: file `backend: native\n` → `Backend == "native"`; `Listen == []string{"127.0.0.1:5300"}`; `Block.Mode == "null_ip"`; `Block.TTL == 10*time.Second`; `Cache.SizeMB == 16`; `Lists.UpdateInterval == 24*time.Hour`; `Rules.PollInterval == 2*time.Second`; `Log.RetentionDays == 7`.
   - `TestLoad_UserListReplacesDefault`: `listen: ["192.168.1.10:53"]` → `Listen` has exactly that one element.
   - `TestLoad_EmptyFileUsesDefaults`: empty file → `Backend == "dnsproxy"` and no error.
@@ -133,8 +133,8 @@ func Load(path string) (Config, error) // read, strip BOM, strict-decode over De
 ### Task 4: CLI dispatcher, `check`, and README
 
 **Files:**
-- Modify: `cmd/xdns/main.go`
-- Create: `cmd/xdns/check.go`, `cmd/xdns/main_test.go`, `README.md`
+- Modify: `cmd/hecate/main.go`
+- Create: `cmd/hecate/check.go`, `cmd/hecate/main_test.go`, `README.md`
 
 **Interfaces:**
 - Consumes: `config.Load(path string) (Config, error)`, `Config.Warnings() []string`.
@@ -143,24 +143,24 @@ func Load(path string) (Config, error) // read, strip BOM, strict-decode over De
 ```go
 const ( exitOK = 0; exitError = 1; exitUsage = 2 )
 func run(args []string, stdout, stderr io.Writer) int      // dispatch on args[0]
-func runCheck(args []string, stdout, stderr io.Writer) int // flag -config (default "xdns.yaml")
+func runCheck(args []string, stdout, stderr io.Writer) int // flag -config (default "hecate.yaml")
 ```
 
 - [ ] **Step 1: Write the failing tests** in `main_test.go` (`TestRun_Table`, using `bytes.Buffer` for both writers):
   - no args → exit 2, stderr contains `penggunaan`;
   - `bogus` → exit 2, stderr contains `bogus`;
   - each of `run`, `log`, `rule`, `lists` → exit 2, stderr contains `belum diimplementasi`;
-  - `check -config ../../configs/xdns.example.yaml` → exit 0, stdout contains `konfigurasi valid` and `backend: dnsproxy`;
+  - `check -config ../../configs/hecate.example.yaml` → exit 0, stdout contains `konfigurasi valid` and `backend: dnsproxy`;
   - `check -config <path to missing file>` → exit 1, stderr contains that path;
   - `check -config <file "backend: nope">` → exit 1, stderr contains `backend`;
   - `check -config <empty file>` → exit 0, stdout contains `peringatan`;
   - `check -config <a directory>` → exit 1.
-- [ ] **Step 2: Run the tests to verify they fail.** Run `go test ./cmd/xdns/ -v`. Expected: FAIL (`run` undefined).
+- [ ] **Step 2: Run the tests to verify they fail.** Run `go test ./cmd/hecate/ -v`. Expected: FAIL (`run` undefined).
 - [ ] **Step 3: Implement `run` and `runCheck`.** `main` calls `os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))`. `runCheck` parses its own `flag.FlagSet`, loads the config, and prints lines `konfigurasi valid: <path>`, `backend: <name>`, `listen: <comma list>`, `upstreams: <n>`, `daftar aktif: <n>`, then one `peringatan: <text>` line per warning. Errors go to stderr, exit 1.
-- [ ] **Step 4: Run the tests to verify they pass.** Run `go test ./cmd/xdns/ -v`. Expected: PASS.
-- [ ] **Step 5: Smoke-test the real command.** Run `go run ./cmd/xdns check -config configs/xdns.example.yaml`. Expected: prints `konfigurasi valid`, `backend: dnsproxy`, `daftar aktif: 3`, exit code 0.
-- [ ] **Step 6: Write `README.md`** (Indonesian, short): what xdns is, current status (Fase 0), how to build/test/check (`go build ./...`, `go test ./... -cover`, `go run ./cmd/xdns check -config configs/xdns.example.yaml`), and pointers to `architecture.md`, `roadmap.md`, `research.md`.
-- [ ] **Step 7: Commit.** `git add cmd README.md` then `git commit -m "feat: add xdns check command and README"`.
+- [ ] **Step 4: Run the tests to verify they pass.** Run `go test ./cmd/hecate/ -v`. Expected: PASS.
+- [ ] **Step 5: Smoke-test the real command.** Run `go run ./cmd/hecate check -config configs/hecate.example.yaml`. Expected: prints `konfigurasi valid`, `backend: dnsproxy`, `daftar aktif: 3`, exit code 0.
+- [ ] **Step 6: Write `README.md`** (Indonesian, short): what hecate is, current status (Fase 0), how to build/test/check (`go build ./...`, `go test ./... -cover`, `go run ./cmd/hecate check -config configs/hecate.example.yaml`), and pointers to `architecture.md`, `roadmap.md`, `research.md`.
+- [ ] **Step 7: Commit.** `git add cmd README.md` then `git commit -m "feat: add hecate check command and README"`.
 
 ---
 

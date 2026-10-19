@@ -24,7 +24,7 @@ Paket `internal/backend/native` (cakupan tes 93,1%); rincian per berkas ada di `
 | P4-02 hulu | Kolam dengan pilihan acak berbobot dan failover; plain UDP/TCP, DoH dengan resolver bootstrap; jawaban diterima hanya bila QR, ID, opcode, dan pertanyaan cocok |
 | P4-03 server | UDP dan TCP pada tiap `listen`; batas koneksi TCP sendiri (64); batas query berjalan (256); kegagalan bind dikembalikan seketika; shutdown rapi |
 | P4-04 handler, laju | Batas laju per IP (100/detik, burst 200); pemulihan panik per tahap seperti adapter dnsproxy; ANY dijawab NOTIMP; ukuran UDP mengikuti EDNS klien |
-| P4-05 registri | `native` terdaftar di `cmd/xdns`; `xdns run` dan `xdns check` bekerja dengan `backend: native` (dicoba nyata, lihat di bawah) |
+| P4-05 registri | `native` terdaftar di `cmd/hecate`; `hecate run` dan `hecate check` bekerja dengan `backend: native` (dicoba nyata, lihat di bawah) |
 | P4-06 kesesuaian | Satu tabel, dua backend; 15 kasus lulus di keduanya |
 | P4-07 pembanding | `scripts/compare`: lihat bagian Perbandingan |
 | P4-08 keamanan | Lihat bagian Keamanan |
@@ -46,9 +46,9 @@ Paket `internal/backend/native` (cakupan tes 93,1%); rincian per berkas ada di `
 
 Satu perbedaan bentuk jawaban: `api.x.com` HTTPS, `dnsproxy` mendapat record dan `native` mendapat NOERROR kosong. Diulang tiga kali pada kedua server, keduanya menjawab NOERROR kosong; jawaban HTTPS di hulu berubah di antara dua pertanyaan. Jadi ini variasi hulu, bukan perilaku backend. Sampel memuat banyak nama yang diblokir (86%) karena separuh lebih berasal dari daftar dan log HP.
 
-**Uji nyata `native`.** Dijalankan di `127.0.0.1:5300` dengan DoH ke 1.1.1.1 dan daftar asli: `example.com` lolos, `ad.doubleclick.net` dan `s.shopee.co.id` menjawab `0.0.0.0` (TTL 10), `use-application-dns.net` NXDOMAIN, HTTPS dan AAAA dijawab. `xdns check` dengan `backend: native` lulus.
+**Uji nyata `native`.** Dijalankan di `127.0.0.1:5300` dengan DoH ke 1.1.1.1 dan daftar asli: `example.com` lolos, `ad.doubleclick.net` dan `s.shopee.co.id` menjawab `0.0.0.0` (TTL 10), `use-application-dns.net` NXDOMAIN, HTTPS dan AAAA dijawab. `hecate check` dengan `backend: native` lulus.
 
-**Gate** (2026-10-19): `gofmt -l .` kosong; `go vet ./...` dan `go build ./...` bersih; `go test ./... -cover -count=1` semua `ok` (`native` 93,1%, `conformance` 80,9%, `dnsproxybe` 95,4%, `engine` 96,8%, `cmd/xdns` 92,2%); `CGO_ENABLED=1 go test -race ./...` semua `ok`; `go mod verify` bersih; `go mod tidy -diff` tanpa selisih; `govulncheck` 0 terdampak (satu advisori pada modul yang tidak dipanggil); `xdns check -config configs/xdns.example.yaml` lulus. Server asli di `192.168.1.99:53` (dnsproxy) tidak disentuh dan tetap melayani HP.
+**Gate** (2026-10-19): `gofmt -l .` kosong; `go vet ./...` dan `go build ./...` bersih; `go test ./... -cover -count=1` semua `ok` (`native` 93,1%, `conformance` 80,9%, `dnsproxybe` 95,4%, `engine` 96,8%, `cmd/hecate` 92,2%); `CGO_ENABLED=1 go test -race ./...` semua `ok`; `go mod verify` bersih; `go mod tidy -diff` tanpa selisih; `govulncheck` 0 terdampak (satu advisori pada modul yang tidak dipanggil); `hecate check -config configs/hecate.example.yaml` lulus. Server asli di `192.168.1.99:53` (dnsproxy) tidak disentuh dan tetap melayani HP.
 
 ## Temuan
 
@@ -93,17 +93,17 @@ Satu agent berkonteks baru (model Sonnet, hanya baca, cakupan `internal/backend/
 | Query yang dibuang (batas laju, penuh) tidak masuk log query | Minor | Sengaja; dihitung dan diperingatkan di log server paling sering sekali per 10 detik |
 | Kunci pembatas laju IPv6 memakai alamat penuh, bukan /64 (bagian dari temuan batas laju) | Important untuk Fase 6 | Ditunda: LAN rumah memakai IPv4; dicatat untuk Fase 6 |
 
-Yang tidak bisa diverifikasi reviewer: perilaku galat UDP Windows selain `WSAEMSGSIZE`, dan server DoH yang memantulkan ID bukan nol (pemeriksaan ID ketat, sama seperti RFC 8484). Ini review singkat atas permintaan Master, bukan pengganti review penuh `xdns-reviewer`, yang masih terutang.
+Yang tidak bisa diverifikasi reviewer: perilaku galat UDP Windows selain `WSAEMSGSIZE`, dan server DoH yang memantulkan ID bukan nol (pemeriksaan ID ketat, sama seperti RFC 8484). Ini review singkat atas permintaan Master, bukan pengganti review penuh `hecate-reviewer`, yang masih terutang.
 
 ## Belum terverifikasi
 
-- Tes HP dengan `backend: native` (S1, S2): menunggu Master. Tidak ada yang perlu diubah di HP; cukup ganti `backend: native` di `xdns.yaml`, mulai ulang server, tunggu sekitar satu menit atau nyalakan mode pesawat sebentar. *(Dikerjakan 2026-10-19: 97%, lihat `test-report.md` bagian 5.)*
+- Tes HP dengan `backend: native` (S1, S2): menunggu Master. Tidak ada yang perlu diubah di HP; cukup ganti `backend: native` di `hecate.yaml`, mulai ulang server, tunggu sekitar satu menit atau nyalakan mode pesawat sebentar. *(Dikerjakan 2026-10-19: 97%, lihat `test-report.md` bagian 5.)*
 - Beban nyata dan lama (7 hari) pada `native`; Fase 5. *(Dipindah ke Fase 6 di VPS, lihat `phase-5-report.md`.)*
 - DoT sebagai hulu (ditunda). IPv6 hulu belum dicoba.
 - Hal Fase 3 yang masih terbuka tetap terbuka: Play Store, Firefox di HP, jalur DNS IPv6 router, EDE, baseline lengkap.
 
 ## Serah terima ke Fase 5
 
-- Review penuh (xdns-reviewer, mencakup Fase 4) menjadi tugas pertama Fase 5.
+- Review penuh (hecate-reviewer, mencakup Fase 4) menjadi tugas pertama Fase 5.
 - Sebelum Fase 6: batas koneksi TCP per IP untuk kedua backend, pembatas laju untuk `dnsproxy`, deduplikasi query, dan perilaku ARPA privat (`architecture.md` §5.4).
 - Server rumah masih memakai `dnsproxy`. Beralih ke `native` hanya setelah tes HP lulus.
