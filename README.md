@@ -39,7 +39,7 @@ hecate rule list | remove example.com -config hecate.yaml
 hecate lists status | update -config hecate.yaml
 ```
 
-Keys left out of the config use defaults; unknown or duplicate keys are rejected with a clear error. The server re-reads the rules file and the list cache by itself, so rule and list changes need no restart. CLI output is currently in Indonesian; an English pass is planned.
+Keys left out of the config use defaults; unknown or duplicate keys are rejected with a clear error. The server re-reads the rules file and the list cache by itself, so rule and list changes need no restart.
 
 ## Layout
 
@@ -77,4 +77,4 @@ Source files carry no comments (enforced by a test in `backend/test/nocomment`);
 
 ## License
 
-No license has been chosen yet, so all rights are reserved until one is added.
+[MIT](LICENSE). The block lists it downloads (HaGeZi, ABPindo) have their own licenses and are not part of this repository.
