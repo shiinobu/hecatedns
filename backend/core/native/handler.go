@@ -69,7 +69,18 @@ func newHandler(f Filter, c *cache, up exchanger, l *limiter, log *slog.Logger) 
 var _ dns.Handler = (*handler)(nil)
 
 func (h *handler) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
+	h.serve(w, req, "")
+}
+
+func (h *handler) forProto(proto string) dns.Handler {
+	return dns.HandlerFunc(func(w dns.ResponseWriter, req *dns.Msg) { h.serve(w, req, proto) })
+}
+
+func (h *handler) serve(w dns.ResponseWriter, req *dns.Msg, forced string) {
 	client, proto := clientOf(w)
+	if forced != "" {
+		proto = forced
+	}
 	if !h.limiter.allow(client) {
 		h.drop("rate limit", client)
 		return

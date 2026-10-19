@@ -60,12 +60,22 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 func printSummary(w io.Writer, path string, cfg config.Config) {
 	fmt.Fprintf(w, "configuration valid: %s\n", path)
 	fmt.Fprintf(w, "backend: %s\n", cfg.Backend)
-	fmt.Fprintf(w, "listen: %s\n", strings.Join(cfg.Listen, ", "))
+	fmt.Fprintf(w, "listen: %s\n", listenSummary(cfg.Listen))
+	if cfg.DoT.Enabled {
+		fmt.Fprintf(w, "dot: %s (%d server names, certificate %s)\n", strings.Join(cfg.DoT.Listen, ", "), len(cfg.DoT.Names), cfg.DoT.CertFile)
+	}
 	fmt.Fprintf(w, "upstreams: %d\n", len(cfg.Upstreams))
 	fmt.Fprintf(w, "active lists: %d\n", enabledSources(cfg))
 	for _, warning := range cfg.Warnings() {
 		fmt.Fprintf(w, "warning: %s\n", warning)
 	}
+}
+
+func listenSummary(listen []string) string {
+	if len(listen) == 0 {
+		return "none, plain DNS is off"
+	}
+	return strings.Join(listen, ", ")
 }
 
 func enabledSources(cfg config.Config) int {

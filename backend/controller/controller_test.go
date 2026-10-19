@@ -11,6 +11,7 @@ import (
 
 	"github.com/miekg/dns"
 
+	"github.com/shiinobu/hecatedns/backend/lib/config"
 	"github.com/shiinobu/hecatedns/backend/service/lists"
 )
 
@@ -126,6 +127,37 @@ lists:
 			assertContains(t, "stdout", stdout.String(), tc.wantOut)
 			assertContains(t, "stderr", stderr.String(), tc.wantErr)
 		})
+	}
+}
+
+func TestCheckSummaryShowsDoTAndAServerWithoutPlainDNS(t *testing.T) {
+	cfg := config.Default()
+	cfg.Backend = config.BackendNative
+	cfg.Listen = nil
+	cfg.DoT = config.DoT{
+		Enabled: true, Listen: []string{"0.0.0.0:853", "[::]:853"}, CertFile: "/etc/hecate/cert.pem",
+		KeyFile: "/etc/hecate/key.pem", Names: []string{"k7x9p2qm4t8v3w6z.example.org"},
+	}
+
+	var out bytes.Buffer
+	printSummary(&out, "hecate.yaml", cfg)
+
+	for _, want := range []string{"listen: none, plain DNS is off", "dot: 0.0.0.0:853, [::]:853 (1 server names, certificate /etc/hecate/cert.pem)"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("summary = %q, want it to contain %q", out.String(), want)
+		}
+	}
+	if strings.Contains(out.String(), "k7x9p2qm4t8v3w6z") {
+		t.Error("the summary printed a configured server name; the names are not meant to be shown")
+	}
+}
+
+func TestCheckSummaryHasNoDoTLineWhenDoTIsOff(t *testing.T) {
+	var out bytes.Buffer
+	printSummary(&out, "hecate.yaml", config.Default())
+
+	if strings.Contains(out.String(), "dot:") {
+		t.Errorf("summary = %q, want no DoT line while DoT is off", out.String())
 	}
 }
 

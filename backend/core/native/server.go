@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"sync"
@@ -221,7 +222,7 @@ func servers(socks []socket, h dns.Handler, started func()) []*dns.Server {
 	return out
 }
 
-func serve(ctx context.Context, srvs []*dns.Server, socks []socket, started *sync.WaitGroup, ready, stopQueries func()) error {
+func serve(ctx context.Context, srvs []*dns.Server, closers []io.Closer, started *sync.WaitGroup, ready, stopQueries func()) error {
 	failed := make(chan error, len(srvs))
 	for _, srv := range srvs {
 		go func() { failed <- srv.ActivateAndServe() }()
@@ -231,7 +232,7 @@ func serve(ctx context.Context, srvs []*dns.Server, socks []socket, started *syn
 
 	pending, runErr := awaitStop(ctx, failed, allUp, ready, len(srvs))
 	stopQueries()
-	return errors.Join(runErr, shutdownServers(ctx, srvs, socks, failed, pending))
+	return errors.Join(runErr, shutdownServers(ctx, srvs, closers, failed, pending))
 }
 
 func awaitStop(ctx context.Context, failed <-chan error, allUp <-chan struct{}, ready func(), servers int) (int, error) {
@@ -258,7 +259,7 @@ func awaitStop(ctx context.Context, failed <-chan error, allUp <-chan struct{}, 
 	return pending, runErr
 }
 
-func shutdownServers(ctx context.Context, srvs []*dns.Server, socks []socket, failed <-chan error, pending int) error {
+func shutdownServers(ctx context.Context, srvs []*dns.Server, closers []io.Closer, failed <-chan error, pending int) error {
 	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
 	var errs []error
@@ -268,9 +269,8 @@ func shutdownServers(ctx context.Context, srvs []*dns.Server, socks []socket, fa
 		}
 	}
 
-	for _, s := range socks {
-		_ = s.udp.Close()
-		_ = s.tcp.Close()
+	for _, c := range closers {
+		_ = c.Close()
 	}
 	deadline := time.After(shutdownTimeout)
 	for pending > 0 {

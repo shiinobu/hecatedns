@@ -29,6 +29,11 @@ func startNative(t *testing.T, mutate func(*config.Config)) (*server, <-chan err
 	if err != nil {
 		t.Fatalf("newServer: %v", err)
 	}
+	return s, runServer(t, s)
+}
+
+func runServer(t *testing.T, s *server) <-chan error {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
@@ -50,7 +55,7 @@ func startNative(t *testing.T, mutate func(*config.Config)) (*server, <-chan err
 	case <-time.After(5 * time.Second):
 		t.Fatal("server never became ready")
 	}
-	return s, done
+	return done
 }
 
 func TestServer_AnswersOverUDPAndTCPAndTheAddressesAreReported(t *testing.T) {

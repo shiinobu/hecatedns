@@ -51,6 +51,9 @@ func (r *resources) closeBootstrap() error {
 }
 
 func buildProxyConfig(cfg config.Config, h proxy.Handler, log *slog.Logger, timeout time.Duration) (*proxy.Config, *resources, error) {
+	if cfg.DoT.Enabled {
+		return nil, nil, errors.New("dot: the dnsproxy backend cannot serve DoT, use backend native")
+	}
 	udp, tcp, listenErr := listenAddrs(cfg.Listen)
 	res := &resources{}
 	opts := &upstream.Options{Logger: log, Timeout: timeout}

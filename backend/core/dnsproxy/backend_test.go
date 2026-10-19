@@ -22,6 +22,17 @@ func TestNewRequiresEngine(t *testing.T) {
 	}
 }
 
+func TestNewRefusesDoTBecauseThisBackendIsNotHardenedForTheInternet(t *testing.T) {
+	cfg := testConfig("127.0.0.1:53")
+	cfg.DoT = config.DoT{Enabled: true, Listen: []string{"0.0.0.0:853"}}
+
+	_, err := newServer(cfg, &fakeFilter{}, nil, time.Second)
+
+	if err == nil || !strings.Contains(err.Error(), "dot") {
+		t.Errorf("newServer = %v, want an error saying this backend cannot serve DoT", err)
+	}
+}
+
 func TestBlockedNameNeverReachesUpstream(t *testing.T) {
 	up := startFakeUpstream(t, 300)
 	cfg := testConfig(up.addr)

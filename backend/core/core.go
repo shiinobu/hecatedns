@@ -15,6 +15,7 @@ import (
 const (
 	NetworkUDP = "udp"
 	NetworkTCP = "tcp"
+	NetworkTLS = "tls"
 )
 
 type Backend interface {
