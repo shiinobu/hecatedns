@@ -19,7 +19,7 @@
 | Review per task, or review from the diff only | Master wants one review per phase; the Phase 0 review found its 4 Important issues by running the binary and mutating code | One fresh-context review per phase that may read surrounding code and run things |
 | Make the reviewer edit files | A reviewer reports; the implementer fixes | Reviewer is read-only |
 | Pass `localhost:5300` as a `listen` value | Config rejects hostnames in `listen` | Use an IP: `127.0.0.1:5300` |
-| Push or create a remote "as a backup" | Outward-facing; needs Master's explicit yes | Ask Master; the repo is local only for now |
+| Push or create a remote "as a backup" | Outward-facing; needs Master's explicit yes | Ask Master; `origin` exists and was pushed twice on 2026-10-19 with his yes, but every push still needs his explicit yes |
 | Rely on Task Scheduler "restart on failure" (`-RestartCount`, `-RestartInterval`) to bring hecate back | Tested 2026-10-19: a process killed with `Stop-Process`, and a task that exits with code 1 (restart count 3, interval 1 min), were not restarted (1 run in 215 s) | Boot trigger with repetition every minute and `MultipleInstances IgnoreNew` (`scripts/autostart.ps1`) |
 | `[TimeSpan]::MaxValue` as the repetition duration of a trigger | Task Scheduler rejects it (`0x80041318`, `P99999999DT23H59M59S` out of range) | `New-TimeSpan -Days 365` (repetition restarts at every boot) |
 | `Set-ScheduledTask -Settings` with a freshly built settings set to drop restart settings | Rejected: "task XML is missing a required element (Count)" | Change only the trigger with `Set-ScheduledTask -Trigger`, or `remove` then `install` |

@@ -241,3 +241,7 @@ Keep entries short (the full detail lives in code, tests and commits). Never rew
 - First end-to-end run of the final `scripts/autostart.ps1 install` (the old task was patched live, never installed from the final script); the clean task replaces the one with the harmless `RestartCount=999`.
 - Not re-tested: the phone (its DNS stays `192.168.1.99`, unchanged) and a real PC boot (Q8). The three rename commits are still local; pushing needs Master's yes.
 - Leftovers for Master to delete when he is happy: `C:\Users\Administrator\hecate-migrate.ps1` and `C:\Users\Administrator\.claude.json.bak-xdns-rename` (a copy of his Claude config).
+
+## 2026-10-19 15:05 - Claude (Sonnet 5.5) - rename pushed
+- Master said yes to the push. `git fetch` showed 0 behind and 4 ahead, so a plain `git push origin main` (no force) sufficed: `12187c2..594acc6`. `git ls-remote` returns `594acc67e9d6e1e60ffbd045e101b8ad21ec9019` for `refs/heads/main`.
+- Updated `STATE.md`, `notes/do-not-retry.md` and `rules/02-workflow.md` where they still said the repo was local only. A commit with these note updates is local until Master asks for another push.
