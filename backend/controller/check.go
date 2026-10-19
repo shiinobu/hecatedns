@@ -13,7 +13,11 @@ import (
 	"github.com/shiinobu/hecatedns/backend/service/selfcheck"
 )
 
-const defaultConfigPath = "hecate.yaml"
+const (
+	defaultConfigPath = "hecate.yaml"
+
+	dotExpiryWarning = 14 * 24 * time.Hour
+)
 
 func runCheck(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("check", flag.ContinueOnError)
@@ -73,6 +77,9 @@ func checkDoTCertificate(stdout, stderr io.Writer, cfg config.Config) bool {
 		return false
 	}
 	fmt.Fprintf(stdout, "dot certificate: PASSED (covers every configured name, valid until %s)\n", expires.UTC().Format(time.RFC3339))
+	if left := time.Until(expires); left < dotExpiryWarning {
+		fmt.Fprintf(stdout, "warning: the DoT certificate expires in %d hours, renew it\n", int(left/time.Hour))
+	}
 	return true
 }
 

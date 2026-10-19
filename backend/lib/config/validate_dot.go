@@ -131,5 +131,23 @@ func (c Config) dotWarnings() []string {
 			out = append(out, fmt.Sprintf("dot.names[%d]: the first label is shorter than %d characters, a short name is easy to guess or to find", i, minSecretLabelLen))
 		}
 	}
+	return append(out, c.dotListenWarnings()...)
+}
+
+func (c Config) dotListenWarnings() []string {
+	ipv4Wildcard := make(map[uint16]bool)
+	for _, listen := range c.DoT.Listen {
+		if ap, err := netip.ParseAddrPort(listen); err == nil && ap.Addr().Is4() && ap.Addr().IsUnspecified() {
+			ipv4Wildcard[ap.Port()] = true
+		}
+	}
+	var out []string
+	for i, listen := range c.DoT.Listen {
+		ap, err := netip.ParseAddrPort(listen)
+		if err != nil || !ap.Addr().Is6() || !ap.Addr().IsUnspecified() || ipv4Wildcard[ap.Port()] {
+			continue
+		}
+		out = append(out, fmt.Sprintf("dot.listen[%d]: the IPv6 wildcard serves IPv6 only; add 0.0.0.0:%d for IPv4 clients", i, ap.Port()))
+	}
 	return out
 }

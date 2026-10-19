@@ -135,3 +135,18 @@ func TestAnnounceReportsAServerThatOnlyServesDoT(t *testing.T) {
 	}
 	assertContains(t, "stdout", out.String(), []string{"listening: tls 203.0.113.7:853", "press Ctrl+C to stop"})
 }
+
+func TestCheckWarnsWhenTheDoTCertificateExpiresWithinTwoWeeks(t *testing.T) {
+	dir := t.TempDir()
+	upstream := startTestDNSUpstream(t, false)
+	certPath, keyPath := writeSelfSignedPair(t, dir, []string{"example.org", "*.example.org"}, time.Now().Add(47*time.Hour))
+	cfg := dotCheckConfig(t, dir, upstream, certPath, keyPath)
+	var stdout, stderr bytes.Buffer
+
+	code := Execute([]string{"check", "-config", cfg}, &stdout, &stderr)
+
+	if code != exitOK {
+		t.Fatalf("exit code = %d, want %d (stderr: %q)", code, exitOK, stderr.String())
+	}
+	assertContains(t, "stdout", stdout.String(), []string{"warning: the DoT certificate expires in 4"})
+}
