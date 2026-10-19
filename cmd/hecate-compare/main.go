@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -62,14 +64,15 @@ func main() {
 	start := time.Now().Add(-time.Second)
 	wireA, wireB := ask(*addrA, names, *qps), ask(*addrB, names, *qps)
 	time.Sleep(2 * time.Second)
-	recA, err := readLog(*logA, start)
+	recA, skippedA, err := readLog(*logA, start)
 	if err != nil {
 		fatal("reading log A: %v", err)
 	}
-	recB, err := readLog(*logB, start)
+	recB, skippedB, err := readLog(*logB, start)
 	if err != nil {
 		fatal("reading log B: %v", err)
 	}
+	fmt.Printf("Skipped log lines that could not be decoded: %s=%d, %s=%d\n", *nameA, skippedA, *nameB, skippedB)
 	report(os.Stdout, *nameA, *nameB, merge(wireA, recA), merge(wireB, recB))
 }
 
@@ -125,7 +128,7 @@ func loggedNames(dir string) ([]string, error) {
 	seen := make(map[string]bool)
 	var names []string
 	for _, f := range files {
-		if err := eachRecord(f, func(r logRecord) {
+		if _, err := eachRecord(f, func(r logRecord) {
 			if !seen[r.QName] && r.QName != "" {
 				seen[r.QName] = true
 				names = append(names, r.QName)
@@ -161,23 +164,37 @@ func listedNames(dir string) ([]string, error) {
 	return names, nil
 }
 
-func eachRecord(path string, fn func(logRecord)) error {
-	fh, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer fh.Close()
-	dec := json.NewDecoder(fh)
+func eachLine(r io.Reader, fn func(line []byte)) error {
+	br := bufio.NewReader(r)
 	for {
-		var r logRecord
-		if err := dec.Decode(&r); err != nil {
-			if err == io.EOF {
-				return nil
-			}
+		line, err := br.ReadBytes('\n')
+		if len(bytes.TrimSpace(line)) > 0 {
+			fn(line)
+		}
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
-		fn(r)
+		if err != nil {
+			return err
+		}
 	}
+}
+
+func eachRecord(path string, fn func(logRecord)) (skipped int, err error) {
+	fh, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer fh.Close()
+	err = eachLine(fh, func(line []byte) {
+		var r logRecord
+		if json.Unmarshal(line, &r) != nil {
+			skipped++
+			return
+		}
+		fn(r)
+	})
+	return skipped, err
 }
 
 func ask(addr string, names []string, qps int) map[key]string {
@@ -252,31 +269,35 @@ func answerClass(m *dns.Msg) string {
 	return "records"
 }
 
-func readLog(dir string, since time.Time) (map[key]logRecord, error) {
+func readLog(dir string, since time.Time) (map[key]logRecord, int, error) {
 	files, _ := filepath.Glob(filepath.Join(dir, "queries-*.jsonl"))
 	out := make(map[key]logRecord)
+	skipped := 0
 	for _, f := range files {
 		fh, err := os.Open(f)
 		if err != nil {
-			return nil, err
+			return nil, skipped, err
 		}
-		dec := json.NewDecoder(fh)
-		for {
+		err = eachLine(fh, func(line []byte) {
 			var raw struct {
 				TS string `json:"ts"`
 				logRecord
 			}
-			if err := dec.Decode(&raw); err != nil {
-				break
+			if json.Unmarshal(line, &raw) != nil {
+				skipped++
+				return
 			}
 			if ts, err := time.Parse(time.RFC3339Nano, raw.TS); err == nil && ts.Before(since) {
-				continue
+				return
 			}
 			out[key{strings.TrimSuffix(strings.ToLower(raw.QName), "."), raw.QType}] = raw.logRecord
-		}
+		})
 		fh.Close()
+		if err != nil {
+			return nil, skipped, err
+		}
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
 func merge(wire map[key]string, recs map[key]logRecord) map[key]outcome {
