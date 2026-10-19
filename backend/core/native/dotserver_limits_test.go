@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -278,7 +279,8 @@ func TestDoT_ShutdownEndsOpenConnectionsQuickly(t *testing.T) {
 	}
 }
 
-func TestDotWriter_AWriteToAPeerThatNeverReadsFailsAtTheWriteTimeout(t *testing.T) {
+func pipedTLSServer(t *testing.T) *tls.Conn {
+	t.Helper()
 	pki := newTestPKI(t)
 	certPEM, keyPEM := pki.issue(t, 1, []string{dotBase}, time.Now().Add(time.Hour))
 	pair, err := tls.X509KeyPair(certPEM, keyPEM)
@@ -286,8 +288,7 @@ func TestDotWriter_AWriteToAPeerThatNeverReadsFailsAtTheWriteTimeout(t *testing.
 		t.Fatal(err)
 	}
 	serverEnd, clientEnd := net.Pipe()
-	defer serverEnd.Close()
-	defer clientEnd.Close()
+	t.Cleanup(func() { _ = serverEnd.Close(); _ = clientEnd.Close() })
 	server := tls.Server(serverEnd, &tls.Config{Certificates: []tls.Certificate{pair}, SessionTicketsDisabled: true})
 	client := tls.Client(clientEnd, &tls.Config{RootCAs: pki.pool, ServerName: dotBase})
 	handshakes := make(chan error, 2)
@@ -298,7 +299,11 @@ func TestDotWriter_AWriteToAPeerThatNeverReadsFailsAtTheWriteTimeout(t *testing.
 			t.Fatalf("handshake: %v", err)
 		}
 	}
-	w := &dotWriter{conn: server, timeout: 100 * time.Millisecond}
+	return server
+}
+
+func TestDotWriter_AWriteToAPeerThatNeverReadsFailsAtTheWriteTimeout(t *testing.T) {
+	w := &dotWriter{conn: pipedTLSServer(t), timeout: 100 * time.Millisecond}
 	result := make(chan error, 1)
 
 	go func() {
@@ -316,6 +321,26 @@ func TestDotWriter_AWriteToAPeerThatNeverReadsFailsAtTheWriteTimeout(t *testing.
 	}
 }
 
+func TestDotWriter_CloseAfterAFailedWriteDoesNotWaitForThePeer(t *testing.T) {
+	w := &dotWriter{conn: pipedTLSServer(t), timeout: 100 * time.Millisecond}
+	if _, err := w.Write(make([]byte, 512)); err == nil {
+		t.Fatal("a write to a peer that never reads succeeded")
+	}
+	closed := make(chan struct{})
+
+	start := time.Now()
+	go func() {
+		_ = w.Close()
+		close(closed)
+	}()
+
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Close still blocked after %v: it waits for a peer that never reads to take the close_notify alert", time.Since(start))
+	}
+}
+
 func TestConnPool_ReleaseIsIdempotentAndTheCapsHold(t *testing.T) {
 	pool := newConnPool(2, 2)
 	ip := netip.MustParseAddr("192.0.2.1")
@@ -329,5 +354,44 @@ func TestConnPool_ReleaseIsIdempotentAndTheCapsHold(t *testing.T) {
 
 	if first != "" || second != "" || third != reasonTLSBusy {
 		t.Errorf("refusals = %q, %q, %q; want none, none and %q", first, second, third, reasonTLSBusy)
+	}
+}
+
+func TestDoT_InFlightQueriesAreBoundedAcrossAllConnections(t *testing.T) {
+	const delay = 300 * time.Millisecond
+	var running, peak atomic.Int32
+	up := startFakeDNS(t, func(req *dns.Msg, _ string) *dns.Msg {
+		now := running.Add(1)
+		for {
+			seen := peak.Load()
+			if now <= seen || peak.CompareAndSwap(seen, now) {
+				break
+			}
+		}
+		time.Sleep(delay)
+		running.Add(-1)
+		return aReply(req)
+	})
+	env := startDoTWith(t, func(c *config.Config) { c.Upstreams = []string{up.addr} }, func(l *dotLimits) { l.inFlightTotal = 2 })
+	conns := []*dns.Conn{env.dial(t), env.dial(t)}
+	for i, conn := range conns {
+		for j := range 2 {
+			if err := conn.WriteMsg(queryFor(fmt.Sprintf("slow%d-%d.example", i, j), dns.TypeA)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	for _, conn := range conns {
+		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+		for range 2 {
+			if _, err := conn.ReadMsg(); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	if got := peak.Load(); got > 2 {
+		t.Errorf("%d queries were in flight at once, want at most 2 across all connections", got)
 	}
 }

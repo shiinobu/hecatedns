@@ -24,6 +24,7 @@ const (
 	maxDoTConnsPerIP    = 8
 	maxDoTQueries       = 1000
 	maxDoTInFlight      = 16
+	maxDoTInFlightTotal = 256
 	maxDoTFrame         = 4096
 
 	dotHandshakeTimeout = 4 * time.Second
@@ -43,6 +44,7 @@ type dotLimits struct {
 	total, perIP    int
 	maxQueries      int
 	inFlight        int
+	inFlightTotal   int
 	maxFrame        int
 
 	handshake  time.Duration
@@ -56,7 +58,7 @@ func defaultDoTLimits() dotLimits {
 	return dotLimits{
 		preTotal: maxDoTPreConns, preIP: maxDoTPreConnsPerIP,
 		total: maxDoTConns, perIP: maxDoTConnsPerIP,
-		maxQueries: maxDoTQueries, inFlight: maxDoTInFlight, maxFrame: maxDoTFrame,
+		maxQueries: maxDoTQueries, inFlight: maxDoTInFlight, inFlightTotal: maxDoTInFlightTotal, maxFrame: maxDoTFrame,
 		handshake: dotHandshakeTimeout, firstQuery: tcpReadTimeout, idle: dotIdleTimeout,
 		frame: tcpReadTimeout, write: ioTimeout,
 	}
@@ -115,6 +117,7 @@ type dotServer struct {
 	admit    func(netip.Addr) bool
 	lim      dotLimits
 	pre, est *connPool
+	wide     chan struct{}
 	started  func()
 
 	mu      sync.Mutex
@@ -132,6 +135,7 @@ var _ runner = (*dotServer)(nil)
 
 func bindDoT(addrs []netip.AddrPort, p dotParams) ([]*dotServer, error) {
 	pre, est := newConnPool(p.lim.preTotal, p.lim.preIP), newConnPool(p.lim.total, p.lim.perIP)
+	wide := make(chan struct{}, p.lim.inFlightTotal)
 	var out []*dotServer
 	for _, ap := range addrs {
 		ln, err := net.Listen(networkFor("tcp", ap), ap.String())
@@ -143,7 +147,7 @@ func bindDoT(addrs []netip.AddrPort, p dotParams) ([]*dotServer, error) {
 		}
 		out = append(out, &dotServer{
 			ln: ln, cfg: p.tls, handler: p.owner.forProto(protoTLS), owner: p.owner, log: p.owner.log,
-			admit: p.admit, lim: p.lim, pre: pre, est: est, conns: make(map[net.Conn]struct{}),
+			admit: p.admit, lim: p.lim, pre: pre, est: est, wide: wide, conns: make(map[net.Conn]struct{}),
 		})
 	}
 	return out, nil
@@ -257,9 +261,10 @@ func (s *dotServer) serveConn(conn *tls.Conn) {
 			continue
 		}
 		slots <- struct{}{}
+		s.wide <- struct{}{}
 		inFlight.Add(1)
 		go func() {
-			defer func() { <-slots; inFlight.Done() }()
+			defer func() { <-s.wide; <-slots; inFlight.Done() }()
 			s.run(w, req)
 		}()
 	}
@@ -375,7 +380,7 @@ func (w *dotWriter) Write(b []byte) (int, error) {
 	return max(n-2, 0), err
 }
 
-func (w *dotWriter) Close() error        { return w.conn.Close() }
+func (w *dotWriter) Close() error        { return w.conn.NetConn().Close() }
 func (w *dotWriter) TsigStatus() error   { return nil }
 func (w *dotWriter) TsigTimersOnly(bool) {}
 func (w *dotWriter) Hijack()             {}
