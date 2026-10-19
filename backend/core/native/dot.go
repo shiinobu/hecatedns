@@ -31,6 +31,7 @@ const (
 	certExpiryLogEvery = time.Hour
 
 	protoTLS = "tls"
+	alpnDoT  = "dot"
 )
 
 var errServerNameNotServed = errors.New("tls server name is not served")
@@ -172,6 +173,7 @@ func (h *handler) dotTLSConfig(store *certStore, names []string) *tls.Config {
 	}
 	return &tls.Config{
 		MinVersion:     tls.VersionTLS12,
+		NextProtos:     []string{alpnDoT},
 		GetCertificate: store.get,
 		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
 			if _, ok := served[serverNameKey(hello.ServerName)]; ok {

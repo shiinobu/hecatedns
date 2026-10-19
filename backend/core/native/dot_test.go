@@ -222,6 +222,20 @@ func TestDoT_RefusesToStartWithACertificateThatCannotServeTheConfiguredNames(t *
 	}
 }
 
+func TestDoT_NegotiatesTheDotALPNWhenTheClientOffersIt(t *testing.T) {
+	env := startDoT(t, nil)
+
+	conn, err := tls.Dial("tcp", env.addr(t), &tls.Config{RootCAs: env.pki.pool, ServerName: dotName, NextProtos: []string{"dot"}})
+
+	if err != nil {
+		t.Fatalf("handshake offering ALPN dot: %v", err)
+	}
+	defer conn.Close()
+	if got := conn.ConnectionState().NegotiatedProtocol; got != "dot" {
+		t.Errorf("negotiated protocol = %q, want dot", got)
+	}
+}
+
 func TestDoT_TLSOneTwoIsTheOldestVersionServed(t *testing.T) {
 	env := startDoT(t, nil)
 
