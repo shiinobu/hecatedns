@@ -1,8 +1,10 @@
 package conformance
 
 import (
+	"errors"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/miekg/dns"
 
@@ -42,6 +44,7 @@ var cases = []testCase{
 	{"custom block rule blocks and names its rule", customBlockRule},
 	{"list allow beats list block", listAllowBeatsListBlock},
 	{"client outside allowed_clients is refused", aclRefuses},
+	{"TCP client outside allowed_clients gets no answer and is disconnected", aclClosesTCP},
 	{"one log record per query, cache hits included", logRecordPerQuery},
 	{"opcode other than QUERY is answered NOTIMP, never forwarded", nonQueryOpcode},
 	{"CNAME to a blocked domain is blocked on both upstream and cache hit", blockedCNAMEAndCacheHit},
@@ -176,6 +179,36 @@ func aclRefuses(t *testing.T, factory core.Factory) {
 		if e.Action != engine.ActionBlock || e.Reason != engine.ReasonACL || e.RCode != "REFUSED" {
 			t.Errorf("record = %+v, want an ACL refusal", e)
 		}
+	}
+}
+
+func aclClosesTCP(t *testing.T, factory core.Factory) {
+	h := start(t, factory, setup{allowedClients: []string{"10.0.0.0/8"}})
+
+	conn, err := net.DialTimeout("tcp", h.bound.Addr(core.NetworkTCP).String(), clientTimeout)
+	if err != nil {
+		t.Fatalf("connecting over TCP: %v", err)
+	}
+	defer conn.Close()
+	req := new(dns.Msg)
+	req.SetQuestion("fine.example.", dns.TypeA)
+	wire, err := req.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = conn.Write(append([]byte{byte(len(wire) >> 8), byte(len(wire))}, wire...))
+
+	_ = conn.SetReadDeadline(time.Now().Add(disconnectLimit))
+	n, err := conn.Read(make([]byte, 512))
+	var netErr net.Error
+	switch {
+	case err == nil:
+		t.Errorf("a client outside allowed_clients received %d bytes over TCP, want none", n)
+	case errors.As(err, &netErr) && netErr.Timeout():
+		t.Errorf("the TCP connection of a client outside allowed_clients was still open after %v", disconnectLimit)
+	}
+	if got := h.upstream.queries("fine.example"); got != 0 {
+		t.Errorf("a refused client's query reached the upstream %d times", got)
 	}
 }
 

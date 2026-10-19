@@ -217,6 +217,16 @@ func (h *handler) drop(reason string, client netip.Addr) {
 	h.log.Warn("dropping queries", "reason", reason, "client", client.String(), "dropped_total", n)
 }
 
+func (h *handler) admitTCP(acl *engine.ACL) func(netip.Addr) bool {
+	return func(client netip.Addr) bool {
+		if acl.Allows(client) {
+			return true
+		}
+		h.drop("tcp client outside allowed_clients", client)
+		return false
+	}
+}
+
 func servFail(req *dns.Msg) *dns.Msg {
 	if req == nil {
 		return &dns.Msg{MsgHdr: dns.MsgHdr{Response: true, RecursionAvailable: true, Rcode: dns.RcodeServerFailure}}

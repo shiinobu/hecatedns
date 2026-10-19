@@ -22,6 +22,8 @@ const (
 	waitStep      = 5 * time.Millisecond
 	waitLimit     = 5 * time.Second
 
+	disconnectLimit = 3 * time.Second
+
 	upstreamTTL = 300
 )
 

@@ -90,15 +90,16 @@ type limitListener struct {
 	done      chan struct{}
 	closeOnce sync.Once
 
+	admit  func(netip.Addr) bool
 	perIP  int
 	mu     sync.Mutex
 	counts map[netip.Addr]int
 }
 
-func newLimitListener(l net.Listener, limit, perIP int) *limitListener {
+func newLimitListener(l net.Listener, limit, perIP int, admit func(netip.Addr) bool) *limitListener {
 	return &limitListener{
 		Listener: l, slots: make(chan struct{}, limit), done: make(chan struct{}),
-		perIP: perIP, counts: make(map[netip.Addr]int),
+		admit: admit, perIP: perIP, counts: make(map[netip.Addr]int),
 	}
 }
 
@@ -115,7 +116,7 @@ func (l *limitListener) Accept() (net.Conn, error) {
 			return nil, err
 		}
 		ip := remoteIP(conn)
-		if !l.reserve(ip) {
+		if !l.admit(ip) || !l.reserve(ip) {
 			_ = conn.Close()
 			<-l.slots
 			continue
@@ -133,20 +134,22 @@ func remoteIP(conn net.Conn) netip.Addr {
 }
 
 func (l *limitListener) reserve(ip netip.Addr) bool {
+	key := limitKey(ip)
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.counts[ip] >= l.perIP {
+	if l.counts[key] >= l.perIP {
 		return false
 	}
-	l.counts[ip]++
+	l.counts[key]++
 	return true
 }
 
 func (l *limitListener) unreserve(ip netip.Addr) {
+	key := limitKey(ip)
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.counts[ip]--; l.counts[ip] <= 0 {
-		delete(l.counts, ip)
+	if l.counts[key]--; l.counts[key] <= 0 {
+		delete(l.counts, key)
 	}
 }
 
@@ -172,7 +175,7 @@ type socket struct {
 	tcp *limitListener
 }
 
-func bind(addrs []netip.AddrPort) ([]socket, error) {
+func bind(addrs []netip.AddrPort, admit func(netip.Addr) bool) ([]socket, error) {
 	var socks []socket
 	closeAll := func() {
 		for _, s := range socks {
@@ -192,7 +195,7 @@ func bind(addrs []netip.AddrPort) ([]socket, error) {
 			closeAll()
 			return nil, fmt.Errorf("listening on tcp %s: %w", ap, err)
 		}
-		socks = append(socks, socket{udp: udp, tcp: newLimitListener(tcp, maxTCPConns, maxTCPConnsPerIP)})
+		socks = append(socks, socket{udp: udp, tcp: newLimitListener(tcp, maxTCPConns, maxTCPConnsPerIP, admit)})
 	}
 	return socks, nil
 }

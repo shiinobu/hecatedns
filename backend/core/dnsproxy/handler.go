@@ -41,16 +41,21 @@ type handler struct {
 
 func (h *handler) ServeDNS(ctx context.Context, p *proxy.Proxy, dctx *proxy.DNSContext) (err error) {
 	stage := stageFilter
+	disconnect := false
 	defer func() {
 		if r := recover(); r != nil {
 			err = h.recovered(ctx, dctx, stage, r)
 		}
-		if dctx.Res == nil {
+		if dctx.Res == nil && !disconnect {
 			dctx.Res = servFail(dctx.Req)
 		}
 	}()
 	q := engine.Query{Req: dctx.Req, Client: dctx.Addr.Addr().Unmap(), Proto: string(dctx.Proto)}
 	if dec := h.filter.Before(ctx, q); dec.Verdict == engine.Block {
+		if dec.Reason == engine.ReasonACL && isStream(dctx.Proto) {
+			dctx.Res, disconnect = nil, true
+			return nil
+		}
 		dctx.Res = dec.Resp
 		return nil
 	}
@@ -91,6 +96,10 @@ func (h *handler) recovered(ctx context.Context, dctx *proxy.DNSContext, stage h
 		dctx.Res = servFail(dctx.Req)
 	}
 	return nil
+}
+
+func isStream(p proxy.Proto) bool {
+	return p == proxy.ProtoTCP || p == proxy.ProtoTLS
 }
 
 func servFail(req *dns.Msg) *dns.Msg {

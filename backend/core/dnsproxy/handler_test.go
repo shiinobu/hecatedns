@@ -57,6 +57,49 @@ func TestHandlerBlockAnswersWithoutResolve(t *testing.T) {
 	}
 }
 
+func TestHandlerACLRefusalOverAStreamClosesTheConnectionWithoutAnAnswer(t *testing.T) {
+	for _, proto := range []proxy.Proto{proxy.ProtoTCP, proxy.ProtoTLS} {
+		t.Run(string(proto), func(t *testing.T) {
+			dctx := newDNSContext()
+			dctx.Proto = proto
+			f := &fakeFilter{before: engine.Decision{Verdict: engine.Block, Resp: engine.Refuse(dctx.Req), Reason: engine.ReasonACL}}
+			h := &handler{filter: f, log: discardLog}
+
+			err := h.ServeDNS(context.Background(), nil, dctx)
+
+			if err != nil || dctx.Res != nil {
+				t.Fatalf("ServeDNS = %v, Res %v; want no error and no response, so dnsproxy closes the connection", err, dctx.Res)
+			}
+		})
+	}
+}
+
+func TestHandlerRefusalsThatAreNotTheACLAndUDPRefusalsStillGetAnAnswer(t *testing.T) {
+	tests := []struct {
+		name   string
+		proto  proxy.Proto
+		reason string
+	}{
+		{"ACL refusal over UDP", proxy.ProtoUDP, engine.ReasonACL},
+		{"list block over TCP", proxy.ProtoTCP, engine.ReasonList},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dctx := newDNSContext()
+			dctx.Proto = tt.proto
+			answer := engine.Refuse(dctx.Req)
+			f := &fakeFilter{before: engine.Decision{Verdict: engine.Block, Resp: answer, Reason: tt.reason}}
+			h := &handler{filter: f, log: discardLog}
+
+			err := h.ServeDNS(context.Background(), nil, dctx)
+
+			if err != nil || dctx.Res != answer {
+				t.Fatalf("ServeDNS = %v, Res %v; want the decision's answer", err, dctx.Res)
+			}
+		})
+	}
+}
+
 func TestHandlerNeverLeavesResponseNil(t *testing.T) {
 	tests := []struct {
 		name   string

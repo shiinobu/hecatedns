@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -213,7 +215,7 @@ func TestLimitListener_WaitsForAFreeSlotAndReleasesOnClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := newLimitListener(raw, 2, 10)
+	l := newLimitListener(raw, 2, 10, admitAll)
 	defer l.Close()
 	dial := func() net.Conn {
 		c, err := net.Dial("tcp", raw.Addr().String())
@@ -263,7 +265,7 @@ func TestLimitListener_CloseWakesAWaitingAccept(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := newLimitListener(raw, 1, 10)
+	l := newLimitListener(raw, 1, 10, admitAll)
 	l.slots <- struct{}{}
 
 	done := make(chan error, 1)
@@ -322,7 +324,7 @@ func TestLimitListener_CapsConnectionsPerClientAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := newLimitListener(raw, 10, 2)
+	l := newLimitListener(raw, 10, 2, admitAll)
 	defer l.Close()
 	dial := func() net.Conn {
 		c, err := net.Dial("tcp", raw.Addr().String())
@@ -411,12 +413,93 @@ func TestServer_StopsWhenCancelledBeforeItHasStarted(t *testing.T) {
 	_ = ln.Close()
 }
 
+func admitAll(netip.Addr) bool { return true }
+
+func TestLimitListener_ClosesConnectionsOfClientsThatAreNotAdmittedAndGivesTheSlotBack(t *testing.T) {
+	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const refused = 5
+	var asked atomic.Int32
+	l := newLimitListener(raw, 1, 10, func(netip.Addr) bool { return asked.Add(1) > refused })
+	defer l.Close()
+	accepted := make(chan net.Conn, 4)
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			accepted <- c
+		}
+	}()
+	dial := func() net.Conn {
+		c, err := net.Dial("tcp", raw.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { c.Close() })
+		return c
+	}
+
+	for i := 0; i < refused; i++ {
+		c := dial()
+		_ = c.SetReadDeadline(time.Now().Add(time.Second))
+		if _, err := c.Read(make([]byte, 1)); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("connection %d of a client that is not admitted: read = %v, want it closed by the server at once", i+1, err)
+		}
+	}
+	select {
+	case <-accepted:
+		t.Fatal("a connection of a client that is not admitted was handed to the server")
+	default:
+	}
+
+	dial()
+	select {
+	case <-accepted:
+	case <-time.After(time.Second):
+		t.Error("an admitted client was not accepted; the refused connections kept the only slot")
+	}
+}
+
+func TestLimitListener_HostsOfOneIPv6PrefixShareThePerAddressCap(t *testing.T) {
+	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := newLimitListener(raw, 10, 2, admitAll)
+	defer l.Close()
+
+	if !l.reserve(ipv6In(1, 1)) || !l.reserve(ipv6In(1, 2)) {
+		t.Fatal("the first two connections of a /64 were refused")
+	}
+	if l.reserve(ipv6In(1, 3)) {
+		t.Error("a third host of the same /64 got a connection, want the cap shared by the prefix")
+	}
+	if !l.reserve(ipv6In(2, 1)) {
+		t.Error("a host of another /64 was refused because of the first prefix")
+	}
+
+	l.unreserve(ipv6In(1, 1))
+	if !l.reserve(ipv6In(1, 3)) {
+		t.Error("a connection was still refused after the prefix was back under its cap")
+	}
+	l.unreserve(ipv6In(1, 2))
+	l.unreserve(ipv6In(1, 3))
+	l.unreserve(ipv6In(2, 1))
+	if len(l.counts) != 0 {
+		t.Errorf("the listener still counts %d clients after every connection closed", len(l.counts))
+	}
+}
+
 func TestLimitListener_EveryRejectedConnectionGivesItsSlotBack(t *testing.T) {
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := newLimitListener(raw, 2, 1)
+	l := newLimitListener(raw, 2, 1, admitAll)
 	defer l.Close()
 	accepted := make(chan net.Conn, 8)
 	go func() {
