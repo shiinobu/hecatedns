@@ -7,8 +7,8 @@ import (
 	"io"
 	"time"
 
-	"xdns/internal/config"
-	"xdns/internal/qlog"
+	"github.com/shiinobu/hecatedns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/qlog"
 )
 
 const (
@@ -16,7 +16,7 @@ const (
 	defaultLogWindow = 30 * time.Second
 )
 
-// runLog implements `xdns log`: print the query log, newest part of it.
+// runLog implements `hecate log`: print the query log, newest part of it.
 func runLog(args []string, stdout, stderr io.Writer) int {
 	return runLogAt(args, stdout, stderr, time.Now())
 }
@@ -36,19 +36,19 @@ func runLogAt(args []string, stdout, stderr io.Writer, now time.Time) int {
 		return exitUsage
 	}
 	if flags.NArg() > 0 {
-		fmt.Fprintf(stderr, "xdns log: argumen tak terduga %q\n", flags.Args())
+		fmt.Fprintf(stderr, "hecate log: argumen tak terduga %q\n", flags.Args())
 		return exitUsage
 	}
 	filter, err := buildLogFilter(now, *since, *around, *window)
 	if err != nil {
-		fmt.Fprintf(stderr, "xdns log: %v\n", err)
+		fmt.Fprintf(stderr, "hecate log: %v\n", err)
 		return exitUsage
 	}
 	filter.Grep, filter.BlockedOnly = *grep, *blocked
 
 	cfg, err := config.Load(*path)
 	if err != nil {
-		fmt.Fprintf(stderr, "xdns log: %v\n", err)
+		fmt.Fprintf(stderr, "hecate log: %v\n", err)
 		return exitError
 	}
 	return printLog(cfg, filter, stdout, stderr)
@@ -88,7 +88,7 @@ func printLog(cfg config.Config, filter qlog.Filter, stdout, stderr io.Writer) i
 		fmt.Fprintln(stdout, rec.Line(filter.Location))
 	})
 	if err != nil {
-		fmt.Fprintf(stderr, "xdns log: %v\n", err)
+		fmt.Fprintf(stderr, "hecate log: %v\n", err)
 		return exitError
 	}
 	if stats.Matched == 0 {

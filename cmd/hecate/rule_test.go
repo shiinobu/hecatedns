@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"xdns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/engine"
 )
 
 // ruleFixture is a config file next to a (not yet created) rules file.
@@ -21,7 +21,7 @@ func newRuleFixture(t *testing.T) ruleFixture {
 	t.Helper()
 	dir := t.TempDir()
 	return ruleFixture{
-		config: writeFile(t, dir, "xdns.yaml", "rules:\n  file: data/rules.txt\n  poll_interval: 2s\n"),
+		config: writeFile(t, dir, "hecate.yaml", "rules:\n  file: data/rules.txt\n  poll_interval: 2s\n"),
 		rules:  filepath.Join(dir, "data", "rules.txt"),
 	}
 }
@@ -278,7 +278,7 @@ func TestRule_UsageErrors(t *testing.T) {
 	}
 	for _, args := range tests {
 		code, _, stderr := f.run(t, args...)
-		if code != exitUsage || !strings.Contains(stderr, "penggunaan") && !strings.Contains(stderr, "xdns rule") {
+		if code != exitUsage || !strings.Contains(stderr, "penggunaan") && !strings.Contains(stderr, "hecate rule") {
 			t.Errorf("args %v: exit = %d, stderr = %q; want a usage error", args, code, stderr)
 		}
 	}

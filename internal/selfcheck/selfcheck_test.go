@@ -13,8 +13,8 @@ import (
 
 	"github.com/miekg/dns"
 
-	"xdns/internal/config"
-	"xdns/internal/lists"
+	"github.com/shiinobu/hecatedns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/lists"
 )
 
 func startFakeUpstream(t *testing.T, handler func(req *dns.Msg) *dns.Msg) string {

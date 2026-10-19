@@ -9,7 +9,7 @@ import (
 
 	"github.com/miekg/dns"
 
-	"xdns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/config"
 )
 
 func TestBeforeSpecialNames(t *testing.T) {

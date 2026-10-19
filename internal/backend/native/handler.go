@@ -13,7 +13,7 @@ import (
 
 	"github.com/miekg/dns"
 
-	"xdns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/engine"
 )
 
 const (

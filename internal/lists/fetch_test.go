@@ -20,7 +20,7 @@ import (
 
 	"github.com/miekg/dns"
 
-	"xdns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/config"
 )
 
 func newTLSServer(t *testing.T, h http.HandlerFunc) (*httptest.Server, *http.Client) {

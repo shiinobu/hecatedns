@@ -1,20 +1,20 @@
 <#
 .SYNOPSIS
-  Memasang, menghapus, atau memeriksa tugas Task Scheduler yang menjalankan xdns saat PC menyala.
+  Memasang, menghapus, atau memeriksa tugas Task Scheduler yang menjalankan hecate saat PC menyala.
 
 .DESCRIPTION
-  install  Membuat tugas "xdns": jalan 30 detik setelah boot (tanpa perlu login), sebagai akun
+  install  Membuat tugas "hecate": jalan 30 detik setelah boot (tanpa perlu login), sebagai akun
            sekarang dengan hak biasa (bukan SYSTEM, bukan "highest"), tersembunyi, tanpa batas
            waktu. Pemicunya diulang tiap 1 menit selama 365 hari sejak tiap boot; karena tugas tidak membuat
-           salinan kedua, ulangan itu hanya menghidupkan xdns bila belum jalan (misalnya
-           Wi-Fi belum memberi alamat 192.168.1.99 saat boot lalu xdns berhenti dengan galat).
+           salinan kedua, ulangan itu hanya menghidupkan hecate bila belum jalan (misalnya
+           Wi-Fi belum memberi alamat 192.168.1.99 saat boot lalu hecate berhenti dengan galat).
            Perintah ini mengubah Windows; jalankan dari PowerShell Administrator.
   remove   Menghentikan dan menghapus tugas. Ini satu-satunya rollback yang diperlukan.
-  status   Menampilkan keadaan tugas dan proses xdns.
+  status   Menampilkan keadaan tugas dan proses hecate.
 
-  Tugas menjalankan bin\xdns.exe run -config xdns.yaml dari folder proyek. Aturan firewall
-  terikat ke jalur bin\xdns.exe, jadi bangun ulang ke jalur yang sama dan jangan pindahkan.
-  Log operasional ada di <log.dir>\xdns.log (maks 5 MB, satu cadangan .1).
+  Tugas menjalankan bin\hecate.exe run -config hecate.yaml dari folder proyek. Aturan firewall
+  terikat ke jalur bin\hecate.exe, jadi bangun ulang ke jalur yang sama dan jangan pindahkan.
+  Log operasional ada di <log.dir>\hecate.log (maks 5 MB, satu cadangan .1).
 
 .EXAMPLE
   powershell -File scripts\autostart.ps1 install
@@ -35,7 +35,7 @@ if (-not $Root) {
     $Root = Split-Path -Parent $scriptDir
 }
 $Root = (Resolve-Path -LiteralPath $Root).Path
-$TaskName = 'xdns'
+$TaskName = 'hecate'
 $RetryEvery = New-TimeSpan -Minutes 1
 $RetryFor = New-TimeSpan -Days 365
 $BootDelay = 'PT30S'
@@ -45,26 +45,26 @@ function Test-Administrator {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-function Get-XdnsTask {
+function Get-HecateTask {
     return Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 }
 
-function Install-XdnsTask {
+function Install-HecateTask {
     if (-not (Test-Administrator)) {
         throw 'Jalankan dari PowerShell Administrator: membuat tugas terjadwal mengubah Windows.'
     }
-    $exe = Join-Path $Root 'bin\xdns.exe'
-    $config = Join-Path $Root 'xdns.yaml'
+    $exe = Join-Path $Root 'bin\hecate.exe'
+    $config = Join-Path $Root 'hecate.yaml'
     foreach ($path in $exe, $config) {
         if (-not (Test-Path -LiteralPath $path)) {
-            throw "Tidak ada: $path (bangun dengan: go build -o bin\xdns.exe ./cmd/xdns)"
+            throw "Tidak ada: $path (bangun dengan: go build -o bin\hecate.exe ./cmd/hecate)"
         }
     }
     & $exe check -config $config | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        throw "xdns check gagal untuk $config; perbaiki konfigurasi dulu."
+        throw "hecate check gagal untuk $config; perbaiki konfigurasi dulu."
     }
-    if (Get-XdnsTask) {
+    if (Get-HecateTask) {
         throw "Tugas '$TaskName' sudah ada. Jalankan 'remove' dulu bila ingin memasangnya ulang."
     }
 
@@ -78,42 +78,42 @@ function Install-XdnsTask {
         -StartWhenAvailable -Hidden -MultipleInstances IgnoreNew `
         -ExecutionTimeLimit ([TimeSpan]::Zero)
     Register-ScheduledTask -TaskName $TaskName -Action $taskAction -Trigger $trigger -Principal $principal `
-        -Settings $settings -Description 'xdns: pemblokir iklan berbasis DNS (lihat scripts\autostart.ps1)' | Out-Null
+        -Settings $settings -Description 'hecate: pemblokir iklan berbasis DNS (lihat scripts\autostart.ps1)' | Out-Null
     Write-Output "Tugas '$TaskName' dipasang untuk $user. Jalan otomatis 30 detik setelah boot."
     Write-Output "Mulai sekarang: Start-ScheduledTask -TaskName $TaskName   Cabut: scripts\autostart.ps1 remove"
 }
 
-function Remove-XdnsTask {
+function Remove-HecateTask {
     if (-not (Test-Administrator)) {
         throw 'Jalankan dari PowerShell Administrator.'
     }
-    if (-not (Get-XdnsTask)) {
+    if (-not (Get-HecateTask)) {
         Write-Output "Tugas '$TaskName' tidak ada; tidak ada yang dihapus."
         return
     }
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-    Write-Output "Tugas '$TaskName' dihapus. Proses xdns yang dijalankan tugas ikut dihentikan."
+    Write-Output "Tugas '$TaskName' dihapus. Proses hecate yang dijalankan tugas ikut dihentikan."
 }
 
-function Show-XdnsStatus {
-    $task = Get-XdnsTask
+function Show-HecateStatus {
+    $task = Get-HecateTask
     if (-not $task) {
         Write-Output "Tugas '$TaskName': tidak terpasang."
     } else {
         $info = Get-ScheduledTaskInfo -TaskName $TaskName
         Write-Output "Tugas '$TaskName': $($task.State); hasil terakhir 0x$('{0:X}' -f $info.LastTaskResult); jalan terakhir $($info.LastRunTime)"
     }
-    $procs = Get-Process -Name xdns -ErrorAction SilentlyContinue
+    $procs = Get-Process -Name hecate -ErrorAction SilentlyContinue
     if ($procs) {
-        $procs | ForEach-Object { Write-Output "Proses xdns: PID $($_.Id), mulai $($_.StartTime), $([math]::Round($_.WorkingSet64 / 1MB, 1)) MB" }
+        $procs | ForEach-Object { Write-Output "Proses hecate: PID $($_.Id), mulai $($_.StartTime), $([math]::Round($_.WorkingSet64 / 1MB, 1)) MB" }
     } else {
-        Write-Output 'Proses xdns: tidak berjalan.'
+        Write-Output 'Proses hecate: tidak berjalan.'
     }
 }
 
 switch ($Action) {
-    'install' { Install-XdnsTask }
-    'remove'  { Remove-XdnsTask }
-    'status'  { Show-XdnsStatus }
+    'install' { Install-HecateTask }
+    'remove'  { Remove-HecateTask }
+    'status'  { Show-HecateStatus }
 }

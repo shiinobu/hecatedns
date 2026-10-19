@@ -3,8 +3,8 @@ package conformance
 import (
 	"testing"
 
-	"xdns/internal/backend/dnsproxybe"
-	"xdns/internal/backend/native"
+	"github.com/shiinobu/hecatedns/internal/backend/dnsproxybe"
+	"github.com/shiinobu/hecatedns/internal/backend/native"
 )
 
 // constructors lists every backend under test. Each must pass the same suite

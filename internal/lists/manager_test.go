@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"xdns/internal/config"
-	"xdns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/engine"
 )
 
 type recordingSwapper struct {

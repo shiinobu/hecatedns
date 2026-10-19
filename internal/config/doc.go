@@ -1,3 +1,3 @@
-// Package config defines the xdns YAML schema and loads and validates
+// Package config defines the hecate YAML schema and loads and validates
 // configuration files.
 package config

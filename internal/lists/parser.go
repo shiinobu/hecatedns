@@ -10,8 +10,8 @@ import (
 	"io"
 	"strings"
 
-	"xdns/internal/config"
-	"xdns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/engine"
 )
 
 // Limits applied when parsing an untrusted blocklist stream.

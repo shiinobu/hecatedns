@@ -1,4 +1,4 @@
-module xdns
+module github.com/shiinobu/hecatedns
 
 go 1.26.9
 

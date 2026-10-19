@@ -1,2 +1,2 @@
-// Package dnsproxybe adapts AdGuard dnsproxy to the xdns Backend interface.
+// Package dnsproxybe adapts AdGuard dnsproxy to the hecate Backend interface.
 package dnsproxybe

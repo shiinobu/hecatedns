@@ -11,7 +11,7 @@ import (
 
 	"github.com/miekg/dns"
 
-	"xdns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/config"
 )
 
 func exchange(t *testing.T, u upstream, q *dns.Msg) (*dns.Msg, error) {

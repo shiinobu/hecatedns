@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"xdns/internal/lists"
+	"github.com/shiinobu/hecatedns/internal/lists"
 )
 
 func TestListsCLI(t *testing.T) {
@@ -32,7 +32,7 @@ func TestListsCLI(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	cfgPath := writeFile(t, dir, "xdns.yaml", fmt.Sprintf(`
+	cfgPath := writeFile(t, dir, "hecate.yaml", fmt.Sprintf(`
 data_dir: data
 lists:
   update_interval: 24h

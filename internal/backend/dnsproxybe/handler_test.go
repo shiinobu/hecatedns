@@ -8,7 +8,7 @@ import (
 	"github.com/AdguardTeam/dnsproxy/proxy"
 	"github.com/miekg/dns"
 
-	"xdns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/engine"
 )
 
 // fakeFilter returns a fixed Before decision and remembers the query.

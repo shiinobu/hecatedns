@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"xdns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/engine"
 )
 
 const (

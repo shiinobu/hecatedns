@@ -17,9 +17,9 @@ import (
 	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/miekg/dns"
 
-	"xdns/internal/config"
-	"xdns/internal/engine"
-	"xdns/internal/lists"
+	"github.com/shiinobu/hecatedns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/lists"
 )
 
 const (
@@ -203,7 +203,7 @@ func checkCachedLists(ctx context.Context, cfg config.Config, res *Result) error
 		path := filepath.Join(dir, src.Name+".txt")
 		if _, statErr := os.Stat(path); errors.Is(statErr, os.ErrNotExist) {
 			res.Lists = append(res.Lists, ListResult{Name: src.Name, Kind: src.Kind, Cached: false})
-			res.Warnings = append(res.Warnings, fmt.Sprintf("cache daftar %q belum ada; jalankan 'xdns lists update'", src.Name))
+			res.Warnings = append(res.Warnings, fmt.Sprintf("cache daftar %q belum ada; jalankan 'hecate lists update'", src.Name))
 			continue
 		}
 		set, meta, err := lists.LoadCached(dir, src)

@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"xdns/internal/config"
-	"xdns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/engine"
 )
 
 // Networks accepted by Bound.Addr.
@@ -30,7 +30,7 @@ type Backend interface {
 }
 
 // Bound is implemented by backends that can report where they listen. Tests
-// use it to find a random port, and `xdns run` to report the address.
+// use it to find a random port, and `hecate run` to report the address.
 type Bound interface {
 	// Ready is closed once the listeners are up, or once startup failed; in
 	// that case Addr returns nil and Run returns the error.
@@ -51,7 +51,7 @@ type Deps struct {
 // error instead of a half-built backend.
 type Factory func(Deps) (Backend, error)
 
-// Registry maps backend names to factories. The caller (cmd/xdns, the
+// Registry maps backend names to factories. The caller (cmd/hecate, the
 // conformance tests) builds it, so this package never imports the backend
 // implementations and no import cycle can arise.
 type Registry map[string]Factory

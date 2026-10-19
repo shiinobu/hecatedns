@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"xdns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/config"
 )
 
 func mustACL(t *testing.T, cidrs ...string) *ACL {

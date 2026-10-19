@@ -12,8 +12,8 @@ import (
 
 	"github.com/AdguardTeam/dnsproxy/proxy"
 
-	"xdns/internal/backend"
-	"xdns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/backend"
+	"github.com/shiinobu/hecatedns/internal/config"
 )
 
 // Name is the name of this backend in the configuration.

@@ -7,4 +7,4 @@
 *.out
 *.pem
 *.key
-/xdns.yaml
+/hecate.yaml

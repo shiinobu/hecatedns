@@ -1,4 +1,4 @@
-// Command compare sends the same sample of domain names to two running xdns
+// Command compare sends the same sample of domain names to two running hecate
 // servers (one per backend, same configuration) and reports every difference in
 // the engine's decision (read from each server's query log) and in the answer
 // the client got. It is a Phase 4 tool: block and pass decisions must be the same

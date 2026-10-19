@@ -11,14 +11,14 @@ import (
 	"time"
 )
 
-const exampleConfigPath = "../../configs/xdns.example.yaml"
+const exampleConfigPath = "../../configs/hecate.example.yaml"
 
 // writeConfig writes content to a fresh temp directory and returns the file
 // path and the directory.
 func writeConfig(t *testing.T, content string) (path, dir string) {
 	t.Helper()
 	dir = t.TempDir()
-	path = filepath.Join(dir, "xdns.yaml")
+	path = filepath.Join(dir, "hecate.yaml")
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

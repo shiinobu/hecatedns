@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"xdns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/engine"
 )
 
 const (

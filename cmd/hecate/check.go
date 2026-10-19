@@ -7,11 +7,11 @@ import (
 	"io"
 	"strings"
 
-	"xdns/internal/config"
-	"xdns/internal/selfcheck"
+	"github.com/shiinobu/hecatedns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/selfcheck"
 )
 
-const defaultConfigPath = "xdns.yaml"
+const defaultConfigPath = "hecate.yaml"
 
 // runCheck loads and validates a configuration file, runs the self-check suite
 // and prints a summary.
@@ -23,13 +23,13 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	if flags.NArg() > 0 {
-		fmt.Fprintf(stderr, "xdns check: argumen tak terduga %q, gunakan -config <berkas>\n", flags.Args())
+		fmt.Fprintf(stderr, "hecate check: argumen tak terduga %q, gunakan -config <berkas>\n", flags.Args())
 		return exitUsage
 	}
 
 	cfg, err := config.Load(*path)
 	if err != nil {
-		fmt.Fprintf(stderr, "xdns check: %v\n", err)
+		fmt.Fprintf(stderr, "hecate check: %v\n", err)
 		return exitError
 	}
 	printSummary(stdout, *path, cfg)
@@ -51,7 +51,7 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "xdns check: uji mandiri GAGAL: %v\n", err)
+		fmt.Fprintf(stderr, "hecate check: uji mandiri GAGAL: %v\n", err)
 		fmt.Fprintln(stdout, "uji mandiri: GAGAL")
 		return exitError
 	}

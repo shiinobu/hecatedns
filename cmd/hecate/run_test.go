@@ -16,13 +16,13 @@ import (
 
 	"github.com/miekg/dns"
 
-	"xdns/internal/backend"
-	"xdns/internal/engine"
-	"xdns/internal/qlog"
+	"github.com/shiinobu/hecatedns/internal/backend"
+	"github.com/shiinobu/hecatedns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/qlog"
 )
 
 // fakeBackend stands in for a real DNS server: no sockets, it only exercises
-// the wiring that `xdns run` builds around it.
+// the wiring that `hecate run` builds around it.
 type fakeBackend struct {
 	name  string
 	deps  backend.Deps
@@ -82,13 +82,13 @@ func newRunFixture(t *testing.T, extraYAML string) runFixture {
 	yaml := "rules:\n  file: rules.txt\n  poll_interval: 50ms\nlog:\n  dir: logs\n" + extraYAML
 	return runFixture{
 		dir:    dir,
-		config: writeFile(t, dir, "xdns.yaml", yaml),
+		config: writeFile(t, dir, "hecate.yaml", yaml),
 		rules:  filepath.Join(dir, "rules.txt"),
 		logDir: filepath.Join(dir, "logs"),
 	}
 }
 
-// start runs `xdns run` in a goroutine and returns a function that stops it
+// start runs `hecate run` in a goroutine and returns a function that stops it
 // (cancelling the context) and reports its exit code and output.
 func (f runFixture) start(t *testing.T, registry backend.Registry, args ...string) *runHandle {
 	t.Helper()
@@ -104,7 +104,7 @@ func (f runFixture) start(t *testing.T, registry backend.Registry, args ...strin
 		case code := <-done:
 			return code, out.String(), errOut.String()
 		case <-time.After(10 * time.Second):
-			t.Fatal("xdns run did not stop after its context was cancelled")
+			t.Fatal("hecate run did not stop after its context was cancelled")
 			return 0, "", ""
 		}
 	}
@@ -158,7 +158,7 @@ func TestRunServer_StartsTheBackendReportsItAndStopsOnCancel(t *testing.T) {
 		t.Fatalf("exit = %d, stderr = %q", code, stderr)
 	}
 	assertContains(t, "stdout", stdout, []string{
-		"xdns berjalan (backend: dnsproxy)", "mendengarkan: udp 127.0.0.1:5300", "mendengarkan: tcp 127.0.0.1:5300", "Ctrl+C", "berhenti",
+		"hecate berjalan (backend: dnsproxy)", "mendengarkan: udp 127.0.0.1:5300", "mendengarkan: tcp 127.0.0.1:5300", "Ctrl+C", "berhenti",
 	})
 }
 
@@ -297,12 +297,12 @@ func TestRunServer_AFailedStartLeavesItsReasonInTheOperationalLog(t *testing.T) 
 	if code != exitError {
 		t.Fatalf("exit = %d, want %d", code, exitError)
 	}
-	data, err := os.ReadFile(filepath.Join(f.logDir, "xdns.log"))
+	data, err := os.ReadFile(filepath.Join(f.logDir, "hecate.log"))
 	if err != nil {
 		t.Fatalf("no operational log file: %v", err)
 	}
 	if !strings.Contains(string(data), reason) {
-		t.Errorf("xdns.log = %q, want the reason the server stopped (a hidden task has no console to show it)", data)
+		t.Errorf("hecate.log = %q, want the reason the server stopped (a hidden task has no console to show it)", data)
 	}
 }
 
@@ -414,7 +414,7 @@ func TestDefaultRegistry_HasBothBackends(t *testing.T) {
 	}
 }
 
-// runHandle controls a `xdns run` started by runFixture.start.
+// runHandle controls a `hecate run` started by runFixture.start.
 type runHandle struct {
 	stop   func() (code int, stdout, stderr string)
 	stdout func() string
@@ -424,19 +424,19 @@ func TestRunServer_KeepsAnOperationalLogFileInTheLogDirectory(t *testing.T) {
 	f := newRunFixture(t, "")
 	registry := backend.Registry{"dnsproxy": fakeFactory("dnsproxy", nil)}
 	h := f.start(t, registry)
-	waitFor(t, "the server to report where it listens", func() bool { return strings.Contains(h.stdout(), "xdns berjalan") })
+	waitFor(t, "the server to report where it listens", func() bool { return strings.Contains(h.stdout(), "hecate berjalan") })
 
 	code, _, stderr := h.stop()
 
 	if code != exitOK {
 		t.Fatalf("exit = %d, stderr = %q", code, stderr)
 	}
-	data, err := os.ReadFile(filepath.Join(f.logDir, "xdns.log"))
+	data, err := os.ReadFile(filepath.Join(f.logDir, "hecate.log"))
 	if err != nil {
 		t.Fatalf("no operational log file: %v (a task without a console would leave no warnings behind)", err)
 	}
 	if !strings.Contains(string(data), `msg="query log closed"`) {
-		t.Errorf("xdns.log = %q, want the lines the server also printed to stderr", data)
+		t.Errorf("hecate.log = %q, want the lines the server also printed to stderr", data)
 	}
 	if !strings.Contains(stderr, `msg="query log closed"`) {
 		t.Errorf("stderr = %q, want the log lines on the console as before", stderr)
@@ -456,7 +456,7 @@ func TestRunServer_AnUnusableLogDirectoryWarnsAboutTheFileAndFailsOnTheQueryLog(
 	if code == exitOK {
 		t.Fatalf("exit = 0 although the query log cannot be opened; stdout %q", stdout)
 	}
-	if !strings.Contains(stderr, "xdns run:") {
+	if !strings.Contains(stderr, "hecate run:") {
 		t.Errorf("stderr = %q, want the query log error", stderr)
 	}
 	if !strings.Contains(stdout, "peringatan: log operasional") {

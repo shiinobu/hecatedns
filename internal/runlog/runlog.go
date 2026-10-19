@@ -15,7 +15,7 @@ import (
 const (
 	// FileName is the current log file inside the directory; the previous one
 	// is FileName + ".1".
-	FileName = "xdns.log"
+	FileName = "hecate.log"
 
 	dirMode  = 0o700
 	fileMode = 0o600

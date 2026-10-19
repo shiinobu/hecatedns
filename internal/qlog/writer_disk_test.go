@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"xdns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/engine"
 )
 
 var errDiskFull = errors.New("There is not enough space on the disk.")

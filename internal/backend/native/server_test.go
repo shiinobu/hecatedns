@@ -11,8 +11,8 @@ import (
 
 	"github.com/miekg/dns"
 
-	"xdns/internal/backend"
-	"xdns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/backend"
+	"github.com/shiinobu/hecatedns/internal/config"
 )
 
 // startNative runs a native backend on a random loopback port against up, until

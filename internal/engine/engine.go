@@ -11,7 +11,7 @@ import (
 
 	"github.com/miekg/dns"
 
-	"xdns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/config"
 )
 
 // Verdict says whether a query goes to the upstreams or is answered by the

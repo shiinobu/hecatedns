@@ -11,10 +11,10 @@ import (
 
 	"github.com/miekg/dns"
 
-	"xdns/internal/lists"
+	"github.com/shiinobu/hecatedns/internal/lists"
 )
 
-const exampleConfig = "../../configs/xdns.example.yaml"
+const exampleConfig = "../../configs/hecate.example.yaml"
 
 func writeFile(t *testing.T, dir, name, content string) string {
 	t.Helper()
@@ -99,10 +99,10 @@ lists:
 	}{
 		{"no arguments", nil, exitUsage, nil, []string{"penggunaan"}},
 		{"unknown command", []string{"bogus"}, exitUsage, nil, []string{"bogus"}},
-		{"run with a missing default config", []string{"run"}, exitError, nil, []string{"xdns.yaml"}},
-		{"log with a missing default config", []string{"log"}, exitError, nil, []string{"xdns.yaml"}},
-		{"rule without a subcommand shows usage", []string{"rule"}, exitUsage, nil, []string{"penggunaan", "xdns rule add"}},
-		{"lists without a subcommand shows usage", []string{"lists"}, exitUsage, nil, []string{"penggunaan", "xdns lists"}},
+		{"run with a missing default config", []string{"run"}, exitError, nil, []string{"hecate.yaml"}},
+		{"log with a missing default config", []string{"log"}, exitError, nil, []string{"hecate.yaml"}},
+		{"rule without a subcommand shows usage", []string{"rule"}, exitUsage, nil, []string{"penggunaan", "hecate rule add"}},
+		{"lists without a subcommand shows usage", []string{"lists"}, exitUsage, nil, []string{"penggunaan", "hecate lists"}},
 		{"check valid config with cached list", []string{"check", "-config", validCfg}, exitOK,
 			[]string{"konfigurasi valid", "backend: dnsproxy", "daftar aktif: 3", "ads.pro.test -> 0.0.0.0", "uji mandiri: LULUS"}, nil},
 		{"check missing file", []string{"check", "-config", missing}, exitError, nil, []string{missing}},
@@ -112,8 +112,8 @@ lists:
 			[]string{"uji mandiri: GAGAL"}, []string{"forcesafesearch.google.com"}},
 		{"check looping upstream fails", []string{"check", "-config", loopCfg}, exitError,
 			[]string{"peringatan", "uji mandiri: GAGAL"}, []string{"127.0.0.1:5300"}},
-		{"check a directory", []string{"check", "-config", dir}, exitError, nil, []string{"xdns check"}},
-		{"check default path is xdns.yaml", []string{"check"}, exitError, nil, []string{"xdns.yaml"}},
+		{"check a directory", []string{"check", "-config", dir}, exitError, nil, []string{"hecate check"}},
+		{"check default path is hecate.yaml", []string{"check"}, exitError, nil, []string{"hecate.yaml"}},
 		{"check unknown flag", []string{"check", "-nope"}, exitUsage, nil, []string{"nope"}},
 		{"check positional argument", []string{"check", "other.yaml"}, exitUsage, nil, []string{"other.yaml"}},
 		{"check extra argument after flag", []string{"check", "-config", validCfg, "extra"}, exitUsage, nil, []string{"extra"}},

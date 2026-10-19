@@ -10,14 +10,14 @@ import (
 	"os/signal"
 	"syscall"
 
-	"xdns/internal/backend"
-	"xdns/internal/backend/dnsproxybe"
-	"xdns/internal/backend/native"
-	"xdns/internal/config"
-	"xdns/internal/engine"
-	"xdns/internal/lists"
-	"xdns/internal/qlog"
-	"xdns/internal/runlog"
+	"github.com/shiinobu/hecatedns/internal/backend"
+	"github.com/shiinobu/hecatedns/internal/backend/dnsproxybe"
+	"github.com/shiinobu/hecatedns/internal/backend/native"
+	"github.com/shiinobu/hecatedns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/lists"
+	"github.com/shiinobu/hecatedns/internal/qlog"
+	"github.com/shiinobu/hecatedns/internal/runlog"
 )
 
 // bytesPerMBShift converts megabytes to bytes with a shift (1 MB = 1 << 20).
@@ -36,7 +36,7 @@ func defaultRegistry() backend.Registry {
 	}
 }
 
-// runServer implements `xdns run`: serve until Ctrl+C or SIGTERM.
+// runServer implements `hecate run`: serve until Ctrl+C or SIGTERM.
 func runServer(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -54,22 +54,22 @@ func runServerCtx(ctx context.Context, args []string, stdout, stderr io.Writer, 
 		return exitUsage
 	}
 	if flags.NArg() > 0 {
-		fmt.Fprintf(stderr, "xdns run: argumen tak terduga %q\n", flags.Args())
+		fmt.Fprintf(stderr, "hecate run: argumen tak terduga %q\n", flags.Args())
 		return exitUsage
 	}
 	cfg, err := config.Load(*path)
 	if err != nil {
-		fmt.Fprintf(stderr, "xdns run: %v\n", err)
+		fmt.Fprintf(stderr, "hecate run: %v\n", err)
 		return exitError
 	}
 	if *name != "" {
 		cfg.Backend = *name
 	}
 	if err := serve(ctx, cfg, stdout, stderr, registry); err != nil {
-		fmt.Fprintf(stderr, "xdns run: %v\n", err)
+		fmt.Fprintf(stderr, "hecate run: %v\n", err)
 		return exitError
 	}
-	fmt.Fprintln(stdout, "xdns berhenti")
+	fmt.Fprintln(stdout, "hecate berhenti")
 	return exitOK
 }
 
@@ -84,7 +84,7 @@ func serve(ctx context.Context, cfg config.Config, stdout, stderr io.Writer, reg
 	log := slog.New(slog.NewTextHandler(logOut, nil))
 	defer func() {
 		if err != nil {
-			log.Error("xdns stopped because of an error", "error", err)
+			log.Error("hecate stopped because of an error", "error", err)
 		}
 	}()
 	for _, warning := range cfg.Warnings() {
@@ -130,7 +130,7 @@ func serve(ctx context.Context, cfg config.Config, stdout, stderr io.Writer, reg
 }
 
 // openRunLog returns the writer for the operational log: stderr, plus the file
-// xdns.log in the log directory when logging is enabled, so a server started
+// hecate.log in the log directory when logging is enabled, so a server started
 // without a console (a scheduled task) still leaves its warnings behind. A file
 // that cannot be opened is a warning, not a reason to stop. The returned close
 // function is always safe to call.
@@ -213,7 +213,7 @@ func announce(stdout io.Writer, name string, bound backend.Bound) bool {
 	if len(lines) == 0 {
 		return false
 	}
-	fmt.Fprintf(stdout, "xdns berjalan (backend: %s)\n", name)
+	fmt.Fprintf(stdout, "hecate berjalan (backend: %s)\n", name)
 	for _, line := range lines {
 		fmt.Fprintln(stdout, line)
 	}

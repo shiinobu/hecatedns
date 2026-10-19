@@ -50,7 +50,7 @@ const (
 	utf8BOM = "\xef\xbb\xbf"
 )
 
-// Config is the complete xdns configuration. Keys omitted from the YAML file
+// Config is the complete hecate configuration. Keys omitted from the YAML file
 // keep the values from Default().
 type Config struct {
 	Backend        string       `yaml:"backend"`

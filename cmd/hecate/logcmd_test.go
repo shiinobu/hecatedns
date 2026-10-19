@@ -43,7 +43,7 @@ func newLogFixture(t *testing.T) logFixture {
 		}
 	}
 	return logFixture{
-		config: writeFile(t, dir, "xdns.yaml", "log:\n  enabled: true\n  dir: logs\n"),
+		config: writeFile(t, dir, "hecate.yaml", "log:\n  enabled: true\n  dir: logs\n"),
 		now:    time.Date(2026, 10, 18, 15, 0, 0, 0, logZone),
 	}
 }
@@ -131,7 +131,7 @@ func TestLog_NothingFound(t *testing.T) {
 
 func TestLog_MissingLogDirectory(t *testing.T) {
 	dir := t.TempDir()
-	config := writeFile(t, dir, "xdns.yaml", "log:\n  dir: nothing-here\n")
+	config := writeFile(t, dir, "hecate.yaml", "log:\n  dir: nothing-here\n")
 	var out, errOut bytes.Buffer
 
 	code := runLogAt([]string{"-config", config}, &out, &errOut, time.Now())
@@ -143,7 +143,7 @@ func TestLog_MissingLogDirectory(t *testing.T) {
 
 func TestLog_MentionsADisabledLog(t *testing.T) {
 	dir := t.TempDir()
-	config := writeFile(t, dir, "xdns.yaml", "log:\n  enabled: false\n")
+	config := writeFile(t, dir, "hecate.yaml", "log:\n  enabled: false\n")
 	var out, errOut bytes.Buffer
 
 	code := runLogAt([]string{"-config", config}, &out, &errOut, time.Now())

@@ -9,8 +9,8 @@ import (
 
 	"github.com/miekg/dns"
 
-	"xdns/internal/backend"
-	"xdns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/backend"
+	"github.com/shiinobu/hecatedns/internal/engine"
 )
 
 // Constructor names a backend factory under test.

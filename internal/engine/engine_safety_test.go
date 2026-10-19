@@ -12,7 +12,7 @@ import (
 
 	"github.com/miekg/dns"
 
-	"xdns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/config"
 )
 
 // panicRules is a RuleSource whose Snapshot always panics.

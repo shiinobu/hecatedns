@@ -15,7 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"xdns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/engine"
 )
 
 var testZone = time.FixedZone("WIB", 7*60*60)
@@ -386,7 +386,7 @@ func TestWriter_RecordsBecomeReadableWithoutClose(t *testing.T) {
 	w := openWriter(t, opts)
 	w.Record(blockEntry(at))
 
-	// `xdns log` reads the file while the server is still running, so an idle
+	// `hecate log` reads the file while the server is still running, so an idle
 	// writer must flush by itself.
 	path := filepath.Join(opts.Dir, "queries-20261018.jsonl")
 	deadline := time.Now().Add(5 * time.Second)

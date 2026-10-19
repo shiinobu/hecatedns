@@ -7,7 +7,7 @@ import (
 
 	"github.com/miekg/dns"
 
-	"xdns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/config"
 )
 
 const (
@@ -17,8 +17,8 @@ const (
 
 	// Synthetic SOA fields. The names are under .invalid (RFC 2606), so they
 	// can never point at a real server.
-	syntheticNS     = "ns.xdns.invalid."
-	syntheticMbox   = "hostmaster.xdns.invalid."
+	syntheticNS     = "ns.hecate.invalid."
+	syntheticMbox   = "hostmaster.hecate.invalid."
 	syntheticSerial = 1
 	soaRefresh      = 3600
 	soaRetry        = 600

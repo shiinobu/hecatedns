@@ -5,14 +5,14 @@ import (
 	"io"
 	"strings"
 
-	"xdns/internal/config"
-	"xdns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/engine"
 )
 
 const ruleUsage = `penggunaan:
-  xdns rule add block|allow <domain> [-config berkas]   tambah aturan (menggantikan aturan lama domain itu)
-  xdns rule remove <domain> [-config berkas]            hapus aturan domain itu
-  xdns rule list [-config berkas]                       tampilkan aturan
+  hecate rule add block|allow <domain> [-config berkas]   tambah aturan (menggantikan aturan lama domain itu)
+  hecate rule remove <domain> [-config berkas]            hapus aturan domain itu
+  hecate rule list [-config berkas]                       tampilkan aturan
 `
 
 // extractConfigFlag removes "-config <file>" (or "--config", "-config=file")
@@ -43,7 +43,7 @@ func extractConfigFlag(args []string) (path string, rest []string, err error) {
 func runRule(args []string, stdout, stderr io.Writer) int {
 	configPath, rest, err := extractConfigFlag(args)
 	if err != nil {
-		fmt.Fprintf(stderr, "xdns rule: %v\n", err)
+		fmt.Fprintf(stderr, "hecate rule: %v\n", err)
 		return exitUsage
 	}
 	if !validRuleArgs(rest) {
@@ -52,7 +52,7 @@ func runRule(args []string, stdout, stderr io.Writer) int {
 	}
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		fmt.Fprintf(stderr, "xdns rule: %v\n", err)
+		fmt.Fprintf(stderr, "hecate rule: %v\n", err)
 		return exitError
 	}
 	var cmdErr error
@@ -65,7 +65,7 @@ func runRule(args []string, stdout, stderr io.Writer) int {
 		cmdErr = ruleList(cfg, stdout, stderr)
 	}
 	if cmdErr != nil {
-		fmt.Fprintf(stderr, "xdns rule %s: %v\n", rest[0], cmdErr)
+		fmt.Fprintf(stderr, "hecate rule %s: %v\n", rest[0], cmdErr)
 		return exitError
 	}
 	return exitOK

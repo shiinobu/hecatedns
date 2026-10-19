@@ -10,7 +10,7 @@ import (
 
 	"github.com/AdguardTeam/dnsproxy/proxy"
 
-	"xdns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/config"
 )
 
 var discardLog = slog.New(slog.DiscardHandler)

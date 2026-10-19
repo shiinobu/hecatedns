@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"xdns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/config"
 )
 
 const defaultDNSPort = "53"

@@ -12,7 +12,7 @@ import (
 )
 
 // bootstrap resolves the host name of an upstream (https://dns.example/...)
-// through plain DNS servers given by IP, because the xdns resolver cannot
+// through plain DNS servers given by IP, because the hecate resolver cannot
 // resolve its own upstream's name.
 type bootstrap struct {
 	servers []*plainUpstream

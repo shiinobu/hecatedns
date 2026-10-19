@@ -12,7 +12,7 @@ import (
 	"github.com/AdguardTeam/dnsproxy/upstream"
 	"github.com/miekg/dns"
 
-	"xdns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/engine"
 )
 
 // Filter is the part of the engine the handler calls. *engine.Engine

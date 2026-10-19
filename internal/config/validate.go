@@ -44,7 +44,7 @@ func (c Config) Validate() error {
 }
 
 // Warnings lists conditions that are valid but probably not what the user
-// intends. The messages are shown by `xdns check` and `xdns run`.
+// intends. The messages are shown by `hecate check` and `hecate run`.
 func (c Config) Warnings() []string {
 	// agy wrote this
 	var out []string

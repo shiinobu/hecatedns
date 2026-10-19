@@ -4,7 +4,7 @@
 
 .DESCRIPTION
   Windows nslookup accepts -port but ignores it (checked on 2026-10-18), and
-  Resolve-DnsName has no port option, so neither can test xdns on 127.0.0.1:5300.
+  Resolve-DnsName has no port option, so neither can test hecate on 127.0.0.1:5300.
   This script builds a plain UDP query by hand. It prints the response code, the
   answer records it understands (A, AAAA, CNAME) and the number of other records.
 

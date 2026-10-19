@@ -1,4 +1,4 @@
-// Command xdns is a DNS server that blocks ads.
+// Command hecate is a DNS server that blocks ads.
 package main
 
 import (
@@ -14,14 +14,14 @@ const (
 	exitUsage = 2
 )
 
-const usage = `penggunaan: xdns <perintah> [opsi]
+const usage = `penggunaan: hecate <perintah> [opsi]
 
 perintah:
-  check   validasi berkas konfigurasi (xdns check -config xdns.yaml)
-  run     jalankan server           (xdns run -config xdns.yaml)
-  log     baca log query            (xdns log -since 10m -blocked)
-  rule    kelola aturan kustom      (xdns rule add block contoh.com)
-  lists   kelola daftar blokir      (xdns lists status | update)
+  check   validasi berkas konfigurasi (hecate check -config hecate.yaml)
+  run     jalankan server           (hecate run -config hecate.yaml)
+  log     baca log query            (hecate log -since 10m -blocked)
+  rule    kelola aturan kustom      (hecate rule add block contoh.com)
+  lists   kelola daftar blokir      (hecate lists status | update)
 `
 
 func main() {
@@ -48,7 +48,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// agy wrote this
 		return runLists(rest, stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "xdns: perintah tidak dikenal %q\n\n%s", command, usage)
+		fmt.Fprintf(stderr, "hecate: perintah tidak dikenal %q\n\n%s", command, usage)
 		return exitUsage
 	}
 }

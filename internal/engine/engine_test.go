@@ -13,7 +13,7 @@ import (
 
 	"github.com/miekg/dns"
 
-	"xdns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/config"
 )
 
 var fixedNow = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)

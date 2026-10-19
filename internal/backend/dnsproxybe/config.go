@@ -12,7 +12,7 @@ import (
 	"github.com/AdguardTeam/dnsproxy/proxy"
 	"github.com/AdguardTeam/dnsproxy/upstream"
 
-	"xdns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/config"
 )
 
 // MaxGoroutines bounds the goroutines dnsproxy runs for DNS requests. When it
@@ -63,7 +63,7 @@ func (r *resources) closeBootstrap() error {
 	return errors.Join(errs...)
 }
 
-// buildProxyConfig maps the xdns configuration onto a proxy.Config. Every bad
+// buildProxyConfig maps the hecate configuration onto a proxy.Config. Every bad
 // listen, bootstrap and upstream entry is reported in one joined error, and
 // nothing stays open on error. Building contacts no network: dnsproxy dials
 // upstreams lazily. timeout bounds each upstream and bootstrap exchange.

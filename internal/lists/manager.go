@@ -14,8 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"xdns/internal/config"
-	"xdns/internal/engine"
+	"github.com/shiinobu/hecatedns/internal/config"
+	"github.com/shiinobu/hecatedns/internal/engine"
 )
 
 const (
@@ -48,7 +48,7 @@ type fileStamp struct {
 }
 
 // Manager loads cached blocklists at startup, refreshes them over HTTPS on a
-// jittered schedule, watches for on-disk updates (from `xdns lists update`),
+// jittered schedule, watches for on-disk updates (from `hecate lists update`),
 // and atomically publishes immutable *engine.ListSet snapshots.
 type Manager struct {
 	dir            string
@@ -154,7 +154,7 @@ func (m *Manager) LoadCache() (loaded int, err error) {
 }
 
 // ReloadCache checks whether any enabled list file on disk changed since the
-// last load or fetch (for example after `xdns lists update`) and publishes a
+// last load or fetch (for example after `hecate lists update`) and publishes a
 // new snapshot when it did.
 func (m *Manager) ReloadCache() (changed bool, err error) {
 	m.mu.Lock()
