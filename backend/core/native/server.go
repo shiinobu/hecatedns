@@ -26,6 +26,9 @@ const (
 
 	ioTimeout = 5 * time.Second
 
+	acceptBackoffMin = 5 * time.Millisecond
+	acceptBackoffMax = time.Second
+
 	udpReadSize = 4096
 
 	shutdownTimeout = 5 * time.Second
@@ -85,22 +88,46 @@ type temporaryError struct{ error }
 func (temporaryError) Temporary() bool { return true }
 func (temporaryError) Timeout() bool   { return false }
 
+type acceptBackoff struct{ delay time.Duration }
+
+func (b *acceptBackoff) pause(err error, done <-chan struct{}) {
+	var temporary interface{ Temporary() bool }
+	if !errors.As(err, &temporary) || !temporary.Temporary() {
+		return
+	}
+	if b.delay == 0 {
+		b.delay = acceptBackoffMin
+	} else {
+		b.delay = min(2*b.delay, acceptBackoffMax)
+	}
+	timer := time.NewTimer(b.delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-done:
+	}
+}
+
+func (b *acceptBackoff) reset() { b.delay = 0 }
+
 type limitListener struct {
 	net.Listener
 	slots     chan struct{}
 	done      chan struct{}
 	closeOnce sync.Once
 
-	admit  func(netip.Addr) bool
-	perIP  int
-	mu     sync.Mutex
-	counts map[netip.Addr]int
+	admit        func(netip.Addr) bool
+	perIP        int
+	writeTimeout time.Duration
+	backoff      acceptBackoff
+	mu           sync.Mutex
+	counts       map[netip.Addr]int
 }
 
 func newLimitListener(l net.Listener, limit, perIP int, admit func(netip.Addr) bool) *limitListener {
 	return &limitListener{
 		Listener: l, slots: make(chan struct{}, limit), done: make(chan struct{}),
-		admit: admit, perIP: perIP, counts: make(map[netip.Addr]int),
+		admit: admit, perIP: perIP, writeTimeout: ioTimeout, counts: make(map[netip.Addr]int),
 	}
 }
 
@@ -114,15 +141,17 @@ func (l *limitListener) Accept() (net.Conn, error) {
 		conn, err := l.Listener.Accept()
 		if err != nil {
 			<-l.slots
+			l.backoff.pause(err, l.done)
 			return nil, err
 		}
+		l.backoff.reset()
 		ip := remoteIP(conn)
 		if !l.admit(ip) || !l.reserve(ip) {
 			_ = conn.Close()
 			<-l.slots
 			continue
 		}
-		return &limitConn{Conn: conn, release: func() { l.unreserve(ip); <-l.slots }}, nil
+		return &limitConn{Conn: conn, writeTimeout: l.writeTimeout, release: func() { l.unreserve(ip); <-l.slots }}, nil
 	}
 }
 
@@ -161,8 +190,16 @@ func (l *limitListener) Close() error {
 
 type limitConn struct {
 	net.Conn
-	once    sync.Once
-	release func()
+	writeTimeout time.Duration
+	once         sync.Once
+	release      func()
+}
+
+func (c *limitConn) Write(p []byte) (int, error) {
+	if err := c.Conn.SetWriteDeadline(time.Now().Add(c.writeTimeout)); err != nil {
+		return 0, err
+	}
+	return c.Conn.Write(p)
 }
 
 func (c *limitConn) Close() error {
@@ -220,7 +257,7 @@ func servers(socks []socket, h dns.Handler, started func()) []*dns.Server {
 			&dns.Server{
 				Listener: s.tcp, Handler: h,
 				MsgAcceptFunc: acceptMsg, NotifyStartedFunc: started,
-				ReadTimeout: tcpReadTimeout, WriteTimeout: ioTimeout,
+				ReadTimeout:   tcpReadTimeout,
 				IdleTimeout:   func() time.Duration { return tcpIdleTimeout },
 				MaxTCPQueries: maxTCPQueries,
 			},

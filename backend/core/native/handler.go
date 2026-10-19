@@ -221,6 +221,9 @@ func (h *handler) write(w dns.ResponseWriter, req, resp *dns.Msg, proto string) 
 	}
 	if err := w.WriteMsg(resp); err != nil {
 		h.log.Debug("writing the answer failed", "client", w.RemoteAddr().String(), "err", err)
+		if proto != "udp" {
+			_ = w.Close()
+		}
 	}
 }
 

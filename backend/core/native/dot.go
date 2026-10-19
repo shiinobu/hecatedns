@@ -242,7 +242,7 @@ func dotServers(listeners []net.Listener, h dns.Handler, started func()) []*dns.
 		out = append(out, &dns.Server{
 			Listener: l, Handler: h,
 			MsgAcceptFunc: acceptMsg, NotifyStartedFunc: started,
-			ReadTimeout: tcpReadTimeout, WriteTimeout: ioTimeout,
+			ReadTimeout:   tcpReadTimeout,
 			IdleTimeout:   func() time.Duration { return dotIdleTimeout },
 			MaxTCPQueries: maxDoTQueries,
 		})
