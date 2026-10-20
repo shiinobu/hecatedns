@@ -2,7 +2,7 @@
 
 HecateDNS is a personal, non-commercial DNS server that blocks browser ads (pop-ups, auto-redirects, click-redirects) on a phone, without a VPN app and without forcing Google SafeSearch. This document is the design specification. The research behind it is in [research.md](research.md), test results in [testing.md](testing.md), and how to run it in [operations.md](operations.md).
 
-Status: both backends pass the same conformance suite and a real-phone test. The `native` backend also serves DNS-over-TLS (section 13.1), tested with generated certificates and attacker-style load on loopback, and since 2026-10-20 on a real VPS from an Android phone on mobile data and on Wi-Fi. The seven-day stability run (S4) is in progress, and a real certificate renewal has not been seen yet.
+Status: both backends pass the same conformance suite and a real-phone test. The `native` backend also serves DNS-over-TLS (section 13.1), tested with generated certificates and attacker-style load on loopback, and since 2026-10-20 on a real VPS from an Android phone on mobile data and on Wi-Fi. An optional web dashboard (section 18) runs on the same VPS and has been used from the phone since 2026-10-21. The seven-day stability run (S4) is in progress (restarted on 2026-10-21 when the names file was switched on), and a real certificate renewal has not been seen yet.
 
 ---
 
@@ -12,7 +12,7 @@ Status: both backends pass the same conformance suite and a real-phone test. The
 
 **Honest limits** (see research.md). DNS cannot block 100% of browser ads. It cannot reach ads served from the same domain as the content, redirect scripts served by the site itself, click overlays that open windows from page scripts, or the empty ad boxes left behind. The documented complement is Firefox with uBlock Origin; Plan B is an APK (section 16).
 
-**Not goals of version 1:** web UI, HTTPS inspection, APK, DNS-over-QUIC, DNSSEC validation, per-client profiles, parental control.
+**Not goals:** HTTPS inspection, APK, DNS-over-QUIC, DNSSEC validation, per-client profiles, parental control. The web dashboard is an optional, separate process (section 18); the DNS server does not depend on it.
 
 | Code | Criterion | How it is measured |
 |---|---|---|
@@ -38,10 +38,15 @@ Status: both backends pass the same conformance suite and a real-phone test. The
 | D8 | Upstreams | DoH to Cloudflare `1.1.1.1` then Google `8.8.8.8` (not the filtering "family" variants) | Encrypted, and does not force SafeSearch |
 | D9 | Configuration | Strict YAML (`gopkg.in/yaml.v3`, unknown keys are errors) | Readable, already in the dependency graph |
 | D10 | Query log | Daily JSONL, 7-day retention | The "reproduce, read the log, block" workflow |
-| D11 | CLI to server coordination | Through files (rules, list cache) polled by modification time; no admin socket | No extra port, no extra attack surface |
+| D11 | CLI and dashboard coordination with the server | Through files (rules, list cache, the DoT names file) polled by modification time; no admin socket. The dashboard adds one real DoT query to the loopback listener for its status, and a spool directory for fixed operations (D17) | No extra control port, no extra attack surface |
 | D12 | Development port | `127.0.0.1:5300` | 5353 is mDNS; Windows Internet Connection Sharing holds UDP 53 |
-| D13 | UI | None in version 1; log and rules through the CLI | YAGNI |
+| D13 | UI | The CLI, plus an optional dashboard (`hecate dashboard`): a separate process with its own unit that serves one embedded page (vanilla JavaScript, no framework, no CDN) | The owner wants to tune rules and rotate the DoT name from the phone without the PC; a separate process leaves the DNS server untouched |
 | D14 | Source style | Idiomatic Go with no comments in the source (enforced by `backend/test/nocomment`); the reasoning lives in this document | Owner's rule |
+| D15 | Dashboard access | A secret host name under the wildcard certificate plus an access key whose SHA-256 is the only thing stored on the server; a signed session cookie | Two factors, because the server name travels in clear text |
+| D16 | Dashboard privileges | The same user as the DNS server with a hardened unit, no shell-outs and no new dependencies; anything that needs root goes through D17 | A separate user is possible later; the limit is stated in 18.10 |
+| D17 | Operations from the dashboard | Five fixed actions (health, backup, certificate renewal test, renewal, forced renewal) through a spool directory and root-owned systemd path units; no parameters, no downloads, no shell | The dashboard never runs anything itself |
+| D18 | Connection names | Random 20-character labels under the wildcard certificate, kept in a names file that the dashboard edits (Rotate, Remove old) and the DNS server re-reads every 2 s; Rotate keeps a name only if the server serves it and the public addresses lead to this server | A name the phone cannot use cuts a strict Private DNS phone off the internet |
+| D19 | Base domain | Names are `<random>.<base>` under `*.<base>`, with no fixed intermediate level | A fixed name cannot work: the server refuses every name that is not on its list |
 
 ---
 
@@ -77,24 +82,31 @@ cmd/
   hecate/                 entry point (calls controller.Execute)
   hecate-compare/         dev tool: compares the decisions of two running servers
 backend/
-  controller/             CLI commands: run, check, log, rule, lists
+  controller/             CLI commands: run, check, log, rule, lists, dashboard
   core/                   backend contract: Backend, Bound, Deps, Factory, Registry
     dnsproxy/             adapter around AdGuard dnsproxy
-    native/               own server, DoT listener, upstreams, cache, rate limiter
+    native/               own server, DoT listener, names file reader, upstreams, cache, rate limiter
+  dashboard/              the web dashboard: TLS server, login, API, rotation and reach checks, assets
   engine/                 the filter: ACL, rules, matcher, CNAME check, special names, health
   service/
     lists/                download, parse, cache and schedule block lists
+    ops/                  the spool-directory client for the fixed operations
     qlog/                 query log writer, reader, retention
+    ruleedit/             atomic edits of the rules file, shared by the CLI and the dashboard
     selfcheck/            `hecate check`: upstreams, SafeSearch, sample domains
   lib/
+    certstore/            certificate pairs reloaded by modification time, picked by server name
     config/               YAML schema, strict loader, validation
+    dotnames/             the DoT names file: parse, atomic write, new labels
     runlog/               size-capped operational log
   test/
     conformance/          one suite run against both backends
     nocomment/            fails the build if a comment appears in Go or PowerShell sources
-configs/                  hecate.example.yaml (home), hecate.vps.example.yaml (DoT only)
-deploy/                   Linux files: systemd unit, certificate renewal, nftables rules, backup script
-scripts/windows/          autostart.ps1 (Task Scheduler), dnsquery.ps1 (query on any port)
+frontend/                 the dashboard page: HTML, CSS, JavaScript, icons (embedded with go:embed)
+configs/                  hecate.example.yaml (home), hecate.vps.example.yaml (DoT, names file, dashboard)
+deploy/                   Linux files: systemd units, certificate renewal and its user, nftables rules, backup,
+                          the operations wrapper (ops/), install scripts for the dashboard and the names file
+scripts/                  make-bundle.sh (the install bundle for the VPS); windows/: autostart.ps1, dnsquery.ps1
 data/                     runtime data, git-ignored: rules.txt, lists/, logs/, tls/
 ```
 
@@ -258,7 +270,7 @@ Redirect-hunting workflow: trigger the redirect, note the time, run `hecate log 
 
 See `configs/hecate.example.yaml` for every key with its default. Validation at start collects all problems and exits non-zero with clear messages: unknown or duplicate keys, more than one YAML document, an empty `allowed_clients` (to allow everyone write `0.0.0.0/0` and `::/0`), invalid CIDRs, host names in `listen`, host-name upstreams without `bootstrap`, non-`https` list URLs, unsafe or duplicate source names, unknown mode or backend, negative TTLs, empty `rules.file` or `log.dir`, duplicate `listen` entries, port 0, and a `log.max_mb_per_day` below 1. TTLs are capped before conversion to `uint32`; `cache.max_ttl: 0` means no upper bound. Relative paths resolve from the config file's directory. `Warnings()` flags an upstream or bootstrap that points at hecate's own listen address (a DNS loop), an `allowed_clients` entry of `0.0.0.0/0` or `::/0` together with a plain listener on a public address (an open resolver), and a `dot.names` entry whose first label is under 16 characters; `hecate check` fails on the loop.
 
-The `dot` section (off by default; `configs/hecate.vps.example.yaml` is a complete DoT-only example) has `enabled`, `listen` (IP:port entries; `0.0.0.0:853` and `[::]:853` can be listed together, each is bound on its own IP family and `[::]` is IPv6 only), `cert_file`, `key_file`, `names` (see 13.1) and `reload_every` (default 10 minutes, minimum 1 second). It is validated only when enabled and is rejected with `backend: dnsproxy`. `listen` (plain DNS) may be empty when DoT is enabled. Error messages about `dot.names` name the index, never the value. `hecate check` also loads the certificate pair and fails when it is expired, not yet valid, or does not cover every name.
+The `dot` section (off by default; `configs/hecate.vps.example.yaml` is a complete DoT-only example) has `enabled`, `listen` (IP:port entries; `0.0.0.0:853` and `[::]:853` can be listed together, each is bound on its own IP family and `[::]` is IPv6 only), `cert_file`, `key_file`, `names` (see 13.1), `names_file` (optional: more names, one per line with a time stamp, edited by the dashboard and re-read every 2 seconds; a malformed line is skipped with a warning at start, and a reloaded certificate that no longer covers a served name is refused) and `reload_every` (default 10 minutes, minimum 1 second). The `dashboard` section (off by default) is described in 18.2. It is validated only when enabled and is rejected with `backend: dnsproxy`. `listen` (plain DNS) may be empty when DoT is enabled. Error messages about `dot.names` name the index, never the value. `hecate check` also loads the certificate pair and fails when it is expired, not yet valid, or does not cover every name.
 
 ---
 
@@ -302,7 +314,7 @@ Main threats: an open resolver abused for amplification (once on a VPS), hostile
 
 **Threat model.** One public IPv4 address (maybe IPv6) with TCP 853 open, scanned by the whole internet all day. The users are one phone (mobile data, changing addresses, carrier NAT) and maybe family. Android Private DNS in strict mode sends only a TLS handshake with the host name as the server name (SNI): no password, no header, no client certificate, no ECH.
 
-**Identification.** `dot.names` is an allow-list of exact server names. A handshake whose SNI is not on it, or that has no SNI (someone connecting to the bare IP), is aborted before any key exchange and before any DNS message is read; nothing is answered. The comparison folds only ASCII `A-Z`, because Unicode folding maps the Kelvin sign onto `k`. This is a speed bump, not a lock: the SNI travels in clear text, and the phone also resolves the name with its ordinary resolver before it connects, so the label can appear in that resolver's logs. Accepted for a personal server. The name is a long random label (at least 16 characters from `a-z0-9`, never a dictionary word) under a domain you control; `hecate check` warns about a shorter first label. To rotate the secret without a new certificate, put a new label in `dot.names` and in the phone's Private DNS field.
+**Identification.** `dot.names` is an allow-list of exact server names. A handshake whose SNI is not on it, or that has no SNI (someone connecting to the bare IP), is aborted before any key exchange and before any DNS message is read; nothing is answered. The comparison folds only ASCII `A-Z`, because Unicode folding maps the Kelvin sign onto `k`. This is a speed bump, not a lock: the SNI travels in clear text, and the phone also resolves the name with its ordinary resolver before it connects, so the label can appear in that resolver's logs. Accepted for a personal server. The name is a long random label (at least 16 characters from `a-z0-9`, never a dictionary word) under a domain you control; `hecate check` warns about a shorter first label. To rotate the secret without a new certificate, use Rotate in the dashboard (18.6), or put a new label in `dot.names` and in the phone's Private DNS field.
 
 **Certificate.** One wildcard certificate (`<base>` and `*.<base>`, obtained with DNS-01) covers every label, so the secret label never appears in the public Certificate Transparency logs the way a certificate for the label itself would. The certificate must be valid and cover every configured name at start (checked with `VerifyHostname`); at reload a certificate that fails a check is refused and the old one stays in use. The files are re-read when their size or modification time changes (every `dot.reload_every`), so a renewal needs no restart; a half-written renewal (certificate before key) is rejected and picked up on the next check. A rejection for the validity dates is retried; a rejection for any other reason is remembered for that file stamp only. Unreadable files are reported once an hour. While the certificate expires within 14 days an hourly WARN is logged, and an ERROR once it has expired: with Private DNS in strict mode an expired certificate means the phone has no DNS at all.
 
@@ -363,7 +375,7 @@ Reasoning that used to live in code comments:
 
 **Plan B: APK.** Considered if tuning does not stop the redirects or stronger blocking is wanted: a local DNS filter (same power as DNS), a DNS plus HTTPS filter (stronger but heavy and risky), or a Private DNS on/off switch (light). The open-source app BlockAds (GPL-3.0) already does the first two and is a reference. The engine is plain Go without network dependencies, so it could be compiled for Android later (inference; BlockAds uses Go with gomobile).
 
-**Out of scope:** web UI (optional, later), full adblock syntax, DoQ, DNSSEC validation, per-client profiles, parental control, ECS (disabled for privacy), DHCP.
+**Out of scope:** full adblock syntax, DoQ, DNSSEC validation, per-client profiles, parental control, ECS (disabled for privacy), DHCP.
 
 ---
 
@@ -389,3 +401,124 @@ Reasoning that used to live in code comments:
 | R16 | Android strict-mode handshake, ALPN and carrier NAT behaviour | Seen working on 2026-10-20 on mobile data and on Wi-Fi. The ad-test score was 95% on mobile data against 97% on Wi-Fi; the server answered every query it received, so the cause is on the phone or carrier side (not found). Fall back to opportunistic mode or to the home server if a carrier ever blocks 853 |
 | R17 | A botnet of about 64+ sources (cheap with IPv6) fills the pool of connections waiting for a handshake and new clients are refused | Established connections keep working; the firewall limits per source raise the number of sources needed; a provider-level DDoS defence is out of scope for a personal server |
 | R18 | Whoever knows the secret name can hold slots or ask for large answers | Deadlines, 8 connections per source, 16 queries in flight per connection and 256 overall, 1,000 queries per connection; rotate the label |
+| R19 | A rotated DoT name does not lead to this server, for example because the wildcard DNS record is proxied (the proxy answers with its own addresses and does not carry port 853), and strict Private DNS then leaves the phone without internet | The DNS record for `*.<base>` must be DNS only. Rotate now asks the public resolvers for the name, runs a real DoT query against every answered address, and rolls back with `not_reachable` if one fails (18.6). It saw this exact failure on 2026-10-21 |
+| R20 | A new release reaches a phone as a mix of a new page and cached old scripts or styles | Every dashboard file is served with `Cache-Control: no-cache` and an ETag, so the browser asks on each load and gets a cheap 304 (18.8) |
+| R21 | The dashboard and the DNS server run as the same user, so a hijacked dashboard process reaches the rules, the logs and the certificate key | Hardened unit, no shell-outs, no new dependencies, a TLS front that needs two factors; the renewal runs as its own user, and the dashboard as its own user is possible later (18.10) |
+| R22 | The dashboard's reach check dials the server's own public address from the server | It works where that address is on the host (true on this VPS); behind NAT the check would need to be switched off. It checks A records only, not AAAA (18.6) |
+
+---
+
+## 18. Dashboard
+
+### 18.1 What it is
+
+`hecate dashboard -config <file>` is a separate process with its own systemd unit and the same binary as the DNS server. It serves one page (embedded from `frontend/`) with five screens: **Status** (resolver check, certificate, lists, 24-hour counts), **Queries** (the query log grouped by name, with Block and Allow), **Rules**, **Connection** (the DoT names, the network test, Rotate and Remove old) and **Control** (the fixed operations). It talks to the DNS server only through files and one real DoT query to the loopback listener (D11). The DNS server runs unchanged without it.
+
+```
+phone browser --TLS 443--> hecate dashboard (user hecate, own unit)
+                              reads   <log.dir>/queries-*.jsonl, <data_dir>/lists/*.meta.json
+                              writes  <rules.file>, <dot.names_file>   (atomic, polled by the DNS server)
+                              asks    127.0.0.1:853 for one real DoT query (status, and Rotate)
+                              drops   an empty file in /run/hecate-ops/req/<action>   (Control, 18.7)
+```
+
+### 18.2 Configuration and commands
+
+```
+dashboard:
+  enabled: true
+  listen: ["0.0.0.0:443", "[::]:443"]      # a loopback-only listen may run without TLS
+  names: ["<secret label>.<base>"]         # the host names it answers to
+  probe_domains: [<base>]                  # bases for the network test and for Rotate
+  certs: []                                # empty: use dot.cert_file and dot.key_file
+  key_hash_file: /var/lib/hecate/dashboard/key.sha256
+  secret_file: /var/lib/hecate/dashboard/cookie.secret     # created 0600 on first start
+  session_days: 30
+  ops: { request_dir: /run/hecate-ops/req, result_dir: /var/lib/hecate-ops/result }
+```
+
+Validation reports every problem at once: valid lower-case host names, a first label of at least 16 characters (a warning, as for DoT), a `listen` that differs from `listen` and `dot.listen`, certificates that together cover every name, `session_days` between 1 and 90, a hash file when enabled, and absolute, distinct `ops` directories (both empty switches the Control screen off). Commands: `hecate dashboard` (run), `hecate dashboard genkey` (writes a new access key and its hash to files, never to the terminal), `hecate dashboard hashkey` (key on stdin, hash on stdout).
+
+### 18.3 Reaching it and logging in
+
+1. **A secret host name** `<label>.<base>` under the wildcard certificate, which keeps it out of the public Certificate Transparency logs. An unknown server name aborts the handshake; an unknown `Host` header closes the connection without a body (DNS rebinding and host tricks).
+2. **An access key** of 26 characters of Crockford base32 from `crypto/rand` (about 130 bits). It is generated on the PC, stays there (git-ignored), and only its SHA-256 is installed on the server; the comparison is constant time and the key never appears in a URL, a log or a command line.
+
+A correct key sets the cookie `__Host-hecate_session` (Secure, HttpOnly, SameSite=Strict, Path=/, no Domain). Its value is an expiry time plus an HMAC over the expiry and the key hash, so replacing the key hash revokes every session without a restart. The lifetime is fixed at `session_days`. Login failures are limited to 5 a minute per source (IPv6 by `/64`) and 60 a minute overall, then 429 with `Retry-After`.
+
+Transport is TLS 1.3 and HTTP/1.1 only (HTTP/2 is off on purpose: the traffic is tiny and it removes a class of protocol-level attacks). Every page response carries a Content-Security-Policy of `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'` plus one `https://*.<probe domain>` source per probe domain, `base-uri 'none'`, `form-action 'self'` and `frame-ancestors 'none'`, with `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Cross-Origin-Opener-Policy: same-origin` and an empty `Permissions-Policy`. There is no inline script or style, no `eval` and no CDN, and the page writes data with `textContent` only. A mutating request must be a POST with `Content-Type: application/json`, the header `X-Hecate-Dashboard: 1`, an `Origin` equal to the request host, a body under 4 KiB, and the cookie.
+
+Limits against floods: read-header 5 s, read 10 s, write 15 s, idle 30 s, 8 KiB of headers, at most 32 connections and 16 requests in flight, the per-source limits of `deploy/nftables.conf` for port 443 (60 new connections a minute with a burst of 30, 16 open), and the unit's `MemoryMax=96M`, `TasksMax=64` and `CPUQuota=50%`.
+
+### 18.4 Rules and the query log
+
+`POST /api/rules` parses the domain with the same function as the CLI. It refuses a public suffix (`co.id` would block a whole registry), refuses Block for protected names (every dashboard and DoT name, their parents, the probe domains and the upstream host names, so a mis-tap cannot cut the phone off from its own server), checks the size cap, and writes through the shared atomic edit (a temporary file, then rename). The answer names the rule it replaced, which makes Undo possible.
+
+Reading the query log is bounded, because the VPS has 1 GB of memory: the window is at most 24 hours, the read stops after 2,000,000 records or 5 seconds (the answer then says it is partial), at most 200 groups are returned, answers are cached for 5 seconds (queries) and 60 seconds (status), and only one scan runs at a time.
+
+### 18.5 The network test
+
+`GET /probe` answers 204, with no cookie and no content, for a request to any one-label host under a probe domain. The Connection screen fetches a fresh label under each probe domain from the browser and reports which ones the network resolved and reached, with advice on which host name to use. It shows what the browser resolves, which can differ from the phone's system path when the browser's own Secure DNS is on. Every other path on a probe host is closed.
+
+### 18.6 Connection names, Rotate and Remove old
+
+The names the DNS server serves are `dot.names` (from the config file, read-only in the dashboard) plus the entries of `dot.names_file`. Each line of the file is a host name and a time, `#` starts a comment, writes are atomic, and at most 4 file names exist. The DNS server re-reads the file every 2 seconds, so a change needs no restart. A removed name is refused at the next poll.
+
+**Rotate** (session and CSRF; the Rotate button waits for a passing network test for that domain, and "Rotate anyway" skips the wait) creates a label of 20 characters of `a-z0-9` from `crypto/rand` under one of the probe domains and keeps it only if all of this holds, in order:
+
+1. the certificate covers it;
+2. both public resolvers (1.1.1.1 and 8.8.8.8) answer for it;
+3. it is written to the names file and the live DoT server accepts it, checked with a handshake to the loopback listener for up to 6 seconds (`not_served` otherwise);
+4. **it reaches this server** (`not_reachable` otherwise): the A records from the public resolvers are collected, and every address answers a real DoT query with the new name as the server name and a valid certificate, within 4 seconds.
+
+A failure in 3 or 4 restores the previous names file, and the answer says so, or says that the file could not be restored. The messages never contain the name or an address. The reach check exists because a proxied wildcard DNS record once produced a name that resolved to proxy addresses; resolving was not enough. It dials the server's own public address from the server, and it checks A records only.
+
+**Remove old** refuses names that come from the config file and the last remaining name; a phone that still uses a removed name loses internet until its Private DNS field is changed, which is why the order is Rotate, type the new name on the phone, check that internet works, then Remove old.
+
+### 18.7 Control: fixed operations without a shell
+
+The dashboard process never executes anything. A button press creates an empty request file in `/run/hecate-ops/req/<action>`. A root-owned systemd template, `hecate-op@.path` (`PathExists=/run/hecate-ops/req/%i`), starts `hecate-op@.service`, which runs `/opt/hecate/ops/run.sh <action>`. The script is root-owned, accepts only the five names below, never reads a request file (it only removes it, without following links), writes the result with a temporary file and `mv` into `/var/lib/hecate-ops/result/` (key=value lines, then the output, at most 64 KiB, with host labels redacted), and enforces a cooldown that is measured from the previous result, so it holds even if the dashboard is hijacked.
+
+| Action | What it runs | Cooldown |
+|---|---|---|
+| `health` | `deploy/health.sh` (read-only report) | 10 s |
+| `backup` | `/opt/hecate/backup.sh`, then the list of the 14 newest archives | 60 s |
+| `renew-test` | a certificate run on the Let's Encrypt staging CA in a private directory | 1 h |
+| `renew` | `hecate-renew.service` (renews only when 30 days or fewer remain) | 1 h |
+| `renew-force` | the same with `--days 90`, with a confirmation in the page | 48 h |
+
+Not offered, on purpose: restarting `hecate`, upgrading the binary, a shell, any parameter, any upload or download. Backup archives hold the secret names, so they are never served or read by the dashboard. `POST /api/ops/run` answers 202, 404 (unknown action), 409 (already queued or running), 429 (cooldown) or 503 (feature off); a `running` result older than 30 minutes counts as failed so a killed run cannot lock an action.
+
+### 18.8 Files, caching and the page
+
+The server serves `index.html` and the `.js`, `.css`, `.svg` and `.png` files of the embedded folder: names of lower-case letters, digits, `-`, `_` and `.`, at most 16 files of 1 MiB each, nothing else (no sub-folders, no `.map`, no other types). Every one of them, and the page, is sent with `Cache-Control: no-cache` and an ETag. A release changes the page, the styles and the scripts together, and an earlier setting of `max-age=86400` once left a phone with a new page and old scripts and styles (the tab buttons showed in the browser's default style and did nothing). `/favicon.ico` answers an empty 204 because the page links an SVG icon, a 192 px PNG and an apple-touch icon. The bottom tabs are buttons, not links, so a long press cannot open one in a new tab; a tap changes the hash without adding a history entry, and addresses such as `#/rules` still work on reload. The page turns off the browser's tap highlight and gives its own pressed states.
+
+### 18.9 Certificates and the renewal user
+
+The wildcard certificate `*.<base>` is requested with DNS-01 on Cloudflare. `lego` names its files after the first domain, `_.<base>.crt` and `.key`, and `dot.cert_file` and `dot.key_file` point at them by symlinks, so a renewal is picked up by modification time without a restart. The renewal runs as its own user `hecate-acme` (so a hijacked DNS or dashboard process cannot read the Cloudflare token from `/proc`); the files are group-readable, and `post-renew.sh` sets mode 0640 and touches them, because the readers skip a file stamp they have already rejected. The dashboard reuses `dot.cert_file` and `dot.key_file` when `dashboard.certs` is empty.
+
+### 18.10 Threat summary
+
+| Threat | Control |
+|---|---|
+| Key brute force | 130-bit key, constant-time compare, 5 failures a minute per source and 60 overall, then 429 |
+| The label seen by an observer (the server name is in clear text, and the phone's resolver sees it) | The second factor (the key); a label can be rotated; nothing sensitive before login |
+| XSS through a hostile query name (any page can make the phone ask for any name) | `textContent` only, a CSP with no inline code, `nosniff`, names sanitized by the log and length-capped |
+| CSRF | SameSite=Strict, a custom header, Origin equal to Host, JSON only |
+| DNS rebinding, Host tricks | The Host must be a configured name, otherwise the connection is closed |
+| Session theft | `__Host-` prefix, HttpOnly, Secure, fixed lifetime, replacing the key hash revokes all |
+| Slow requests and floods | The timeouts and caps of 18.3 |
+| Self-lockout by a rule | Public suffixes and protected names are refused; size and line caps |
+| Cost of reading the log | The bounds of 18.4 |
+| Abuse of the probe endpoint | 204 only, one-label hosts under probe domains, same connection limits |
+| Rotation abuse | Needs a session and CSRF; at most 4 file names; random labels; the four checks of 18.6; the last name cannot be removed |
+| A hijacked session using Control | Five fixed buttons with root-side cooldowns; no parameters and no output beyond a redacted 64 KiB |
+| A planted file in the request directory | Harmless: the wrapper only removes the name |
+| Supply chain | No new modules for the dashboard; `go mod verify` and `govulncheck` at each review |
+| **Accepted:** a compromise of the dashboard process | It runs as the same user as the DNS server, so it reaches the rules, the logs and the certificate key. The unit is hardened and has no shell-outs; the renewal already has its own user, and the dashboard as its own user is possible later (it needs group-readable log and list files, the rules and names files and the dashboard secrets in a directory the dashboard owns, and one restart of the DNS server) |
+
+### 18.11 Honest limits
+
+- The dashboard cannot be reached when the VPS is down, when the network blocks the port, or when a resolver on the way refuses the whole domain (a stale negative answer for the base domain caused two outages on 2026-10-20). A backup domain under another registry was considered and is not set up; Android takes one Private DNS host name, so switching is a manual retype either way.
+- Rotation helps only against a name that is blocked or throttled by its name, not against a network that blocks port 853.
+- DNS cannot stop a page from opening a new window; only a browser blocker can.

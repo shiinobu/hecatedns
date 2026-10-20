@@ -10,10 +10,13 @@ The project is developed test first: a failing test, the minimum code to pass it
 | Fuzz | List parser and rule parser (`go test -fuzz`) | No panic |
 | Benchmark | Lookup against about 250,000 entries; process memory | p99 under 50 microseconds; under 150 MB |
 | Conformance | `backend/test/conformance`: a fake upstream (`miekg/dns` on loopback) plus the backend under test on a random port. Cases: blocked A/AAAA/HTTPS, pass-through, `allow` beats `block`, blocked CNAME, ACL REFUSED (no RA bit), log written, oversized or malformed UDP datagrams do not stop the server, reverse lookups of private addresses answered locally, a TCP client outside `allowed_clients` is disconnected with no answer. Run for **both** backends from one constructor table (DoT is `native` only, so its cases are unit tests) | Identical results |
+| Dashboard | `backend/dashboard` (login and key limits, cookie tampering and expiry, Host, Origin and CSRF checks, rule guards, slow and oversized requests, bounded log reads, rotation with its rollbacks and the reach check against fake resolvers and a real TLS listener, the asset allow-list and cache headers), `backend/service/ops`, `backend/lib/dotnames`, `backend/lib/certstore`, and `backend/controller` (a whole dashboard run over real TLS against a fake DNS upstream) | Coverage of 80% or more |
+| Front end | `frontend/embed_test.go`: the page links only embedded files, the icons are linked, the embedded folder holds only pages, styles, scripts and icons, and the theme turns off the tap highlight; the no-comment scan covers `.js`, `.css` and `.html` | Always green |
+| Deploy scripts | `sh -n` on every shell script; `backend/test/deploy` runs the awk and sed helpers of the installers (names and certificate fields, the renewal domain list) on fixtures | Always green |
 | Source rule | `backend/test/nocomment` fails if a Go or PowerShell source contains a comment | Always green |
 | Manual integration | `scripts/windows/dnsquery.ps1` (or `dig`) from the PC, then tests from a phone | Criteria S1 to S3 |
 
-Coverage at the last full run: `controller` 93.4%, `core` 100%, `core/dnsproxy` 95.6%, `core/native` 93.1%, `engine` 96.9%, `lib/config` 97.1%, `lib/runlog` 96.0%, `service/lists` 86.7%, `service/qlog` 90.9%, `service/selfcheck` 92.5%, `test/conformance` 79.7%.
+Coverage at the last full run (2026-10-21): `controller` 90.0%, `core` 100%, `core/dnsproxy` 95.6%, `core/native` 94.0%, `dashboard` 93.2%, `engine` 96.9%, `lib/certstore` 89.5%, `lib/config` 97.5%, `lib/dotnames` 88.0%, `lib/runlog` 96.0%, `service/lists` 87.0%, `service/ops` 95.2%, `service/qlog` 91.1%, `service/ruleedit` 88.5%, `service/selfcheck` 92.5%, `test/conformance` 79.7%.
 
 Verification commands (all must be clean before a merge):
 
@@ -30,7 +33,7 @@ go run ./cmd/hecate check -config configs/hecate.example.yaml
 GOOS=linux GOARCH=amd64 go build ./...
 ```
 
-The race detector needs a C compiler (on Windows, w64devkit); enable cgo for that command only, never globally, because it breaks the Linux cross-build. Concurrent code relies on immutable snapshots and no global state, backed by load tests. Deliberate mutations on a scratch copy were used to confirm that the tests catch behaviour changes.
+The race detector needs a C compiler (on Windows, w64devkit); enable cgo for that command only, never globally, because it breaks the Linux cross-build. Concurrent code relies on immutable snapshots and no global state, backed by load tests. Deliberate mutations were used to confirm that the tests catch behaviour changes; `go test -overlay` runs a mutated copy of one file without touching the working tree. One known flake on Windows is not ours: `TestServer_StopsWhenCancelledBeforeItHasStarted` in `core/native` sometimes fails in a multi-package run because Windows reserves ranges of TCP ports, and it passes alone and on a rerun.
 
 ---
 
@@ -141,6 +144,33 @@ Setup: Ubuntu 24.04 VPS with its own public IPv4 address, `native` backend, DoT 
 
 ---
 
+## The dashboard on the VPS and the phone (2026-10-21)
+
+Setup: the same VPS, the dashboard installed from a bundle, the names file switched on, the 443 firewall rules loaded with a safety timer, an Android phone on mobile data and on Wi-Fi.
+
+| Check | Result |
+|---|---|
+| First run of the installer | Stopped at its own staging trial: Let's Encrypt refuses a bare name together with a wildcard that covers it. The installer was fixed (the wildcard first, no bare name) and the second run passed |
+| 443 rules with the safety timer | Loaded; a new SSH login worked; made permanent with a copy of the old file kept |
+| Dashboard on the phone, mobile data | Opened, login worked |
+| Names file switched on (`install-rotation.sh`) | One restart of the DNS server, the one name moved into the file, the handshake check passed |
+| First Rotate | The server side was healthy (a TLS handshake for the new name verified), but the phone lost its internet on Wi-Fi and on mobile data. The wildcard DNS record was proxied, so the new name resolved to proxy addresses and port 853 is not forwarded. After the record was set to DNS only, `dig +short @1.1.1.1` returned only the server address and the phone worked |
+| Remove old, then the old DNS records deleted | Done by the owner; the internet stayed up |
+| Control screen: Health, Backup, Renew test | Run by the owner on the phone; no findings were reported |
+| Update of the dashboard binary | Swapped with the old one kept; the fingerprint of the installed binary matched the bundle; only the dashboard restarted |
+| CI | Green for each pushed commit |
+
+**Findings and fixes.**
+
+- The proxied wildcard record. The earlier check of Rotate only asked the public resolvers for any answer, so it passed. Rotate now runs a real DoT query with the new name against every address the public resolvers answer and rolls back when one fails. The tests use fake resolvers and a real TLS listener; two deliberate mutations (the reach check never called, the reach check always passing) made the tests fail.
+- A new release looked broken on the phone: the tab buttons showed in the browser's default grey style and did not switch. The cause was `Cache-Control: max-age=86400`, which let the phone keep the old styles and scripts next to the new page. It was reproduced locally by serving the new page with the old files, then fixed by `no-cache` with an ETag for every file; a test checks the header and the 304 answer for the page, the scripts, the styles and the icons.
+- The bottom tabs were links, so a long press offered a new browser tab, and the label "Connection" was wider than the active pill. They are buttons now and the pill and label were adjusted; checked in a 360 px viewport and by script (the tab elements are buttons, a tap changes the screen without growing the history).
+- A coloured box flashed on every tap (the browser's own tap highlight). It is turned off on the body; a test guards it and the computed value was checked on the tabs and on other buttons. The owner confirmed on the phone that it is gone.
+
+**Not verified:** the reach check for IPv6 (it checks A records only) and for a host behind NAT; the forced renewal; a real certificate renewal with the new domain list and the post-renew step; the dashboard under its own user (not built); the screens at 320 px; keyboard and screen-reader use.
+
+---
+
 ## Stability and robustness checks done
 
 - Both backends: graceful Ctrl+C on a real Windows console (exit code 0, log closed, UDP port released); queries stuck on a silent plain upstream are cancelled by closing their connection.
@@ -154,7 +184,7 @@ Setup: Ubuntu 24.04 VPS with its own public IPv4 address, `native` backend, DoT 
 - A real PC boot with the scheduled task (including late Wi-Fi).
 - Behaviour on a real full disk (only a fake disk was tested).
 - Real DoH providers and IPv6 upstreams under long load; Windows UDP read errors other than `WSAEMSGSIZE`; accuracy of the cache memory estimate under real load.
-- The 7-day stability run (S4) on the VPS: started 2026-10-20, in progress.
+- The 7-day stability run (S4) on the VPS: started 2026-10-20 and restarted on 2026-10-21 by the one restart that switched the names file on; evaluate about a week after that restart.
 - A real certificate renewal (the certificate is valid until 2027-01-17 and renews at 30 days left), a full external port scan, a connection burst from a second host that is dropped while the phone keeps working, and real IPv6 `/64` sockets (the DNS records are IPv4 only so far).
 - Why mobile data scores 95% against 97% on Wi-Fi (see above).
 - The ad-test S2 (redirect) check on mobile data, and the phone with the browser's Secure DNS and any data saver switched off.
