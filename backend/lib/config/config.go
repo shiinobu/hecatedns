@@ -41,6 +41,7 @@ const (
 	defaultRetentionDays  = 7
 	defaultLogMaxMBPerDay = 256
 	defaultDoTReloadEvery = 10 * time.Minute
+	defaultSessionDays    = 30
 	defaultDataDir        = "data"
 	defaultRulesFile      = "data/rules.txt"
 	defaultLogDir         = "data/logs"
@@ -61,7 +62,34 @@ type Config struct {
 	Rules          Rules        `yaml:"rules"`
 	Log            Log          `yaml:"log"`
 	DoT            DoT          `yaml:"dot"`
+	Dashboard      Dashboard    `yaml:"dashboard"`
 	DataDir        string       `yaml:"data_dir"`
+}
+
+type Dashboard struct {
+	Enabled      bool       `yaml:"enabled"`
+	Listen       []string   `yaml:"listen"`
+	Names        []string   `yaml:"names"`
+	ProbeDomains []string   `yaml:"probe_domains"`
+	Certs        []CertPair `yaml:"certs"`
+	KeyHashFile  string     `yaml:"key_hash_file"`
+	SecretFile   string     `yaml:"secret_file"`
+	SessionDays  int        `yaml:"session_days"`
+}
+
+type CertPair struct {
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
+}
+
+func (d Dashboard) EffectiveCerts(dot DoT) []CertPair {
+	if len(d.Certs) > 0 {
+		return d.Certs
+	}
+	if dot.Enabled && dot.CertFile != "" && dot.KeyFile != "" {
+		return []CertPair{{CertFile: dot.CertFile, KeyFile: dot.KeyFile}}
+	}
+	return nil
 }
 
 type DoT struct {
@@ -149,6 +177,7 @@ func Default() Config {
 		Rules:          Rules{File: defaultRulesFile, PollInterval: defaultPollInterval},
 		Log:            Log{Enabled: true, Dir: defaultLogDir, RetentionDays: defaultRetentionDays, MaxMBPerDay: defaultLogMaxMBPerDay},
 		DoT:            DoT{ReloadEvery: defaultDoTReloadEvery},
+		Dashboard:      Dashboard{SessionDays: defaultSessionDays},
 		DataDir:        defaultDataDir,
 	}
 }
@@ -199,6 +228,11 @@ func resolvePaths(cfg *Config, baseDir string) {
 	cfg.Log.Dir = absFrom(baseDir, cfg.Log.Dir)
 	cfg.DoT.CertFile = absFrom(baseDir, cfg.DoT.CertFile)
 	cfg.DoT.KeyFile = absFrom(baseDir, cfg.DoT.KeyFile)
+	cfg.Dashboard.KeyHashFile = absFrom(baseDir, cfg.Dashboard.KeyHashFile)
+	cfg.Dashboard.SecretFile = absFrom(baseDir, cfg.Dashboard.SecretFile)
+	for i, pair := range cfg.Dashboard.Certs {
+		cfg.Dashboard.Certs[i] = CertPair{CertFile: absFrom(baseDir, pair.CertFile), KeyFile: absFrom(baseDir, pair.KeyFile)}
+	}
 }
 
 func absFrom(base, p string) string {

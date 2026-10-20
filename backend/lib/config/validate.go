@@ -26,6 +26,7 @@ func (c Config) Validate() error {
 	errs = append(errs, c.validateBackend()...)
 	errs = append(errs, c.validateListen()...)
 	errs = append(errs, c.validateDoT()...)
+	errs = append(errs, c.validateDashboard()...)
 	errs = append(errs, c.validateClients()...)
 	errs = append(errs, c.validateUpstreams()...)
 	errs = append(errs, c.validateBlock()...)
@@ -52,6 +53,7 @@ func (c Config) Warnings() []string {
 	out = append(out, c.LoopWarnings()...)
 	out = append(out, c.openResolverWarnings()...)
 	out = append(out, c.dotWarnings()...)
+	out = append(out, c.dashboardWarnings()...)
 	return out
 }
 

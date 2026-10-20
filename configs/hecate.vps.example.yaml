@@ -15,6 +15,17 @@ dot:
     - k7x9p2qm4t8v3w6z.example.org
   reload_every: 10m
 
+dashboard:
+  enabled: false                 # run it with: hecate dashboard -config <this file>
+  listen: ["0.0.0.0:443", "[::]:443"]
+  names:                         # the secret host name of the dashboard, 16 or more characters in the first label
+    - q3w8e5r2t7y4u9i6o1p0.example.org
+  probe_domains: [example.org]   # bases for the network test (one fresh label under each)
+  certs: []                      # empty means: use the dot certificate pair above
+  key_hash_file: /var/lib/hecate/dashboard/key.sha256
+  secret_file: /var/lib/hecate/dashboard/cookie.secret
+  session_days: 30
+
 upstreams:
   - https://1.1.1.1/dns-query
   - https://8.8.8.8/dns-query
