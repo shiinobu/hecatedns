@@ -26,6 +26,8 @@ const (
 var assetContentTypes = map[string]string{
 	".js":  "text/javascript; charset=utf-8",
 	".css": "text/css; charset=utf-8",
+	".svg": "image/svg+xml",
+	".png": "image/png",
 }
 
 type asset struct {
@@ -73,7 +75,7 @@ func loadAssets(fsys fs.FS) (map[string]asset, error) {
 	}
 	routes := assetRoutes(entries)
 	if len(routes) > maxAssetFiles+1 {
-		return nil, fmt.Errorf("dashboard: too many asset files (more than %d scripts and stylesheets)", maxAssetFiles)
+		return nil, fmt.Errorf("dashboard: too many asset files (more than %d scripts, stylesheets and icons)", maxAssetFiles)
 	}
 	for _, rt := range routes {
 		loaded, err := readAsset(fsys, rt)

@@ -20,9 +20,11 @@ func assetsWith(extra fstest.MapFS) fstest.MapFS {
 func TestAssets_ServesEveryScriptAndStylesheetInTheRootFolder(t *testing.T) {
 	s := newTestServer(t, func(o *Options) {
 		o.Assets = assetsWith(fstest.MapFS{
-			"api.js":    {Data: []byte("export const a = 1")},
-			"views.js":  {Data: []byte("export const v = 2")},
-			"theme.css": {Data: []byte("a{}")},
+			"api.js":       {Data: []byte("export const a = 1")},
+			"views.js":     {Data: []byte("export const v = 2")},
+			"theme.css":    {Data: []byte("a{}")},
+			"favicon.svg":  {Data: []byte("<svg/>")},
+			"icon-192.png": {Data: []byte("png")},
 		})
 	})
 	tests := []struct{ path, body, contentType string }{
@@ -30,6 +32,8 @@ func TestAssets_ServesEveryScriptAndStylesheetInTheRootFolder(t *testing.T) {
 		{"/views.js", "export const v = 2", "text/javascript; charset=utf-8"},
 		{"/theme.css", "a{}", "text/css; charset=utf-8"},
 		{"/app.js", "console.log(1)", "text/javascript; charset=utf-8"},
+		{"/favicon.svg", "<svg/>", "image/svg+xml"},
+		{"/icon-192.png", "png", "image/png"},
 	}
 	for _, tt := range tests {
 		rec := serve(s, httptest.NewRequest(http.MethodGet, "http://"+testHost+tt.path, nil))
@@ -48,9 +52,12 @@ func TestAssets_OnlyScriptsStylesheetsAndTheIndexAreServed(t *testing.T) {
 			"sub/inner.js":  {Data: []byte("x")},
 			"other.html":    {Data: []byte("<p>")},
 			"Upper Case.js": {Data: []byte("x")},
+			"photo.gif":     {Data: []byte("GIF89a")},
+			"Logo.svg":      {Data: []byte("<svg/>")},
+			"sub/inner.png": {Data: []byte("png")},
 		})
 	})
-	for _, path := range []string{"/notes.txt", "/app.js.map", "/.env", "/sub/inner.js", "/other.html", "/index.html", "/Upper%20Case.js", "/inner.js"} {
+	for _, path := range []string{"/notes.txt", "/app.js.map", "/.env", "/sub/inner.js", "/other.html", "/index.html", "/Upper%20Case.js", "/inner.js", "/photo.gif", "/Logo.svg", "/inner.png"} {
 		rec := serve(s, httptest.NewRequest(http.MethodGet, "http://"+testHost+path, nil))
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("%s = %d, want 404", path, rec.Code)
