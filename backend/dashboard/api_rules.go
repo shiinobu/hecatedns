@@ -77,7 +77,7 @@ func (a *API) rulesFileBytes() int64 {
 
 func (a *API) addRule(w http.ResponseWriter, r *http.Request) {
 	var req addRuleRequest
-	if !a.decodeRuleBody(w, r, &req) {
+	if !a.decodeBody(w, r, &req) {
 		return
 	}
 	rule, err := ruleedit.ParseRule(req.Action, req.Domain)
@@ -125,7 +125,7 @@ func (a *API) refuseRule(rule engine.Rule) (code, message string) {
 
 func (a *API) handleRemoveRule(w http.ResponseWriter, r *http.Request) {
 	var req removeRuleRequest
-	if !a.decodeRuleBody(w, r, &req) {
+	if !a.decodeBody(w, r, &req) {
 		return
 	}
 	domain, err := ruleedit.ParseDomain(req.Domain)
@@ -148,7 +148,7 @@ func (a *API) handleRemoveRule(w http.ResponseWriter, r *http.Request) {
 	writeJSON(a.opts.Log, w, http.StatusOK, removeRuleResponse{Removed: toRuleJSON(removed[0])})
 }
 
-func (a *API) decodeRuleBody(w http.ResponseWriter, r *http.Request, dst any) bool {
+func (a *API) decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 	dec := json.NewDecoder(io.LimitReader(r.Body, defaultMaxBodyBytes))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {

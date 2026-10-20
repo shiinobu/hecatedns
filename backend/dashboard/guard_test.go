@@ -46,6 +46,27 @@ func TestGuard_IsProtected(t *testing.T) {
 	}
 }
 
+func TestGuard_ProtectsTrackedNamesAsTheyChange(t *testing.T) {
+	g := NewGuard("hecate.my.id")
+	tracked := []string{"Rotated.hecate.my.id."}
+	g.Track(func() []string { return tracked })
+
+	if !g.IsProtected("rotated.hecate.my.id") {
+		t.Error("a tracked name is not protected")
+	}
+	if g.IsProtected("other.hecate.my.id") {
+		t.Error("an untracked sibling is protected")
+	}
+	if got := g.Parents("x.rotated.hecate.my.id"); len(got) != 0 {
+		t.Errorf("Parents stops at a tracked name, got %v", got)
+	}
+
+	tracked = nil
+	if g.IsProtected("rotated.hecate.my.id") {
+		t.Error("a removed name is still protected")
+	}
+}
+
 func TestGuard_Parents(t *testing.T) {
 	g := NewGuard("ghost.example.org")
 	tests := []struct {

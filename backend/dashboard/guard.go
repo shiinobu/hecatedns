@@ -8,6 +8,11 @@ import (
 
 type Guard struct {
 	protected []string
+	tracked   func() []string
+}
+
+func (g *Guard) Track(source func() []string) {
+	g.tracked = source
 }
 
 func NewGuard(protected ...string) *Guard {
@@ -42,7 +47,22 @@ func (g *Guard) IsProtected(name string) bool {
 	if name == "" {
 		return false
 	}
-	for _, p := range g.protected {
+	if covers(g.protected, name) {
+		return true
+	}
+	if g.tracked == nil {
+		return false
+	}
+	tracked := g.tracked()
+	canonical := make([]string, len(tracked))
+	for i, p := range tracked {
+		canonical[i] = canonicalName(p)
+	}
+	return covers(canonical, name)
+}
+
+func covers(protected []string, name string) bool {
+	for _, p := range protected {
 		if p == name || strings.HasSuffix(p, "."+name) {
 			return true
 		}

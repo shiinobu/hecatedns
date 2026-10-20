@@ -4,12 +4,16 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
+
+	"github.com/shiinobu/hecatedns/backend/lib/dotnames"
 )
 
 const (
 	probeSamples     = 3
 	rotationMaxNames = 4
 	sourceConfig     = "config"
+	sourceFile       = "file"
 )
 
 type ConnectionOptions struct {
@@ -17,6 +21,7 @@ type ConnectionOptions struct {
 	ProbeDomains []string
 	Scheme       string
 	Port         int
+	Rotation     RotationOptions
 }
 
 type connectionResponse struct {
@@ -54,19 +59,18 @@ func (a *API) handleConnection(w http.ResponseWriter, _ *http.Request) {
 
 func (a *API) buildConnection() connectionResponse {
 	c := a.opts.Connection
-	names := make([]connectionName, len(c.Names))
-	newest := make(map[string]int, len(c.Names))
-	bases := make([]string, 0, len(c.Names))
-	for i, host := range c.Names {
-		base := baseOf(host, c.ProbeDomains)
-		names[i] = connectionName{Host: host, Base: base, Source: sourceConfig, Expired: a.certExpired(host)}
-		if _, seen := newest[base]; !seen {
-			bases = append(bases, base)
-		}
-		newest[base] = i
+	available := a.rotationReady()
+	entries, err := a.namesFileEntries()
+	if err != nil {
+		a.opts.Log.Error("reading the names file failed", "err", err)
+		entries, available = nil, false
 	}
-	for _, i := range newest {
-		names[i].Current = true
+	names := a.connectionNames(entries)
+	bases := make([]string, 0, len(names))
+	for _, n := range names {
+		if !slices.Contains(bases, n.Base) {
+			bases = append(bases, n.Base)
+		}
 	}
 	probes := orEmpty(slices.Clone(c.ProbeDomains))
 	domains := probes
@@ -77,8 +81,49 @@ func (a *API) buildConnection() connectionResponse {
 		Domains:  domains,
 		Names:    names,
 		Probe:    probeInfo{Scheme: c.Scheme, Domains: probes, Port: c.Port, Samples: probeSamples},
-		Rotation: rotationInfo{MaxNames: rotationMaxNames},
+		Rotation: rotationInfo{Available: available, MaxNames: rotationMaxNames},
 	}
+}
+
+func (a *API) connectionNames(entries []dotnames.Entry) []connectionName {
+	c := a.opts.Connection
+	seen := make(map[string]bool, len(c.Names)+len(entries))
+	names := make([]connectionName, 0, len(c.Names)+len(entries))
+	for _, host := range c.Names {
+		if !seen[host] {
+			seen[host] = true
+			names = append(names, a.nameRow(host, sourceConfig, time.Time{}))
+		}
+	}
+	for _, e := range entries {
+		if !seen[e.Host] {
+			seen[e.Host] = true
+			names = append(names, a.nameRow(e.Host, sourceFile, e.Added))
+		}
+	}
+	newest := make(map[string]int, len(names))
+	for i, n := range names {
+		newest[n.Base] = i
+		names[i].Removable = n.Source == sourceFile && len(names) > 1
+	}
+	for _, i := range newest {
+		names[i].Current = true
+	}
+	return names
+}
+
+func (a *API) nameRow(host, source string, added time.Time) connectionName {
+	row := connectionName{
+		Host:    host,
+		Base:    baseOf(host, a.opts.Connection.ProbeDomains),
+		Source:  source,
+		Expired: a.certExpired(host),
+	}
+	if !added.IsZero() {
+		stamp := added.UTC().Format(time.RFC3339)
+		row.Added = &stamp
+	}
+	return row
 }
 
 func (a *API) certExpired(host string) bool {

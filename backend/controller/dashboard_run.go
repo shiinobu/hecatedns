@@ -148,6 +148,7 @@ func dashboardConnection(cfg config.Config, secure bool, listen []netip.AddrPort
 		Names:        cfg.DoT.Names,
 		ProbeDomains: cfg.Dashboard.ProbeDomains,
 		Scheme:       "http",
+		Rotation:     dashboardRotation(cfg),
 	}
 	if secure {
 		conn.Scheme = "https"
@@ -163,7 +164,11 @@ func dashboardGuard(cfg config.Config) *dashboard.Guard {
 	for _, upstream := range cfg.Upstreams {
 		names = append(names, upstreamHost(upstream))
 	}
-	return dashboard.NewGuard(names...)
+	guard := dashboard.NewGuard(names...)
+	if cfg.DoT.NamesFile != "" {
+		guard.Track(newFileNames(cfg.DoT.NamesFile).Hosts)
+	}
+	return guard
 }
 
 func upstreamHost(raw string) string {
@@ -177,9 +182,15 @@ func upstreamHost(raw string) string {
 }
 
 func dashboardResolver(cfg config.Config) func(context.Context) dashboard.ResolverResult {
-	if cfg.DoT.Enabled && len(cfg.DoT.Listen) > 0 && len(cfg.DoT.Names) > 0 {
+	if cfg.DoT.Enabled && len(cfg.DoT.Listen) > 0 && len(servedDoTNames(cfg)) > 0 {
 		if addr, ok := loopbackTarget(cfg.DoT.Listen[0]); ok {
-			return dashboard.NewResolverCheck(dashboard.ResolverOptions{Addr: addr, ServerName: cfg.DoT.Names[0]})
+			return func(ctx context.Context) dashboard.ResolverResult {
+				names := servedDoTNames(cfg)
+				if len(names) == 0 {
+					return dashboard.ResolverResult{Error: "no DoT name is served"}
+				}
+				return dashboard.NewResolverCheck(dashboard.ResolverOptions{Addr: addr, ServerName: names[0]})(ctx)
+			}
 		}
 	}
 	if len(cfg.Listen) > 0 {

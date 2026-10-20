@@ -30,6 +30,9 @@ const (
 	pathConnection  = "/api/connection"
 	pathOps         = "/api/ops"
 	pathOpsRun      = "/api/ops/run"
+
+	pathConnectionRotate = "/api/connection/rotate"
+	pathConnectionRemove = "/api/connection/remove"
 )
 
 var readMethods = []string{http.MethodGet, http.MethodHead}
@@ -67,11 +70,12 @@ type APIOptions struct {
 }
 
 type API struct {
-	opts    APIOptions
-	routes  map[string]endpoint
-	status  *ttlCache[struct{}, statusResponse]
-	queries *ttlCache[queryKey, queryResult]
-	rulesMu sync.Mutex
+	opts       APIOptions
+	routes     map[string]endpoint
+	status     *ttlCache[struct{}, statusResponse]
+	queries    *ttlCache[queryKey, queryResult]
+	rulesMu    sync.Mutex
+	rotationMu sync.Mutex
 }
 
 func NewAPI(o APIOptions) *API {
@@ -103,13 +107,15 @@ func NewAPI(o APIOptions) *API {
 
 func (a *API) endpoints() map[string]endpoint {
 	return map[string]endpoint{
-		pathStatus:      {methods: readMethods, handle: a.handleStatus},
-		pathQueries:     {methods: readMethods, handle: a.handleQueries},
-		pathRules:       {methods: append(slices.Clone(readMethods), http.MethodPost), handle: a.handleRules},
-		pathRulesRemove: {methods: []string{http.MethodPost}, handle: a.handleRemoveRule},
-		pathConnection:  {methods: readMethods, handle: a.handleConnection},
-		pathOps:         {methods: readMethods, handle: a.handleOps},
-		pathOpsRun:      {methods: []string{http.MethodPost}, handle: a.handleOpsRun},
+		pathStatus:           {methods: readMethods, handle: a.handleStatus},
+		pathQueries:          {methods: readMethods, handle: a.handleQueries},
+		pathRules:            {methods: append(slices.Clone(readMethods), http.MethodPost), handle: a.handleRules},
+		pathRulesRemove:      {methods: []string{http.MethodPost}, handle: a.handleRemoveRule},
+		pathConnection:       {methods: readMethods, handle: a.handleConnection},
+		pathOps:              {methods: readMethods, handle: a.handleOps},
+		pathOpsRun:           {methods: []string{http.MethodPost}, handle: a.handleOpsRun},
+		pathConnectionRotate: {methods: []string{http.MethodPost}, handle: a.handleRotate},
+		pathConnectionRemove: {methods: []string{http.MethodPost}, handle: a.handleConnectionRemove},
 	}
 }
 
