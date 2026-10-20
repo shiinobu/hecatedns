@@ -19,6 +19,7 @@ import (
 	"github.com/shiinobu/hecatedns/backend/lib/certstore"
 	"github.com/shiinobu/hecatedns/backend/lib/config"
 	"github.com/shiinobu/hecatedns/backend/service/lists"
+	"github.com/shiinobu/hecatedns/frontend"
 )
 
 func runDashboardServer(args []string, stdout, stderr io.Writer) int {
@@ -94,6 +95,7 @@ func newDashboardServer(ctx context.Context, cfg config.Config, log *slog.Logger
 		return nil, err
 	}
 	apiOpts := dashboardAPIOptions(cfg, log)
+	apiOpts.Connection = dashboardConnection(cfg, store != nil, listen)
 	if store != nil {
 		apiOpts.Cert = store
 	}
@@ -102,6 +104,7 @@ func newDashboardServer(ctx context.Context, cfg config.Config, log *slog.Logger
 		Names:        cfg.Dashboard.Names,
 		ProbeDomains: cfg.Dashboard.ProbeDomains,
 		Certs:        store,
+		Assets:       frontend.Files,
 		API:          auth.Wrap(dashboard.NewAPI(apiOpts)),
 		Log:          log,
 	})
@@ -136,6 +139,21 @@ func dashboardAPIOptions(cfg config.Config, log *slog.Logger) dashboard.APIOptio
 		Guard:      dashboardGuard(cfg),
 		Log:        log,
 	}
+}
+
+func dashboardConnection(cfg config.Config, secure bool, listen []netip.AddrPort) dashboard.ConnectionOptions {
+	conn := dashboard.ConnectionOptions{
+		Names:        cfg.DoT.Names,
+		ProbeDomains: cfg.Dashboard.ProbeDomains,
+		Scheme:       "http",
+	}
+	if secure {
+		conn.Scheme = "https"
+	}
+	if len(listen) > 0 {
+		conn.Port = int(listen[0].Port())
+	}
+	return conn
 }
 
 func dashboardGuard(cfg config.Config) *dashboard.Guard {

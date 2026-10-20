@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0A0618">
+  <title>HecateDNS</title>
+  <link rel="stylesheet" href="theme.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="components.css">
+  <link rel="stylesheet" href="lists.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <svg class="svg-sprite" aria-hidden="true">
+    <defs>
+      <linearGradient id="grad-violet" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#E0AAFF"/>
+        <stop offset="55%" stop-color="#AA45E9"/>
+        <stop offset="100%" stop-color="#7B2CBF"/>
+      </linearGradient>
+      <linearGradient id="grad-cyan" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#72EFDD"/>
+        <stop offset="55%" stop-color="#2DD4E8"/>
+        <stop offset="100%" stop-color="#0096C7"/>
+      </linearGradient>
+      <linearGradient id="grad-shield" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#AA45E9"/>
+        <stop offset="100%" stop-color="#2DD4E8"/>
+      </linearGradient>
+      <linearGradient id="grad-block-arc" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#AA45E9"/>
+        <stop offset="100%" stop-color="#FF5C7A"/>
+      </linearGradient>
+    </defs>
+    <symbol id="icon-hecate" viewBox="0 0 64 64">
+      <path d="M32 6L52 14v17c0 14.5-8.4 24.8-20 29-11.6-4.2-20-14.5-20-29V14L32 6z" fill="#130B27" stroke="url(#grad-shield)" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M21 18a14 14 0 100 28 11.5 11.5 0 010-28z" fill="url(#grad-violet)"/>
+      <path d="M43 18a14 14 0 110 28 11.5 11.5 0 000-28z" fill="url(#grad-cyan)"/>
+      <circle cx="32" cy="24" r="2.5" fill="#2DD4E8"/>
+      <circle cx="26" cy="29" r="2.5" fill="#E0AAFF"/>
+      <circle cx="38" cy="29" r="2.5" fill="#2DD4E8"/>
+      <path d="M32 26.5v20m-6-15l6 5 6-5m-6 11h5m-5 4h3.5" fill="none" stroke="url(#grad-cyan)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="icon-status" viewBox="0 0 24 24">
+      <path d="M3 12h4l2.5-6 5 12 2.5-6H21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="icon-queries" viewBox="0 0 24 24">
+      <path d="M4 6h16M4 12h16M4 18h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="icon-rules" viewBox="0 0 24 24">
+      <path d="M12 3l8 3.5v5.5c0 5-3.5 8.5-8 9.5-4.5-1-8-4.5-8-9.5V6.5L12 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="icon-conn" viewBox="0 0 24 24">
+      <path d="M5 12.5a10 10 0 0114 0M8.5 16a5 5 0 017 0M12 19.5h.01" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="icon-refresh" viewBox="0 0 24 24">
+      <path d="M20 11a8 8 0 10-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="icon-ok" viewBox="0 0 24 24">
+      <path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="icon-block" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
+      <path d="M5.7 5.7l12.6 12.6" fill="none" stroke="currentColor" stroke-width="2"/>
+    </symbol>
+    <symbol id="icon-allow" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
+      <path d="M8.5 12.5l2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="icon-warn" viewBox="0 0 24 24">
+      <path d="M12 3L2 20h20L12 3zm0 6v5m0 3h.01" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="icon-search" viewBox="0 0 24 24">
+      <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
+      <path d="M20 20l-4.2-4.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="icon-logout" viewBox="0 0 24 24">
+      <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4m7 14l5-5-5-5m5 5H9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+  </svg>
+
+  <div class="app-shell">
+    <header id="shell-header" class="shell-header" hidden>
+      <div class="brand">
+        <svg class="brand-mark" aria-hidden="true"><use href="#icon-hecate"></use></svg>
+        <h1 class="brand-wordmark">HecateDNS</h1>
+      </div>
+      <div class="header-tools">
+        <span id="server-clock" class="server-clock" aria-label="Server time" hidden>--:--</span>
+        <button type="button" id="btn-logout" class="btn btn-text" hidden>
+          <svg class="icon" aria-hidden="true"><use href="#icon-logout"></use></svg>
+          <span>Sign out</span>
+        </button>
+      </div>
+    </header>
+
+    <main id="main-content" class="shell-main">
+      <div id="screen-bar" class="screen-bar" hidden>
+        <h2 id="screen-title" class="screen-title">Status</h2>
+        <div class="screen-meta">
+          <span id="updated-text" class="updated-text">Updated --:--</span>
+          <span id="stale-badge" class="chip chip-badge chip-warn" hidden>
+            <svg class="icon" aria-hidden="true"><use href="#icon-warn"></use></svg>
+            <span>old</span>
+          </span>
+          <button type="button" id="btn-refresh" class="btn btn-text">
+            <svg class="icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
+            <span>Refresh</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="banner-slot" class="banner-slot" aria-live="polite"></div>
+
+      <section id="view-login" class="screen-view login-screen" aria-labelledby="login-heading" hidden>
+        <div class="login-stage">
+          <div class="login-hero">
+            <svg class="login-mark" aria-hidden="true"><use href="#icon-hecate"></use></svg>
+            <h2 id="login-heading" class="login-wordmark">HecateDNS</h2>
+            <p class="login-tagline">Shielding your digital crossroads</p>
+          </div>
+          <div class="card login-card">
+            <form id="login-form" class="form-stack" novalidate>
+              <div class="field">
+                <label class="field-label" for="login-key">Access key</label>
+                <input class="field-input field-mono" type="password" id="login-key" name="key" autocomplete="off" required>
+                <p id="login-error" class="field-error" role="alert" hidden></p>
+              </div>
+              <div class="card-actions">
+                <button type="submit" id="login-submit" class="btn btn-primary btn-full">Sign in</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-status" class="screen-view" aria-label="Status" hidden>
+        <div id="status-content" class="card-stack"></div>
+      </section>
+
+      <section id="view-queries" class="screen-view" aria-label="Queries" hidden>
+        <div class="card-stack">
+          <div class="card queries-toolbar">
+            <div class="seg-toolbar">
+              <div class="seg-group" role="group" aria-label="Time window">
+                <button type="button" class="chip seg-btn" data-window="15m" aria-pressed="true">15m</button>
+                <button type="button" class="chip seg-btn" data-window="1h" aria-pressed="false">1h</button>
+                <button type="button" class="chip seg-btn" data-window="6h" aria-pressed="false">6h</button>
+                <button type="button" class="chip seg-btn" data-window="24h" aria-pressed="false">24h</button>
+              </div>
+              <div class="seg-group" role="group" aria-label="Decision filter">
+                <button type="button" class="chip seg-btn" data-decision="all" aria-pressed="true">All</button>
+                <button type="button" class="chip seg-btn" data-decision="block" aria-pressed="false">Block</button>
+                <button type="button" class="chip seg-btn" data-decision="pass" aria-pressed="false">Pass</button>
+              </div>
+            </div>
+            <div class="field">
+              <label class="sr-only" for="queries-search">Search domain</label>
+              <div class="field-control">
+                <svg class="icon field-icon" aria-hidden="true"><use href="#icon-search"></use></svg>
+                <input class="field-input field-input-icon field-mono" type="search" id="queries-search" maxlength="100" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Search domain">
+              </div>
+              <p id="queries-error" class="field-error" role="alert" hidden></p>
+            </div>
+          </div>
+          <div id="queries-partial" class="banner banner-warn" hidden>
+            <div class="banner-body">
+              <svg class="icon" aria-hidden="true"><use href="#icon-warn"></use></svg>
+              <span>Partial count</span>
+            </div>
+          </div>
+          <div id="queries-list" class="card-stack"></div>
+        </div>
+      </section>
+
+      <section id="view-rules" class="screen-view" aria-label="Rules" hidden>
+        <div class="card-stack">
+          <div class="card">
+            <form id="rules-form" class="form-stack" novalidate>
+              <div class="field">
+                <label class="field-label" for="rules-domain">Domain</label>
+                <input class="field-input field-mono" type="text" id="rules-domain" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="example.com">
+                <p id="rules-error" class="field-error" role="alert" hidden></p>
+              </div>
+              <div class="card-actions">
+                <button type="button" id="btn-rule-block" class="btn btn-block">
+                  <svg class="icon" aria-hidden="true"><use href="#icon-block"></use></svg>
+                  <span>Block</span>
+                </button>
+                <button type="button" id="btn-rule-allow" class="btn btn-allow">
+                  <svg class="icon" aria-hidden="true"><use href="#icon-allow"></use></svg>
+                  <span>Allow</span>
+                </button>
+              </div>
+            </form>
+          </div>
+          <div class="card">
+            <div id="rules-list" class="row-list"></div>
+            <p id="rules-summary" class="card-footer-meta"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-connection" class="screen-view" aria-label="Connection" hidden>
+        <div class="card">
+          <p class="card-text">Connection is not built yet.</p>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast-slot" class="toast-slot" aria-live="polite"></div>
+
+    <nav id="tab-bar" class="tab-bar" data-active-index="0" aria-label="Main navigation" hidden>
+      <span class="tab-indicator" aria-hidden="true"></span>
+      <a href="#/status" class="tab-item" data-route="status" aria-current="page">
+        <svg class="icon" aria-hidden="true"><use href="#icon-status"></use></svg>
+        <span>Status</span>
+      </a>
+      <a href="#/queries" class="tab-item" data-route="queries">
+        <svg class="icon" aria-hidden="true"><use href="#icon-queries"></use></svg>
+        <span>Queries</span>
+      </a>
+      <a href="#/rules" class="tab-item" data-route="rules">
+        <svg class="icon" aria-hidden="true"><use href="#icon-rules"></use></svg>
+        <span>Rules</span>
+      </a>
+      <a href="#/connection" class="tab-item" data-route="connection">
+        <svg class="icon" aria-hidden="true"><use href="#icon-conn"></use></svg>
+        <span>Connection</span>
+      </a>
+    </nav>
+  </div>
+</body>
+</html>

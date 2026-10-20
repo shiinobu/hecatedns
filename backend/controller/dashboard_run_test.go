@@ -235,6 +235,62 @@ func TestDashboardRun_ProtectsTheNamesItDependsOn(t *testing.T) {
 	}
 }
 
+func TestDashboardRun_ServesTheConnectionForTheDoTNames(t *testing.T) {
+	f := newDashboardRunFixture(t, true)
+	f.start(t)
+	c := newDashboardClient(t, f.port)
+	c.waitUntilUp(t)
+	c.login(t, f.key)
+
+	status, body := c.do(http.MethodGet, "/api/connection", "")
+
+	if status != http.StatusOK {
+		t.Fatalf("connection = %d %v", status, body)
+	}
+	names, _ := body["names"].([]any)
+	if len(names) != 1 {
+		t.Fatalf("names = %v", body["names"])
+	}
+	first, _ := names[0].(map[string]any)
+	if first["host"] != runDoTName || first["source"] != "config" || first["base"] != "example.org" || first["current"] != true {
+		t.Errorf("name = %v", first)
+	}
+	probe, _ := body["probe"].(map[string]any)
+	if probe["scheme"] != "http" || probe["port"] != float64(f.port) {
+		t.Errorf("probe = %v", probe)
+	}
+	if rotation, _ := body["rotation"].(map[string]any); rotation["available"] != false {
+		t.Errorf("rotation = %v", body["rotation"])
+	}
+}
+
+func TestDashboardRun_ServesTheEmbeddedPageAndItsFiles(t *testing.T) {
+	f := newDashboardRunFixture(t, true)
+	f.start(t)
+	c := newDashboardClient(t, f.port)
+	c.waitUntilUp(t)
+
+	cases := []struct{ path, contentType, contains string }{
+		{"/", "text/html; charset=utf-8", "<title>HecateDNS</title>"},
+		{"/app.js", "text/javascript; charset=utf-8", "import"},
+		{"/theme.css", "text/css; charset=utf-8", "--color-bg"},
+	}
+	for _, tc := range cases {
+		resp, err := c.http.Get(c.base + tc.path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", tc.path, err)
+		}
+		data, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != tc.contentType {
+			t.Errorf("GET %s = %d %q", tc.path, resp.StatusCode, resp.Header.Get("Content-Type"))
+		}
+		if !strings.Contains(string(data), tc.contains) {
+			t.Errorf("GET %s: body does not contain %q", tc.path, tc.contains)
+		}
+	}
+}
+
 func TestDashboardRun_RefusesADisabledDashboard(t *testing.T) {
 	f := newDashboardRunFixture(t, false)
 	var stdout, stderr bytes.Buffer

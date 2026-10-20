@@ -1,0 +1,199 @@
+.queries-toolbar {
+  padding: var(--space-xs);
+  gap: var(--space-xs);
+}
+
+.seg-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
+}
+
+.seg-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
+  background-color: var(--color-surface-raised);
+  padding: var(--border-w);
+  border-radius: var(--radius-ctrl);
+  border: var(--border-w) solid var(--color-line);
+  max-width: 100%;
+}
+
+.row-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  padding: var(--space-xs) 0;
+  border-bottom: var(--border-w) solid var(--color-line);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.row-query {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-xs);
+  padding: var(--space-xs) 0;
+}
+
+.query-main-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+}
+
+.query-toggle {
+  appearance: none;
+  background-color: transparent;
+  border: 0;
+  padding: var(--space-2xs);
+  border-radius: var(--radius-ctrl);
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.query-drawer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  padding-top: var(--space-xs);
+  border-top: var(--border-w) solid var(--color-line);
+}
+
+.drawer-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.row-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  min-width: 0;
+  flex: 1;
+}
+
+.row-title {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+}
+
+.row-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  color: var(--color-text);
+}
+
+.row-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  font-size: var(--text-xs);
+  line-height: 1.2;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.row-side {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2xs);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  border-radius: var(--radius-pill);
+  border: var(--border-w) solid var(--color-line);
+  background-color: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+button.chip {
+  min-height: var(--control-h);
+  padding: 0 var(--space-xs);
+  cursor: pointer;
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+button.chip:active:not(:disabled) {
+  transform: scale(var(--press-scale));
+}
+
+button.chip[aria-pressed="true"] {
+  background-color: var(--color-violet-deep);
+  border-color: var(--color-violet);
+  color: var(--color-text);
+}
+
+.seg-btn {
+  min-width: var(--control-h);
+  padding: 0 var(--space-2xs);
+  border-radius: var(--radius-ctrl);
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--color-text-muted);
+}
+
+.chip-badge {
+  padding: var(--space-2xs) var(--space-xs);
+}
+
+.chip-badge .icon {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+}
+
+.chip-block {
+  background-color: var(--color-block-bg);
+  color: var(--color-block);
+  border-color: var(--color-block);
+}
+
+.chip-allow {
+  background-color: var(--color-allow-bg);
+  color: var(--color-allow);
+  border-color: var(--color-allow);
+}
+
+.chip-warn {
+  background-color: var(--color-warn-bg);
+  color: var(--color-warn);
+  border-color: var(--color-warn);
+}
