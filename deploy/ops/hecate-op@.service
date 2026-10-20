@@ -1,0 +1,16 @@
+[Unit]
+Description=HecateDNS dashboard operation %i
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/hecate/ops/run.sh %i
+TimeoutStartSec=1000
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true

@@ -1,0 +1,47 @@
+[Unit]
+Description=HecateDNS dashboard
+After=network-online.target hecate.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hecate
+Group=hecate
+ExecStart=/opt/hecate/hecate dashboard -config /etc/hecate/hecate.yaml
+Restart=on-failure
+RestartSec=10
+StateDirectory=hecate
+MemoryMax=96M
+TasksMax=64
+CPUQuota=50%
+
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectProc=invisible
+ProcSubset=pid
+ProtectHostname=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ReadWritePaths=/run/hecate-ops/req
+ReadOnlyPaths=/var/lib/hecate/lego /var/lib/hecate-ops/result
+InaccessiblePaths=/var/lib/hecate/lego/accounts
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+UMask=0077
+LimitNOFILE=1024
+
+[Install]
+WantedBy=multi-user.target

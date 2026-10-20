@@ -55,6 +55,9 @@
     <symbol id="icon-conn" viewBox="0 0 24 24">
       <path d="M5 12.5a10 10 0 0114 0M8.5 16a5 5 0 017 0M12 19.5h.01"/>
     </symbol>
+    <symbol id="icon-control" viewBox="0 0 24 24">
+      <path d="M4 7h9M17 7h3M4 17h3M11 17h9M15 4.5v5M9 14.5v5"/>
+    </symbol>
     <symbol id="icon-refresh" viewBox="0 0 24 24">
       <path d="M20 11a8 8 0 10-2.3 5.7M20 4v7h-7"/>
     </symbol>
@@ -239,6 +242,10 @@
       <section id="view-connection" class="screen-view" aria-label="Connection" hidden>
         <div id="connection-content" class="card-stack"></div>
       </section>
+
+      <section id="view-control" class="screen-view" aria-label="Control" hidden>
+        <div id="control-content" class="card-stack"></div>
+      </section>
     </main>
 
     <div id="toast-slot" class="toast-slot" aria-live="polite"></div>
@@ -260,6 +267,10 @@
       <a href="#/connection" class="tab-item" data-route="connection">
         <svg class="icon" aria-hidden="true"><use href="#icon-conn"></use></svg>
         <span>Connection</span>
+      </a>
+      <a href="#/control" class="tab-item" data-route="control">
+        <svg class="icon" aria-hidden="true"><use href="#icon-control"></use></svg>
+        <span>Control</span>
       </a>
     </nav>
   </div>

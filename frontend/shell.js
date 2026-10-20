@@ -7,14 +7,16 @@ export const ROUTES = {
   status: "Status",
   queries: "Queries",
   rules: "Rules",
-  connection: "Connection"
+  connection: "Connection",
+  control: "Control"
 };
 
 const ROUTE_INDEX = {
   status: "0",
   queries: "1",
   rules: "2",
-  connection: "3"
+  connection: "3",
+  control: "4"
 };
 
 export const shellState = {

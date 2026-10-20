@@ -202,6 +202,14 @@ export function apiRemoveRule(domain) {
   return request("/api/rules/remove", { method: "POST", body: { domain } });
 }
 
+export function apiOps(action) {
+  return request(action ? "/api/ops?action=" + encodeURIComponent(action) : "/api/ops");
+}
+
+export function apiRunOp(action) {
+  return request("/api/ops/run", { method: "POST", body: { action } });
+}
+
 export function apiConnection() {
   return request("/api/connection");
 }

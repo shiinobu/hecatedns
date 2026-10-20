@@ -391,3 +391,6 @@
     color: var(--color-violet-soft);
   }
 }
+
+.row-flush > .op-output { flex: 0 0 100%; order: 3; }
+.row-flush:has(> .op-output:not([hidden])) { flex-wrap: wrap; }

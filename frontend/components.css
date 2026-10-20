@@ -378,3 +378,16 @@ button.chip[aria-pressed="true"] {
   color: var(--color-text);
 }
 
+
+.op-output {
+  margin: var(--space-xs) 0 0;
+  padding: var(--space-xs);
+  max-height: 14rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background-color: var(--color-well);
+  border-radius: var(--radius-ctrl);
+}

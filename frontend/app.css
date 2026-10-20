@@ -141,7 +141,7 @@
   -webkit-backdrop-filter: blur(var(--blur-glass));
   border-top: var(--border-w) solid var(--color-line);
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   align-items: center;
   max-width: var(--layout-max);
   margin: 0 auto;
@@ -153,7 +153,7 @@
   top: 0;
   bottom: var(--safe-bottom);
   left: 0;
-  width: 25%;
+  width: 20%;
   transition: transform var(--duration-slide) var(--ease-spring);
   pointer-events: none;
 }
@@ -172,6 +172,7 @@
 #tab-bar[data-active-index="1"] .tab-indicator { transform: translateX(100%); }
 #tab-bar[data-active-index="2"] .tab-indicator { transform: translateX(200%); }
 #tab-bar[data-active-index="3"] .tab-indicator { transform: translateX(300%); }
+#tab-bar[data-active-index="4"] .tab-indicator { transform: translateX(400%); }
 
 .tab-item {
   position: relative;

@@ -211,7 +211,7 @@ func TestBackups_ListsOnlyWellFormedNamesNewestFirstAndCapped(t *testing.T) {
 	}
 
 	var b strings.Builder
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		fmt.Fprintf(&b, "%d %d hecate-202610%02d-120000.tar.gz\n", testNow.Add(time.Duration(i)*time.Hour).Unix(), 1000+i, i+1)
 	}
 	b.WriteString("1 2 ../../etc/passwd\n9 9 hecate-x.tar.gz\nbroken\n\n-5 7 hecate-20261001-120000.tar.gz\n")

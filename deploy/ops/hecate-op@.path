@@ -1,0 +1,9 @@
+[Unit]
+Description=Run the HecateDNS dashboard operation %i when it is requested
+
+[Path]
+PathExists=/run/hecate-ops/req/%i
+Unit=hecate-op@%i.service
+
+[Install]
+WantedBy=multi-user.target

@@ -3,6 +3,7 @@ import {
   apiConnection,
   apiLogin,
   apiLogout,
+  apiOps,
   apiQueries,
   apiRemoveRule,
   apiRules,
@@ -11,6 +12,7 @@ import {
   state
 } from "./api.js";
 import { renderConnectionView } from "./connection.js";
+import { renderControlView, stopControlPolling } from "./control.js";
 import { initQueriesControls, renderQueriesView } from "./queries.js";
 import {
   clearBanner,
@@ -209,8 +211,41 @@ async function loadConnectionScreen() {
   }
 }
 
+async function loadControlScreen(silent) {
+  const container = document.getElementById("control-content");
+  if (!silent) {
+    clearBanner();
+    setInteractiveDisabled(true);
+    if (!state.controlData && container) {
+      renderSkeletonCards(container, 3);
+    }
+  }
+  try {
+    const st = await apiStatus();
+    state.statusData = st;
+    syncServerTime(st.time);
+    const data = await apiOps();
+    state.controlData = data;
+    updateUpdatedMeta(st.time, false);
+    if (container && shellState.currentRoute === "control") {
+      renderControlView(container, data, (quiet) => loadControlScreen(quiet));
+    }
+  } catch (err) {
+    if (err && err.status === 401) return;
+    if (silent) return;
+    if (state.controlData && container) {
+      renderControlView(container, state.controlData, (quiet) => loadControlScreen(quiet));
+      if (state.statusData) updateUpdatedMeta(state.statusData.time, true);
+    }
+    showErrorBanner(err, () => loadControlScreen(false));
+  } finally {
+    if (!silent) setInteractiveDisabled(false);
+  }
+}
+
 export function loadActiveScreen() {
   showShellMode();
+  stopControlPolling();
   const route = shellState.currentRoute;
   if (route === "status") {
     loadStatusScreen();
@@ -220,6 +255,8 @@ export function loadActiveScreen() {
     loadRulesScreen();
   } else if (route === "connection") {
     loadConnectionScreen();
+  } else if (route === "control") {
+    loadControlScreen(false);
   }
 }
 
