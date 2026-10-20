@@ -350,6 +350,15 @@ function initApp() {
     allowBtn.addEventListener("click", () => handleRuleSubmitOnRules("allow"));
   }
 
+  document.querySelectorAll(".tab-item").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const next = tab.getAttribute("data-route");
+      if (next === shellState.currentRoute) return;
+      window.history.replaceState(null, "", "#/" + next);
+      handleRouteChange();
+    });
+  });
+
   window.addEventListener("hashchange", handleRouteChange);
   handleRouteChange();
 }

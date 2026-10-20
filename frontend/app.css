@@ -141,7 +141,7 @@
   -webkit-backdrop-filter: blur(var(--blur-glass));
   border-top: var(--border-w) solid var(--color-line);
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   align-items: center;
   max-width: var(--layout-max);
   margin: 0 auto;
@@ -161,7 +161,7 @@
 .tab-indicator::before {
   content: "";
   position: absolute;
-  inset: var(--space-2xs) var(--space-xs);
+  inset: var(--space-2xs);
   border: var(--border-w) solid color-mix(in srgb, var(--color-violet-soft) 40%, transparent);
   border-radius: var(--radius-ctrl);
   background: var(--grad-thumb);
@@ -183,11 +183,15 @@
   justify-content: center;
   gap: var(--space-2xs);
   min-height: var(--control-h);
-  margin: 0 var(--space-2xs);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
   border-radius: var(--radius-ctrl);
   color: var(--color-text-muted);
-  text-decoration: none;
-  font-size: var(--text-xs);
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: calc(var(--text-xs) * 0.92);
   font-weight: var(--weight-semi);
   line-height: 1;
 }
