@@ -3,10 +3,13 @@ export const state = {
   statusData: null,
   queriesData: null,
   rulesData: null,
+  connectionData: null,
   queriesFilter: {
     window: "15m",
     decision: "all",
-    q: ""
+    q: "",
+    page: 0,
+    pageSize: "25"
   },
   onUnauthorized: null
 };
@@ -95,6 +98,22 @@ export function mapRuleError(err) {
   }
 }
 
+export function mapConnectionError(err) {
+  if (!err) return "Request failed.";
+  if (err.status === 429) {
+    const sec = err.retryAfter || 5;
+    return "Too many tries. Wait " + sec + " s.";
+  }
+  switch (err.code) {
+    case "too_many_names":
+      return "Remove an old name first.";
+    case "resolve_failed":
+      return "The new name does not resolve yet. Try again in a minute.";
+    default:
+      return err.message || "Could not update connection.";
+  }
+}
+
 async function request(path, options = {}) {
   const fetchOpts = {
     method: options.method || "GET",
@@ -165,7 +184,9 @@ export function apiQueries(params) {
   usp.set("window", params.window || "15m");
   usp.set("decision", params.decision || "all");
   usp.set("q", params.q || "");
-  usp.set("limit", "200");
+  const size = Number(params.pageSize) || 25;
+  usp.set("limit", String(size));
+  usp.set("offset", String((Number(params.page) || 0) * size));
   return request("/api/queries?" + usp.toString());
 }
 
@@ -179,6 +200,18 @@ export function apiAddRule(action, domain) {
 
 export function apiRemoveRule(domain) {
   return request("/api/rules/remove", { method: "POST", body: { domain } });
+}
+
+export function apiConnection() {
+  return request("/api/connection");
+}
+
+export function apiRotateConnection(domain) {
+  return request("/api/connection/rotate", { method: "POST", body: { domain } });
+}
+
+export function apiRemoveConnection(host) {
+  return request("/api/connection/remove", { method: "POST", body: { host } });
 }
 
 export function clearNode(node) {
@@ -205,4 +238,45 @@ export function el(tag, className, text) {
     node.textContent = String(text);
   }
   return node;
+}
+
+const LABEL_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789";
+
+function generateProbeLabel() {
+  const bytes = new Uint8Array(20);
+  window.crypto.getRandomValues(bytes);
+  let out = "";
+  for (let i = 0; i < 20; i += 1) {
+    out += LABEL_CHARS[bytes[i] % LABEL_CHARS.length];
+  }
+  return out;
+}
+
+function buildProbeUrl(scheme, label, domain, port) {
+  const cleanScheme = scheme || "https";
+  const defaultPort = cleanScheme === "http" ? 80 : 443;
+  const numPort = Number(port) || defaultPort;
+  const portSuffix = numPort === defaultPort ? "" : ":" + numPort;
+  return cleanScheme + "://" + label + "." + domain + portSuffix + "/probe";
+}
+
+export async function runProbeSequence(probeCfg, fallbackDomains) {
+  const probeDomains = Array.isArray(probeCfg.domains) ? probeCfg.domains : fallbackDomains;
+  const samples = Math.max(1, Number(probeCfg.samples) || 3);
+  const scheme = probeCfg.scheme || "https";
+  const results = [];
+
+  for (let i = 0; i < probeDomains.length; i += 1) {
+    const dom = probeDomains[i];
+    const checks = [];
+    for (let s = 0; s < samples; s += 1) {
+      const url = buildProbeUrl(scheme, generateProbeLabel(), dom, probeCfg.port);
+      const opts = { mode: "no-cors", cache: "no-store", credentials: "omit", signal: AbortSignal.timeout(6000) };
+      checks.push(fetch(url, opts));
+    }
+    const settled = await Promise.allSettled(checks);
+    const resolvedCount = settled.filter((r) => r.status === "fulfilled").length;
+    results.push({ domain: dom, resolved: resolvedCount, samples });
+  }
+  return results;
 }

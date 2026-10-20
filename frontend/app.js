@@ -1,147 +1,31 @@
 import {
   apiAddRule,
+  apiConnection,
   apiLogin,
   apiLogout,
   apiQueries,
   apiRemoveRule,
   apiRules,
   apiStatus,
-  formatTime24,
   mapRuleError,
-  setServerTime,
   state
 } from "./api.js";
+import { renderConnectionView } from "./connection.js";
 import { initQueriesControls, renderQueriesView } from "./queries.js";
 import {
   clearBanner,
-  renderRulesList,
+  parseHashRoute,
   renderSkeletonCards,
-  renderStatusView,
+  setInteractiveDisabled,
+  shellState,
   showErrorBanner,
-  showToast
-} from "./views.js";
-
-const ROUTES = {
-  status: "Status",
-  queries: "Queries",
-  rules: "Rules",
-  connection: "Connection"
-};
-
-const ROUTE_INDEX = {
-  status: "0",
-  queries: "1",
-  rules: "2",
-  connection: "3"
-};
-
-let currentRoute = "status";
-let isLoginVisible = false;
-let isLoading = false;
-
-function parseHashRoute() {
-  const hash = window.location.hash || "#/status";
-  const match = hash.replace(/^#\/?/, "").toLowerCase();
-  if (Object.prototype.hasOwnProperty.call(ROUTES, match)) {
-    return match;
-  }
-  return "status";
-}
-
-function updateHeaderClock(isoString) {
-  if (!isoString) return;
-  setServerTime(isoString);
-  const clockEl = document.getElementById("server-clock");
-  if (clockEl) {
-    clockEl.textContent = formatTime24(isoString);
-  }
-}
-
-function updateUpdatedMeta(isoString, isStale) {
-  const updEl = document.getElementById("updated-text");
-  const staleEl = document.getElementById("stale-badge");
-  if (updEl && isoString) {
-    updEl.textContent = "Updated " + formatTime24(isoString);
-  }
-  if (staleEl) {
-    staleEl.hidden = !isStale;
-  }
-}
-
-function setInteractiveDisabled(disabled) {
-  isLoading = disabled;
-  const refreshBtn = document.getElementById("btn-refresh");
-  if (refreshBtn) refreshBtn.disabled = disabled;
-  const blockBtn = document.getElementById("btn-rule-block");
-  const allowBtn = document.getElementById("btn-rule-allow");
-  if (blockBtn) blockBtn.disabled = disabled;
-  if (allowBtn) allowBtn.disabled = disabled;
-}
-
-function showLoginMode() {
-  isLoginVisible = true;
-  clearBanner();
-  const headerEl = document.getElementById("shell-header");
-  const screenBar = document.getElementById("screen-bar");
-  const tabBar = document.getElementById("tab-bar");
-  const logoutBtn = document.getElementById("btn-logout");
-  const clockEl = document.getElementById("server-clock");
-  if (headerEl) headerEl.hidden = true;
-  if (screenBar) screenBar.hidden = true;
-  if (tabBar) tabBar.hidden = true;
-  if (logoutBtn) logoutBtn.hidden = true;
-  if (clockEl) clockEl.hidden = true;
-
-  Object.keys(ROUTES).forEach((r) => {
-    const sec = document.getElementById("view-" + r);
-    if (sec) sec.hidden = true;
-  });
-
-  const loginSec = document.getElementById("view-login");
-  if (loginSec) loginSec.hidden = false;
-  const keyInput = document.getElementById("login-key");
-  if (keyInput) {
-    keyInput.value = "";
-    keyInput.focus();
-  }
-}
-
-function showShellMode() {
-  isLoginVisible = false;
-  const headerEl = document.getElementById("shell-header");
-  const loginSec = document.getElementById("view-login");
-  const screenBar = document.getElementById("screen-bar");
-  const tabBar = document.getElementById("tab-bar");
-  const logoutBtn = document.getElementById("btn-logout");
-  const clockEl = document.getElementById("server-clock");
-  if (headerEl) headerEl.hidden = false;
-  if (loginSec) loginSec.hidden = true;
-  if (screenBar) screenBar.hidden = false;
-  if (tabBar) {
-    tabBar.hidden = false;
-    tabBar.setAttribute("data-active-index", ROUTE_INDEX[currentRoute] || "0");
-  }
-  if (logoutBtn) logoutBtn.hidden = false;
-  if (clockEl) clockEl.hidden = false;
-
-  const titleEl = document.getElementById("screen-title");
-  if (titleEl) titleEl.textContent = ROUTES[currentRoute] || "Status";
-
-  Object.keys(ROUTES).forEach((r) => {
-    const sec = document.getElementById("view-" + r);
-    if (sec) sec.hidden = r !== currentRoute;
-  });
-
-  const tabs = document.querySelectorAll(".tab-item");
-  tabs.forEach((tab) => {
-    const r = tab.getAttribute("data-route");
-    if (r === currentRoute) {
-      tab.setAttribute("aria-current", "page");
-    } else {
-      tab.removeAttribute("aria-current");
-    }
-  });
-}
+  showLoginMode,
+  showShellMode,
+  showToast,
+  syncServerTime,
+  updateUpdatedMeta
+} from "./shell.js";
+import { renderRulesList, renderStatusView } from "./views.js";
 
 async function loadStatusScreen() {
   const container = document.getElementById("status-content");
@@ -153,7 +37,7 @@ async function loadStatusScreen() {
   try {
     const data = await apiStatus();
     state.statusData = data;
-    updateHeaderClock(data.time);
+    syncServerTime(data.time);
     updateUpdatedMeta(data.time, false);
     if (container) renderStatusView(container, data);
   } catch (err) {
@@ -179,11 +63,11 @@ async function loadQueriesScreen() {
     if (!state.serverTimeMs) {
       const st = await apiStatus();
       state.statusData = st;
-      updateHeaderClock(st.time);
+      syncServerTime(st.time);
     }
     const data = await apiQueries(state.queriesFilter);
     state.queriesData = data;
-    updateHeaderClock(data.generated);
+    syncServerTime(data.generated);
     updateUpdatedMeta(data.generated, false);
     renderQueriesView(data, () => loadQueriesScreen(), false);
   } catch (err) {
@@ -235,7 +119,7 @@ async function handleRuleRemoveOnRules(domain) {
 
 async function handleRuleSubmitOnRules(action) {
   const input = document.getElementById("rules-domain");
-  if (!input || isLoading) return;
+  if (!input || shellState.isLoading) return;
   const domain = input.value.trim();
   setRulesInlineError("");
   setInteractiveDisabled(true);
@@ -277,7 +161,7 @@ async function loadRulesScreen() {
   try {
     const st = await apiStatus();
     state.statusData = st;
-    updateHeaderClock(st.time);
+    syncServerTime(st.time);
     const data = await apiRules();
     state.rulesData = data;
     updateUpdatedMeta(st.time, false);
@@ -297,27 +181,44 @@ async function loadRulesScreen() {
 }
 
 async function loadConnectionScreen() {
+  const container = document.getElementById("connection-content");
   clearBanner();
+  setInteractiveDisabled(true);
+  if (!state.connectionData && container) {
+    renderSkeletonCards(container, 3);
+  }
   try {
     const st = await apiStatus();
     state.statusData = st;
-    updateHeaderClock(st.time);
+    syncServerTime(st.time);
+    const data = await apiConnection();
+    state.connectionData = data;
     updateUpdatedMeta(st.time, false);
+    if (container) {
+      renderConnectionView(container, data, () => loadConnectionScreen());
+    }
   } catch (err) {
     if (err && err.status === 401) return;
+    if (state.connectionData && container) {
+      renderConnectionView(container, state.connectionData, () => loadConnectionScreen());
+      if (state.statusData) updateUpdatedMeta(state.statusData.time, true);
+    }
     showErrorBanner(err, () => loadConnectionScreen());
+  } finally {
+    setInteractiveDisabled(false);
   }
 }
 
 export function loadActiveScreen() {
   showShellMode();
-  if (currentRoute === "status") {
+  const route = shellState.currentRoute;
+  if (route === "status") {
     loadStatusScreen();
-  } else if (currentRoute === "queries") {
+  } else if (route === "queries") {
     loadQueriesScreen();
-  } else if (currentRoute === "rules") {
+  } else if (route === "rules") {
     loadRulesScreen();
-  } else if (currentRoute === "connection") {
+  } else if (route === "connection") {
     loadConnectionScreen();
   }
 }
@@ -327,8 +228,8 @@ function handleRouteChange() {
   if (window.location.hash !== "#/" + next) {
     window.history.replaceState(null, "", "#/" + next);
   }
-  currentRoute = next;
-  if (!isLoginVisible) {
+  shellState.currentRoute = next;
+  if (!shellState.isLoginVisible) {
     loadActiveScreen();
   }
 }
@@ -352,6 +253,7 @@ function initApp() {
   const logoutBtn = document.getElementById("btn-logout");
   if (logoutBtn) {
     logoutBtn.addEventListener("click", async () => {
+      if (!window.confirm("Sign out?")) return;
       try {
         await apiLogout();
       } catch (_err) {

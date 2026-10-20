@@ -5,42 +5,73 @@ import {
   createIcon,
   el,
   formatTime24,
+  formatNumber,
   mapRuleError,
   state
 } from "./api.js";
-import { showToast } from "./views.js";
+import { showToast } from "./shell.js";
 
 let searchTimer = null;
 
-export function initQueriesControls(onFilterChange) {
+function bindSegment(view, attr, key, fallback, onFilterChange) {
+  const buttons = Array.from(view.querySelectorAll("[" + attr + "]"));
+  if (buttons.length === 0) return;
+  const group = buttons[0].parentElement;
+
+  const setActive = (btn) => {
+    buttons.forEach((b) => {
+      b.setAttribute("aria-pressed", b === btn ? "true" : "false");
+    });
+    group.dataset.active = String(buttons.indexOf(btn));
+  };
+
+  const current = buttons.find((b) => b.getAttribute(attr) === state.queriesFilter[key]);
+  setActive(current || buttons[0]);
+
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const val = btn.getAttribute(attr) || fallback;
+      if (state.queriesFilter[key] === val) return;
+      state.queriesFilter[key] = val;
+      setActive(btn);
+      onFilterChange();
+    });
+  });
+}
+
+function updatePager(total, pages) {
+  const page = state.queriesFilter.page;
+  const label = document.getElementById("queries-page");
+  const count = document.getElementById("queries-total");
+  const prev = document.getElementById("queries-prev");
+  const next = document.getElementById("queries-next");
+  if (label) label.textContent = "Page " + (page + 1) + " of " + pages;
+  if (count) count.textContent = formatNumber(total) + " results";
+  if (prev) prev.disabled = page <= 0;
+  if (next) next.disabled = page >= pages - 1;
+}
+
+export function initQueriesControls(onReload) {
   const view = document.getElementById("view-queries");
   if (!view) return;
 
-  const winButtons = view.querySelectorAll("[data-window]");
-  winButtons.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const val = btn.getAttribute("data-window") || "15m";
-      if (state.queriesFilter.window === val) return;
-      state.queriesFilter.window = val;
-      winButtons.forEach((b) => {
-        b.setAttribute("aria-pressed", b === btn ? "true" : "false");
-      });
-      onFilterChange();
-    });
-  });
+  const onFilterChange = () => {
+    state.queriesFilter.page = 0;
+    onReload();
+  };
 
-  const decButtons = view.querySelectorAll("[data-decision]");
-  decButtons.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const val = btn.getAttribute("data-decision") || "all";
-      if (state.queriesFilter.decision === val) return;
-      state.queriesFilter.decision = val;
-      decButtons.forEach((b) => {
-        b.setAttribute("aria-pressed", b === btn ? "true" : "false");
-      });
-      onFilterChange();
-    });
-  });
+  bindSegment(view, "data-window", "window", "15m", onFilterChange);
+  bindSegment(view, "data-decision", "decision", "all", onFilterChange);
+  bindSegment(view, "data-size", "pageSize", "25", onFilterChange);
+
+  const turnPage = (step) => () => {
+    state.queriesFilter.page = Math.max(0, state.queriesFilter.page + step);
+    onReload();
+  };
+  const prevBtn = document.getElementById("queries-prev");
+  const nextBtn = document.getElementById("queries-next");
+  if (prevBtn) prevBtn.addEventListener("click", turnPage(-1));
+  if (nextBtn) nextBtn.addEventListener("click", turnPage(1));
 
   const searchInput = document.getElementById("queries-search");
   if (searchInput) {
@@ -67,6 +98,15 @@ export function initQueriesControls(onFilterChange) {
         applySearch();
       }
     });
+
+    const clearBtn = document.getElementById("queries-clear");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", () => {
+        searchInput.value = "";
+        applySearch();
+        searchInput.focus();
+      });
+    }
   }
 }
 
@@ -140,6 +180,16 @@ export function renderQueriesView(data, reloadQueries, disabled) {
   if (!data) return;
   const rows = Array.isArray(data.rows) ? data.rows : [];
   const winLabel = data.window || state.queriesFilter.window || "15m";
+  const size = Number(state.queriesFilter.pageSize) || 25;
+  const total = Number.isFinite(data.total) ? data.total : rows.length;
+  const pages = Math.max(1, Math.ceil(total / size));
+  if (rows.length === 0 && total > 0 && state.queriesFilter.page > 0) {
+    state.queriesFilter.page = pages - 1;
+    reloadQueries();
+    return;
+  }
+  updatePager(total, pages);
+  listEl.scrollTop = 0;
 
   if (rows.length === 0) {
     const emptyCard = el("div", "card");
@@ -148,11 +198,12 @@ export function renderQueriesView(data, reloadQueries, disabled) {
     return;
   }
 
-  const card = el("div", "card card-inset");
+  const card = el("div", "card card-flush");
   const rowList = el("div", "row-list");
 
   rows.forEach((row, rowIdx) => {
-    const item = el("div", "row row-query");
+    const isBlocked = row.decision === "block";
+    const item = el("div", isBlocked ? "row row-query row-flush row-block" : "row row-query row-flush row-pass");
     let selectedDomain = row.name || "";
     const parents = Array.isArray(row.parents) ? row.parents : [];
     const hasParents = parents.length > 0;
@@ -172,28 +223,27 @@ export function renderQueriesView(data, reloadQueries, disabled) {
     main.appendChild(el("span", "row-mono", row.name || ""));
 
     const meta = el("div", "row-meta");
-    const isBlocked = row.decision === "block";
-    const pill = el(
-      "span",
-      isBlocked ? "chip chip-badge chip-block" : "chip chip-badge chip-allow"
+    meta.appendChild(
+      el(
+        "span",
+        isBlocked ? "verdict verdict-block" : "verdict verdict-pass",
+        isBlocked ? "Blocked" : "Passed"
+      )
     );
-    pill.appendChild(createIcon(isBlocked ? "icon-block" : "icon-allow"));
-    pill.appendChild(el("span", "", isBlocked ? "Blocked" : "Passed"));
-    meta.appendChild(pill);
-
-    meta.appendChild(el("span", "", "x" + (row.count || 0) + " - " + formatTime24(row.last)));
+    meta.appendChild(el("span", "meta-tag meta-count", String(row.count || 0)));
+    meta.appendChild(el("span", "meta-time", formatTime24(row.last)));
 
     if (row.by === "rule") {
-      meta.appendChild(el("span", "", "custom rule"));
+      meta.appendChild(el("span", "meta-tag meta-rule", "custom rule"));
     } else if (row.by === "list" && row.list) {
-      meta.appendChild(el("span", "", row.list));
+      meta.appendChild(el("span", "meta-tag meta-list", row.list));
     }
     main.appendChild(meta);
     mainBar.appendChild(main);
 
     const side = el("div", "row-side");
     if (row.by === "rule") {
-      const btn = el("button", "btn btn-text", "Remove rule");
+      const btn = el("button", "btn btn-text btn-soft btn-row-action", "Remove rule");
       btn.type = "button";
       btn.disabled = Boolean(disabled);
       btn.addEventListener("click", () => {
@@ -201,7 +251,7 @@ export function renderQueriesView(data, reloadQueries, disabled) {
       });
       side.appendChild(btn);
     } else if (row.decision === "pass" && !row.by) {
-      const btn = el("button", "btn btn-block");
+      const btn = el("button", "btn btn-block btn-soft btn-row-action");
       btn.type = "button";
       btn.disabled = Boolean(disabled);
       btn.appendChild(createIcon("icon-block"));
@@ -211,7 +261,7 @@ export function renderQueriesView(data, reloadQueries, disabled) {
       });
       side.appendChild(btn);
     } else if (row.decision === "block" && row.by === "list") {
-      const btn = el("button", "btn btn-allow");
+      const btn = el("button", "btn btn-allow btn-soft btn-row-action");
       btn.type = "button";
       btn.disabled = Boolean(disabled);
       btn.appendChild(createIcon("icon-allow"));

@@ -1,6 +1,5 @@
 import {
   clearNode,
-  createIcon,
   el,
   formatBytes,
   formatDateShort,
@@ -8,103 +7,10 @@ import {
   formatRelativeAge
 } from "./api.js";
 
-let toastTimer = null;
-let rateLimitTimer = null;
 let gaugeHasAnimated = false;
 
-export function clearBanner() {
-  if (rateLimitTimer) {
-    clearTimeout(rateLimitTimer);
-    rateLimitTimer = null;
-  }
-  const slot = document.getElementById("banner-slot");
-  if (slot) clearNode(slot);
-}
-
-export function showErrorBanner(err, onRetry) {
-  clearBanner();
-  const slot = document.getElementById("banner-slot");
-  if (!slot) return;
-
-  const banner = el("div", "banner");
-  const body = el("div", "banner-body");
-  body.appendChild(createIcon("icon-warn"));
-  const msgSpan = el("span", "");
-  body.appendChild(msgSpan);
-  banner.appendChild(body);
-
-  if (err && err.status === 429) {
-    let remaining = err.retryAfter || 5;
-    const tick = () => {
-      msgSpan.textContent = "Too many tries. Wait " + remaining + " s.";
-      if (remaining > 0) {
-        remaining -= 1;
-        rateLimitTimer = setTimeout(tick, 1000);
-      }
-    };
-    tick();
-  } else if (err && err.offline) {
-    msgSpan.textContent = "Offline, or this network cannot reach the server.";
-  } else {
-    const code = err && err.status ? err.status : "error";
-    msgSpan.textContent = "Could not load (HTTP " + code + ").";
-  }
-
-  if (typeof onRetry === "function") {
-    const retryBtn = el("button", "btn btn-text", "Retry");
-    retryBtn.type = "button";
-    retryBtn.addEventListener("click", () => {
-      onRetry();
-    });
-    banner.appendChild(retryBtn);
-  }
-
-  slot.appendChild(banner);
-}
-
-export function showToast(message, onUndo) {
-  if (toastTimer) {
-    clearTimeout(toastTimer);
-    toastTimer = null;
-  }
-  const slot = document.getElementById("toast-slot");
-  if (!slot) return;
-  clearNode(slot);
-
-  const toast = el("div", "toast");
-  const text = el("span", "toast-text", message);
-  toast.appendChild(text);
-
-  if (typeof onUndo === "function") {
-    const undoBtn = el("button", "btn btn-text", "Undo");
-    undoBtn.type = "button";
-    undoBtn.addEventListener("click", () => {
-      if (toastTimer) {
-        clearTimeout(toastTimer);
-        toastTimer = null;
-      }
-      clearNode(slot);
-      onUndo();
-    });
-    toast.appendChild(undoBtn);
-  }
-
-  slot.appendChild(toast);
-  toastTimer = setTimeout(() => {
-    clearNode(slot);
-    toastTimer = null;
-  }, 8000);
-}
-
-export function renderSkeletonCards(container, count) {
-  clearNode(container);
-  for (let i = 0; i < count; i += 1) {
-    const card = el("div", "card");
-    card.appendChild(el("div", "skeleton"));
-    card.appendChild(el("div", "skeleton skeleton-lg"));
-    container.appendChild(card);
-  }
-}
+const CERT_WARN_DAYS = 14;
+const LIST_STALE_HOURS = 72;
 
 function buildGaugeStage(counts) {
   const total = Number(counts.total) || 0;
@@ -120,48 +26,45 @@ function buildGaugeStage(counts) {
   svg.setAttribute("viewBox", "0 0 200 200");
   svg.setAttribute("aria-hidden", "true");
 
-  const c = 490;
+  const r = 74;
+  const c = 2 * Math.PI * r;
   const track = document.createElementNS(ns, "circle");
   track.setAttribute("class", "gauge-track");
   track.setAttribute("cx", "100");
   track.setAttribute("cy", "100");
-  track.setAttribute("r", "78");
-  track.setAttribute("fill", "none");
-  track.setAttribute("stroke-width", "12");
+  track.setAttribute("r", String(r));
   svg.appendChild(track);
 
   const blockLen = total > 0 ? (blocked / total) * c : 0;
   const passLen = total > 0 ? (passed / total) * c : 0;
+  const seamGap = blocked > 0 && passed > 0 ? 3.5 : 0;
+  const blockDraw = Math.max(0, blockLen - seamGap);
+  const passDraw = Math.max(0, passLen - seamGap);
 
   const passArc = document.createElementNS(ns, "circle");
   passArc.setAttribute("class", "gauge-arc");
   passArc.setAttribute("cx", "100");
   passArc.setAttribute("cy", "100");
-  passArc.setAttribute("r", "78");
-  passArc.setAttribute("fill", "none");
+  passArc.setAttribute("r", String(r));
   passArc.setAttribute("stroke", "url(#grad-cyan)");
-  passArc.setAttribute("stroke-width", "10");
-  passArc.setAttribute("stroke-linecap", "round");
   passArc.setAttribute("transform", "rotate(-90 100 100)");
-  passArc.setAttribute("stroke-dashoffset", String(-blockLen));
+  passArc.setAttribute("stroke-dashoffset", String(-(blockLen + seamGap / 2)));
 
   const blockArc = document.createElementNS(ns, "circle");
   blockArc.setAttribute("class", "gauge-arc");
   blockArc.setAttribute("cx", "100");
   blockArc.setAttribute("cy", "100");
-  blockArc.setAttribute("r", "78");
-  blockArc.setAttribute("fill", "none");
+  blockArc.setAttribute("r", String(r));
   blockArc.setAttribute("stroke", "url(#grad-block-arc)");
-  blockArc.setAttribute("stroke-width", "14");
-  blockArc.setAttribute("stroke-linecap", "round");
   blockArc.setAttribute("transform", "rotate(-90 100 100)");
+  blockArc.setAttribute("stroke-dashoffset", String(-(seamGap / 2)));
 
-  const targetBlockDash = blockLen.toFixed(1) + " " + c;
-  const targetPassDash = passLen.toFixed(1) + " " + c;
+  const targetBlockDash = blockDraw.toFixed(2) + " " + c.toFixed(2);
+  const targetPassDash = passDraw.toFixed(2) + " " + c.toFixed(2);
 
   if (!gaugeHasAnimated) {
-    blockArc.setAttribute("stroke-dasharray", "0 " + c);
-    passArc.setAttribute("stroke-dasharray", "0 " + c);
+    blockArc.setAttribute("stroke-dasharray", "0 " + c.toFixed(2));
+    passArc.setAttribute("stroke-dasharray", "0 " + c.toFixed(2));
     gaugeHasAnimated = true;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -201,120 +104,212 @@ function buildGaugeStage(counts) {
   return stage;
 }
 
+function rowTone(tone) {
+  return "row row-flush row-" + tone;
+}
+
+function sectionHead(title, tag) {
+  const head = el("div", "section-head");
+  head.appendChild(el("h3", "section-label", title));
+  if (tag) head.appendChild(tag);
+  return head;
+}
+
+function appendCountsSection(container, data) {
+  const partial = data.counts && data.counts.partial;
+  container.appendChild(
+    sectionHead("Last 24 hours", partial ? el("span", "meta-tag meta-warn", "Partial count") : null)
+  );
+  const card = el("div", "card panel-glass");
+  if (!data.counts || !data.log_enabled) {
+    card.appendChild(el("p", "card-text", "Query log is off"));
+  } else {
+    card.appendChild(buildGaugeStage(data.counts));
+  }
+  container.appendChild(card);
+}
+
+function buildResolverRow(resolver) {
+  const ok = Boolean(resolver && resolver.ok);
+  const tone = ok ? "pass" : "block";
+  const row = el("div", rowTone(tone));
+  const main = el("div", "row-main");
+  main.appendChild(el("span", "row-title", "Resolver"));
+  main.appendChild(el("span", "row-mono", (resolver && resolver.name) || "--"));
+  if (resolver && !ok && resolver.error) {
+    main.appendChild(el("span", "field-error", resolver.error));
+  }
+  row.appendChild(main);
+
+  const side = el("div", "row-side");
+  if (ok) side.appendChild(el("span", "meta-tag meta-muted", resolver.ms + " ms"));
+  side.appendChild(el("span", "verdict verdict-" + tone, ok ? "OK" : "Error"));
+  row.appendChild(side);
+  return row;
+}
+
+function certDays(certificate) {
+  return Number(certificate.days_left) || 0;
+}
+
+function certTone(days) {
+  if (days < 0) return "block";
+  return days < CERT_WARN_DAYS ? "warn" : "pass";
+}
+
+function daysText(days) {
+  return days + (days === 1 ? " day" : " days");
+}
+
+function buildCertificateRow(certificate) {
+  const days = certDays(certificate);
+  const expired = days < 0;
+  const tone = certTone(days);
+  const row = el("div", rowTone(tone));
+  const main = el("div", "row-main");
+  main.appendChild(el("span", "row-title", "Certificate"));
+  main.appendChild(el("span", "row-meta", "Expires " + formatDateShort(certificate.expires)));
+  row.appendChild(main);
+
+  const side = el("div", "row-side");
+  side.appendChild(el("span", "verdict verdict-" + tone, expired ? "Expired" : daysText(days) + " left"));
+  row.appendChild(side);
+  return row;
+}
+
+function buildRulesFileRow(rules) {
+  const row = el("div", rowTone("pass"));
+  const main = el("div", "row-main");
+  main.appendChild(el("span", "row-title", "Rules file"));
+  main.appendChild(el("span", "row-meta", formatBytes(rules.bytes) + " of " + formatBytes(rules.max_bytes)));
+  row.appendChild(main);
+
+  const side = el("div", "row-side");
+  side.appendChild(el("span", "meta-tag meta-rule", formatNumber(rules.count) + " rules"));
+  row.appendChild(side);
+  return row;
+}
+
+function buildSystemCard(data) {
+  const card = el("div", "card card-flush");
+  const list = el("div", "row-list");
+  list.appendChild(buildResolverRow(data.resolver));
+  if (data.certificate !== null && data.certificate !== undefined) {
+    list.appendChild(buildCertificateRow(data.certificate));
+  }
+  if (data.rules) list.appendChild(buildRulesFileRow(data.rules));
+  card.appendChild(list);
+  return card;
+}
+
+function listsOf(data) {
+  return Array.isArray(data.lists) ? data.lists : [];
+}
+
+function listHealth(item, referenceTime) {
+  if (item.state !== "ok") return { tone: "warn", text: item.state || "unknown", loaded: false, hours: 0 };
+  const age = formatRelativeAge(item.updated, referenceTime);
+  return { tone: age.hours > LIST_STALE_HOURS ? "warn" : "pass", text: age.text, loaded: true, hours: age.hours };
+}
+
+function buildListRow(item, referenceTime) {
+  const health = listHealth(item, referenceTime);
+  const row = el("div", rowTone(health.tone));
+  const main = el("div", "row-main");
+  main.appendChild(el("span", "row-mono", item.name || ""));
+  if (health.loaded) {
+    const meta = el("div", "row-meta");
+    meta.appendChild(el("span", "meta-tag meta-list", formatNumber(item.domains) + " domains"));
+    main.appendChild(meta);
+  }
+  row.appendChild(main);
+
+  const side = el("div", "row-side");
+  const warn = health.tone === "warn";
+  side.appendChild(el("span", warn ? "verdict verdict-warn" : "meta-tag meta-muted", health.text));
+  row.appendChild(side);
+  return row;
+}
+
+function buildListsCard(data) {
+  const card = el("div", "card card-flush");
+  const wrap = el("div", "row-list");
+  const lists = listsOf(data);
+  if (lists.length === 0) {
+    wrap.appendChild(el("p", "card-text", "No block lists configured."));
+  } else {
+    lists.forEach((item) => wrap.appendChild(buildListRow(item, data.time)));
+  }
+  card.appendChild(wrap);
+  return card;
+}
+
+function collectIssues(data) {
+  const issues = [];
+  if (!data.resolver || !data.resolver.ok) issues.push({ tone: "block", text: "Resolver error" });
+  if (data.certificate) {
+    const days = certDays(data.certificate);
+    const tone = certTone(days);
+    if (tone !== "pass") {
+      issues.push({ tone, text: days < 0 ? "Certificate expired" : "Certificate " + daysText(days) + " left" });
+    }
+  }
+  listsOf(data).forEach((item) => {
+    const health = listHealth(item, data.time);
+    if (health.tone === "pass") return;
+    const detail = health.loaded ? health.text.replace(" ago", " old") : health.text;
+    issues.push({ tone: health.tone, text: item.name + " " + detail });
+  });
+  return issues;
+}
+
+function issuesTone(issues) {
+  if (issues.length === 0) return "pass";
+  return issues.some((issue) => issue.tone === "block") ? "block" : "warn";
+}
+
+function summaryTitle(count) {
+  if (count === 0) return "All systems normal";
+  return count === 1 ? "1 thing needs attention" : count + " things need attention";
+}
+
+function normalLine(data) {
+  const parts = [];
+  if (data.resolver && data.resolver.ok) parts.push("Resolver answers in " + data.resolver.ms + " ms.");
+  if (data.certificate) parts.push("Certificate expires in " + daysText(certDays(data.certificate)) + ".");
+  const loaded = listsOf(data).map((item) => listHealth(item, data.time)).filter((health) => health.loaded);
+  if (loaded.length > 0) {
+    const oldest = loaded.reduce((a, b) => (b.hours > a.hours ? b : a));
+    parts.push("Oldest block list updated " + oldest.text + ".");
+  }
+  return parts.join(" ");
+}
+
+function buildSummary(data) {
+  const issues = collectIssues(data);
+  const tone = issuesTone(issues);
+  const card = el("div", "sum verdict-" + tone);
+  card.appendChild(el("div", "sum-head", summaryTitle(issues.length)));
+  if (issues.length === 0) {
+    card.appendChild(el("p", "card-text", normalLine(data)));
+    return card;
+  }
+  const tags = el("div", "chip-row");
+  issues.forEach((issue) => tags.appendChild(el("span", "verdict verdict-" + issue.tone, issue.text)));
+  card.appendChild(tags);
+  return card;
+}
+
 export function renderStatusView(container, data) {
   clearNode(container);
   if (!data) return;
 
-  const countsCard = el("div", "card");
-  const countsHead = el("div", "card-header");
-  countsHead.appendChild(el("h3", "card-title", "Last 24 hours"));
-  if (data.counts && data.counts.partial) {
-    const partChip = el("span", "chip chip-badge chip-warn");
-    partChip.appendChild(createIcon("icon-warn"));
-    partChip.appendChild(el("span", "", "Partial count"));
-    countsHead.appendChild(partChip);
-  }
-  countsCard.appendChild(countsHead);
-
-  if (!data.counts || !data.log_enabled) {
-    countsCard.appendChild(el("p", "card-text", "Query log is off"));
-  } else {
-    countsCard.appendChild(buildGaugeStage(data.counts));
-  }
-  container.appendChild(countsCard);
-
-  const sysCard = el("div", "card card-inset");
-  const sysList = el("div", "row-list");
-
-  const resRow = el("div", "row");
-  const resMain = el("div", "row-main");
-  resMain.appendChild(el("span", "row-title", "Resolver"));
-  resMain.appendChild(el("span", "row-mono", (data.resolver && data.resolver.name) || "--"));
-  if (data.resolver && !data.resolver.ok && data.resolver.error) {
-    resMain.appendChild(el("span", "field-error", data.resolver.error));
-  }
-  resRow.appendChild(resMain);
-  const resSide = el("div", "row-side");
-  const resOk = Boolean(data.resolver && data.resolver.ok);
-  if (resOk && data.resolver) {
-    resSide.appendChild(el("span", "row-meta", data.resolver.ms + " ms"));
-  }
-  const resChip = el("span", resOk ? "chip chip-badge chip-allow" : "chip chip-badge chip-block");
-  resChip.appendChild(createIcon(resOk ? "icon-ok" : "icon-warn"));
-  resChip.appendChild(el("span", "", resOk ? "OK" : "Error"));
-  resSide.appendChild(resChip);
-  resRow.appendChild(resSide);
-  sysList.appendChild(resRow);
-
-  if (data.certificate !== null && data.certificate !== undefined) {
-    const certRow = el("div", "row");
-    const certMain = el("div", "row-main");
-    certMain.appendChild(el("span", "row-title", "Certificate"));
-    certMain.appendChild(el("span", "row-meta", "Expires " + formatDateShort(data.certificate.expires)));
-    certRow.appendChild(certMain);
-
-    const certSide = el("div", "row-side");
-    const days = Number(data.certificate.days_left) || 0;
-    const isWarn = days < 14;
-    const certChip = el("span", isWarn ? "chip chip-badge chip-warn" : "chip chip-badge chip-allow");
-    certChip.appendChild(createIcon(isWarn ? "icon-warn" : "icon-ok"));
-    certChip.appendChild(el("span", "", days + " days left"));
-    certSide.appendChild(certChip);
-    certRow.appendChild(certSide);
-    sysList.appendChild(certRow);
-  }
-
-  if (data.rules) {
-    const rulesRow = el("div", "row");
-    const rulesMain = el("div", "row-main");
-    rulesMain.appendChild(el("span", "row-title", "Rules file"));
-    rulesMain.appendChild(
-      el("span", "row-meta", formatBytes(data.rules.bytes) + " of " + formatBytes(data.rules.max_bytes))
-    );
-    rulesRow.appendChild(rulesMain);
-    rulesRow.appendChild(el("div", "row-side", formatNumber(data.rules.count) + " rules"));
-    sysList.appendChild(rulesRow);
-  }
-
-  sysCard.appendChild(sysList);
-  container.appendChild(sysCard);
-
-  const listCard = el("div", "card");
-  listCard.appendChild(el("h3", "card-title", "Block lists"));
-  const listWrap = el("div", "row-list");
-  const lists = Array.isArray(data.lists) ? data.lists : [];
-  if (lists.length === 0) {
-    listWrap.appendChild(el("p", "card-text", "No block lists configured."));
-  } else {
-    lists.forEach((item) => {
-      const row = el("div", "row");
-      const main = el("div", "row-main");
-      main.appendChild(el("span", "row-mono", item.name || ""));
-      if (item.state === "ok") {
-        main.appendChild(el("span", "row-meta", formatNumber(item.domains) + " domains"));
-      }
-      row.appendChild(main);
-
-      const side = el("div", "row-side");
-      if (item.state === "ok") {
-        const age = formatRelativeAge(item.updated, data.time);
-        const staleList = age.hours > 72;
-        const ageChip = el("span", staleList ? "chip chip-badge chip-warn" : "chip chip-badge");
-        if (staleList) ageChip.appendChild(createIcon("icon-warn"));
-        ageChip.appendChild(el("span", "", age.text));
-        side.appendChild(ageChip);
-      } else {
-        const stateChip = el("span", "chip chip-badge chip-warn");
-        stateChip.appendChild(createIcon("icon-warn"));
-        stateChip.appendChild(el("span", "", item.state || "unknown"));
-        side.appendChild(stateChip);
-      }
-      row.appendChild(side);
-      listWrap.appendChild(row);
-    });
-  }
-  listCard.appendChild(listWrap);
-  container.appendChild(listCard);
+  container.appendChild(buildSummary(data));
+  appendCountsSection(container, data);
+  container.appendChild(el("h3", "section-label", "System"));
+  container.appendChild(buildSystemCard(data));
+  container.appendChild(el("h3", "section-label", "Block lists"));
+  container.appendChild(buildListsCard(data));
 }
 
 export function renderRulesList(listEl, summaryEl, data, onRemove, disabled) {
@@ -326,20 +321,19 @@ export function renderRulesList(listEl, summaryEl, data, onRemove, disabled) {
     listEl.appendChild(el("p", "card-text", "No custom rules yet"));
   } else {
     rules.forEach((rule) => {
-      const row = el("div", "row");
+      const isBlock = rule.action === "block";
+      const row = el("div", isBlock ? "row row-flush row-block" : "row row-flush row-pass");
       const main = el("div", "row-main");
       main.appendChild(el("span", "row-mono", rule.domain));
       const meta = el("div", "row-meta");
-      const isBlock = rule.action === "block";
-      const pill = el("span", isBlock ? "chip chip-badge chip-block" : "chip chip-badge chip-allow");
-      pill.appendChild(createIcon(isBlock ? "icon-block" : "icon-allow"));
-      pill.appendChild(el("span", "", rule.action));
-      meta.appendChild(pill);
+      meta.appendChild(
+        el("span", isBlock ? "verdict verdict-block" : "verdict verdict-pass", isBlock ? "Block" : "Allow")
+      );
       main.appendChild(meta);
       row.appendChild(main);
 
       const side = el("div", "row-side");
-      const remBtn = el("button", "btn btn-text", "Remove");
+      const remBtn = el("button", "btn btn-text btn-soft btn-row-action", "Remove");
       remBtn.type = "button";
       remBtn.disabled = Boolean(disabled);
       remBtn.addEventListener("click", () => {
