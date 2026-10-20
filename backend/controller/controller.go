@@ -20,6 +20,7 @@ commands:
   log     read the query log              (hecate log -since 10m -blocked)
   rule    manage custom rules             (hecate rule add block example.com)
   lists   manage block lists              (hecate lists status | update)
+  probe   diagnose the DoT path from this machine (hecate probe -name-file name.txt)
   dashboard  run the dashboard and manage its key (hecate dashboard -config hecate.yaml | genkey | hashkey)
 `
 
@@ -40,6 +41,8 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 		return runServer(rest, stdout, stderr)
 	case "lists":
 		return runLists(rest, stdout, stderr)
+	case "probe":
+		return runProbe(rest, stdout, stderr)
 	case "dashboard":
 		return runDashboard(rest, os.Stdin, stdout, stderr)
 	default:
