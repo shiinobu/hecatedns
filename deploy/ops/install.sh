@@ -18,6 +18,7 @@ sed 's/--days 30/--days 90/' "$renew" > "$force"
 sed -e 's|--path /var/lib/hecate/lego|--path /tmp/lego-staging|' \
 	-e 's|--accept-tos|--server https://acme-staging-v02.api.letsencrypt.org/directory --accept-tos|' \
 	-e 's| renew --days 30$| run|' \
+	-e '/^ExecStartPost=/d' -e '/^ReadWritePaths=/d' \
 	-e 's|^\[Service\]$|[Service]\nInaccessiblePaths=/var/lib/hecate/lego|' "$renew" > "$staging"
 grep -q -- '--days 90' "$force" || { echo "force unit not derived"; exit 1; }
 grep -q -- '--days 30' "$force" && { echo "force unit still renews at 30 days"; exit 1; }
@@ -26,6 +27,8 @@ grep -q -- '--path /var/lib/hecate/lego' "$staging" && { echo "test unit still p
 grep -q 'acme-staging' "$staging" || { echo "test unit does not use the staging CA"; exit 1; }
 grep -q '^ExecStart=.* run$' "$staging" || { echo "test unit does not end in run"; exit 1; }
 grep -q '^InaccessiblePaths=/var/lib/hecate/lego$' "$staging" || { echo "test unit lacks the production lock"; exit 1; }
+grep -q -e '^ExecStartPost=' -e '^ReadWritePaths=' "$staging" && { echo "test unit still has a production hook or write path"; exit 1; }
+grep -q '^ExecStartPost=/opt/hecate/post-renew.sh$' "$force" || { echo "force unit lost the post-renew hook"; exit 1; }
 systemd-analyze verify "$force" "$staging" $etc/hecate-op@health.service $etc/hecate-op@health.path
 systemctl daemon-reload
 for action in $actions; do

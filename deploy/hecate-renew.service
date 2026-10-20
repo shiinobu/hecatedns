@@ -1,11 +1,12 @@
 # First run on Ubuntu 24.04 on 2026-10-20: it ran and renewed nothing with 89 days left; a real renewal is not yet seen.
 # The first certificate is requested by hand with the same
-# lego options and "run" instead of "renew"; run it as the hecate user (sudo -u hecate ...), otherwise the key is owned
-# by root with mode 0600 and neither this unit nor hecate can read it. This unit only renews.
+# lego options and "run" instead of "renew"; run it as the hecate-acme user (sudo -u hecate-acme ...), otherwise the key
+# is owned by another user and this unit cannot renew it. This unit only renews.
 # /etc/hecate/cloudflare.env holds two lines, CF_DNS_API_TOKEN=... and LEGO_EMAIL=... (the address Let's Encrypt may use for
 # expiry notices; lego cannot renew without one), owned by root with mode 0600; systemd reads it before it drops to the
-# hecate user. While this unit runs, the DoT server (same user) could read its environment, so a separate user for
-# the renewal is a worthwhile hardening step when the VPS exists.
+# hecate-acme user. The DNS server and the dashboard run as other users, so they cannot read this unit's environment.
+# The group is hecate: new files belong to the group that the DNS server and the dashboard read with. lego writes them
+# with mode 0600, and post-renew.sh opens them to the group.
 [Unit]
 Description=Renew the HecateDNS TLS certificate
 After=network-online.target
@@ -13,12 +14,15 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=hecate
+User=hecate-acme
 Group=hecate
-StateDirectory=hecate
 EnvironmentFile=/etc/hecate/cloudflare.env
 ExecStart=/opt/hecate/lego --path /var/lib/hecate/lego --email ${LEGO_EMAIL} --accept-tos --dns cloudflare --dns.resolvers 1.1.1.1:53 --domains example.org --domains *.example.org renew --days 30
+ExecStartPost=/opt/hecate/post-renew.sh
+ReadWritePaths=/var/lib/hecate/lego
 NoNewPrivileges=true
+ProtectProc=invisible
+ProcSubset=pid
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
@@ -32,4 +36,4 @@ RestrictNamespaces=true
 RestrictSUIDSGID=true
 LockPersonality=true
 CapabilityBoundingSet=
-UMask=0077
+UMask=0027
