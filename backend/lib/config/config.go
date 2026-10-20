@@ -67,14 +67,20 @@ type Config struct {
 }
 
 type Dashboard struct {
-	Enabled      bool       `yaml:"enabled"`
-	Listen       []string   `yaml:"listen"`
-	Names        []string   `yaml:"names"`
-	ProbeDomains []string   `yaml:"probe_domains"`
-	Certs        []CertPair `yaml:"certs"`
-	KeyHashFile  string     `yaml:"key_hash_file"`
-	SecretFile   string     `yaml:"secret_file"`
-	SessionDays  int        `yaml:"session_days"`
+	Enabled      bool         `yaml:"enabled"`
+	Listen       []string     `yaml:"listen"`
+	Names        []string     `yaml:"names"`
+	ProbeDomains []string     `yaml:"probe_domains"`
+	Certs        []CertPair   `yaml:"certs"`
+	KeyHashFile  string       `yaml:"key_hash_file"`
+	SecretFile   string       `yaml:"secret_file"`
+	SessionDays  int          `yaml:"session_days"`
+	Ops          DashboardOps `yaml:"ops"`
+}
+
+type DashboardOps struct {
+	RequestDir string `yaml:"request_dir"`
+	ResultDir  string `yaml:"result_dir"`
 }
 
 type CertPair struct {
@@ -230,6 +236,8 @@ func resolvePaths(cfg *Config, baseDir string) {
 	cfg.DoT.KeyFile = absFrom(baseDir, cfg.DoT.KeyFile)
 	cfg.Dashboard.KeyHashFile = absFrom(baseDir, cfg.Dashboard.KeyHashFile)
 	cfg.Dashboard.SecretFile = absFrom(baseDir, cfg.Dashboard.SecretFile)
+	cfg.Dashboard.Ops.RequestDir = absFrom(baseDir, cfg.Dashboard.Ops.RequestDir)
+	cfg.Dashboard.Ops.ResultDir = absFrom(baseDir, cfg.Dashboard.Ops.ResultDir)
 	for i, pair := range cfg.Dashboard.Certs {
 		cfg.Dashboard.Certs[i] = CertPair{CertFile: absFrom(baseDir, pair.CertFile), KeyFile: absFrom(baseDir, pair.KeyFile)}
 	}

@@ -97,6 +97,9 @@ func TestDashboard_Rejects(t *testing.T) {
 		{"no secret file", func(c *Config) { c.Dashboard.SecretFile = "" }, "dashboard.secret_file"},
 		{"session of zero days", func(c *Config) { c.Dashboard.SessionDays = 0 }, "dashboard.session_days"},
 		{"session over 90 days", func(c *Config) { c.Dashboard.SessionDays = 91 }, "dashboard.session_days"},
+		{"ops without a result directory", func(c *Config) { c.Dashboard.Ops = DashboardOps{RequestDir: "/run/hecate-ops/req"} }, "dashboard.ops.result_dir"},
+		{"ops without a request directory", func(c *Config) { c.Dashboard.Ops = DashboardOps{ResultDir: "/var/lib/hecate-ops/result"} }, "dashboard.ops.request_dir"},
+		{"ops directories the same", func(c *Config) { c.Dashboard.Ops = DashboardOps{RequestDir: "/run/ops", ResultDir: "/run/ops/"} }, "dashboard.ops: request_dir and result_dir must differ"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -109,6 +112,17 @@ func TestDashboard_Rejects(t *testing.T) {
 				t.Errorf("Validate = %v, want an error containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestDashboard_AcceptsOpsDirectoriesOrNone(t *testing.T) {
+	c := dashboardConfig()
+	if err := c.Validate(); err != nil {
+		t.Errorf("no ops directories: %v", err)
+	}
+	c.Dashboard.Ops = DashboardOps{RequestDir: "/run/hecate-ops/req", ResultDir: "/var/lib/hecate-ops/result"}
+	if err := c.Validate(); err != nil {
+		t.Errorf("both ops directories: %v", err)
 	}
 }
 
@@ -185,7 +199,7 @@ func containsPart(list []string, part string) bool {
 
 func TestLoad_ResolvesDashboardPathsAndRejectsUnknownKeys(t *testing.T) {
 	dir := t.TempDir()
-	yaml := "dashboard:\n  enabled: true\n  listen: [\"127.0.0.1:8443\"]\n  key_hash_file: dash/key.sha256\n  secret_file: dash/cookie.secret\n  certs:\n    - cert_file: tls/c.pem\n      key_file: tls/k.pem\n"
+	yaml := "dashboard:\n  enabled: true\n  listen: [\"127.0.0.1:8443\"]\n  key_hash_file: dash/key.sha256\n  secret_file: dash/cookie.secret\n  certs:\n    - cert_file: tls/c.pem\n      key_file: tls/k.pem\n  ops:\n    request_dir: ops/req\n    result_dir: ops/result\n"
 	path := filepath.Join(dir, "hecate.yaml")
 	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
 		t.Fatal(err)
@@ -205,6 +219,9 @@ func TestLoad_ResolvesDashboardPathsAndRejectsUnknownKeys(t *testing.T) {
 	}
 	if d.SessionDays != 30 {
 		t.Errorf("session_days = %d, want the default 30", d.SessionDays)
+	}
+	if d.Ops.RequestDir != filepath.Join(dir, "ops", "req") || d.Ops.ResultDir != filepath.Join(dir, "ops", "result") {
+		t.Errorf("ops paths not resolved: %+v", d.Ops)
 	}
 
 	if err := os.WriteFile(path, []byte("dashboard:\n  session_day: 3\n"), 0o600); err != nil {

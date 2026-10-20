@@ -19,6 +19,7 @@ import (
 	"github.com/shiinobu/hecatedns/backend/lib/certstore"
 	"github.com/shiinobu/hecatedns/backend/lib/config"
 	"github.com/shiinobu/hecatedns/backend/service/lists"
+	"github.com/shiinobu/hecatedns/backend/service/ops"
 	"github.com/shiinobu/hecatedns/frontend"
 )
 
@@ -137,6 +138,7 @@ func dashboardAPIOptions(cfg config.Config, log *slog.Logger) dashboard.APIOptio
 		Lists:      cfg.Lists.Sources,
 		Resolver:   dashboardResolver(cfg),
 		Guard:      dashboardGuard(cfg),
+		Ops:        dashboardOps(cfg),
 		Log:        log,
 	}
 }
@@ -198,4 +200,12 @@ func loopbackTarget(listen string) (string, bool) {
 		addr = netip.AddrFrom4([4]byte{127, 0, 0, 1})
 	}
 	return net.JoinHostPort(addr.String(), fmt.Sprint(ap.Port())), true
+}
+
+func dashboardOps(cfg config.Config) *ops.Service {
+	o := cfg.Dashboard.Ops
+	if o.RequestDir == "" || o.ResultDir == "" {
+		return nil
+	}
+	return ops.New(ops.Options{RequestDir: o.RequestDir, ResultDir: o.ResultDir})
 }

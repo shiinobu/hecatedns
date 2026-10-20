@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/shiinobu/hecatedns/backend/lib/config"
+	"github.com/shiinobu/hecatedns/backend/service/ops"
 	"github.com/shiinobu/hecatedns/backend/service/qlog"
 )
 
@@ -27,6 +28,8 @@ const (
 	pathRules       = "/api/rules"
 	pathRulesRemove = "/api/rules/remove"
 	pathConnection  = "/api/connection"
+	pathOps         = "/api/ops"
+	pathOpsRun      = "/api/ops/run"
 )
 
 var readMethods = []string{http.MethodGet, http.MethodHead}
@@ -52,6 +55,7 @@ type APIOptions struct {
 	Cert       certExpiry
 	Guard      *Guard
 	Connection ConnectionOptions
+	Ops        *ops.Service
 	Now        func() time.Time
 	Log        *slog.Logger
 
@@ -104,6 +108,8 @@ func (a *API) endpoints() map[string]endpoint {
 		pathRules:       {methods: append(slices.Clone(readMethods), http.MethodPost), handle: a.handleRules},
 		pathRulesRemove: {methods: []string{http.MethodPost}, handle: a.handleRemoveRule},
 		pathConnection:  {methods: readMethods, handle: a.handleConnection},
+		pathOps:         {methods: readMethods, handle: a.handleOps},
+		pathOpsRun:      {methods: []string{http.MethodPost}, handle: a.handleOpsRun},
 	}
 }
 

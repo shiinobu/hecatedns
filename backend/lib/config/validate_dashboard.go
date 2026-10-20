@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"path/filepath"
 	"strings"
 )
 
@@ -30,6 +31,23 @@ func (c Config) validateDashboard() []error {
 	}
 	if d.SessionDays < minSessionDays || d.SessionDays > maxSessionDays {
 		errs = append(errs, fmt.Errorf("dashboard.session_days: %d must be between %d and %d", d.SessionDays, minSessionDays, maxSessionDays))
+	}
+	return append(errs, d.Ops.validate()...)
+}
+
+func (o DashboardOps) validate() []error {
+	if o.RequestDir == "" && o.ResultDir == "" {
+		return nil
+	}
+	var errs []error
+	if o.RequestDir == "" {
+		errs = append(errs, errors.New("dashboard.ops.request_dir: must not be empty when result_dir is set"))
+	}
+	if o.ResultDir == "" {
+		errs = append(errs, errors.New("dashboard.ops.result_dir: must not be empty when request_dir is set"))
+	}
+	if o.RequestDir != "" && o.ResultDir != "" && filepath.Clean(o.RequestDir) == filepath.Clean(o.ResultDir) {
+		errs = append(errs, errors.New("dashboard.ops: request_dir and result_dir must differ"))
 	}
 	return errs
 }
