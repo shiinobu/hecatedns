@@ -1,134 +1,59 @@
 package controller
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
+	"io"
 
-	"github.com/shiinobu/hecatedns/backend/engine"
+	"github.com/shiinobu/hecatedns/backend/lib/config"
+	"github.com/shiinobu/hecatedns/backend/service/ruleedit"
 )
 
-const (
-	rulesFileMode = 0o600
-	rulesDirMode  = 0o700
-
-	renameAttempts = 5
-	renameWait     = 40 * time.Millisecond
-
-	byteOrderMark = "\xef\xbb\xbf"
-	lf            = "\n"
-	crlf          = "\r\n"
-)
-
-type rulesText struct {
-	lines []string
-	eol   string
-}
-
-func readRulesText(path string) (rulesText, error) {
-	info, err := os.Stat(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return rulesText{eol: lf}, nil
-	}
+func ruleAdd(cfg config.Config, action, domain string, stdout io.Writer) error {
+	rule, err := ruleedit.ParseRule(action, domain)
 	if err != nil {
-		return rulesText{}, fmt.Errorf("baca %s: %w", path, err)
+		return err
 	}
-	if info.IsDir() {
-		return rulesText{}, fmt.Errorf("%s is a directory, not a rules file", path)
-	}
-	if info.Size() > engine.MaxRulesFileBytes {
-		return rulesText{}, fmt.Errorf("%s is larger than %d bytes, the server ignores the rest; shrink it first", path, engine.MaxRulesFileBytes)
-	}
-	data, err := os.ReadFile(path)
+	res, err := ruleedit.Add(cfg.Rules.File, rule)
 	if err != nil {
-		return rulesText{}, fmt.Errorf("baca %s: %w", path, err)
+		return err
 	}
-	return parseRulesText(string(data)), nil
+	fmt.Fprintf(stdout, "rule added: %s\n", rule)
+	if res.ReplacedLines > 0 {
+		fmt.Fprintf(stdout, "replaced %d old line(s) for %s\n", res.ReplacedLines, rule.Domain)
+	}
+	fmt.Fprintf(stdout, "the server re-reads %s by itself (every %s), no restart needed\n", cfg.Rules.File, cfg.Rules.PollInterval)
+	return nil
 }
 
-func parseRulesText(text string) rulesText {
-	t := rulesText{eol: lf}
-	if strings.Contains(text, crlf) {
-		t.eol = crlf
-	}
-	text = strings.ReplaceAll(text, crlf, lf)
-	if text = strings.TrimSuffix(text, lf); text != "" {
-		t.lines = strings.Split(text, lf)
-	}
-	return t
-}
-
-func parseLine(line string) (engine.Rule, bool, error) {
-	if len(line) >= engine.MaxRuleLineBytes {
-		return engine.Rule{}, false, engine.ErrLineTooLong
-	}
-	return engine.ParseRuleLine(line)
-}
-
-func (t *rulesText) remove(domain string) int {
-	kept := t.lines[:0:0]
-	for i, line := range t.lines {
-		candidate := line
-		if i == 0 {
-			candidate = strings.TrimPrefix(candidate, byteOrderMark)
-		}
-		if rule, ok, _ := parseLine(candidate); ok && rule.Domain == domain {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	removed := len(t.lines) - len(kept)
-	t.lines = kept
-	return removed
-}
-
-func (t *rulesText) add(rule engine.Rule) {
-	t.lines = append(t.lines, rule.String())
-}
-
-func (t rulesText) bytes() []byte {
-	if len(t.lines) == 0 {
-		return nil
-	}
-	return []byte(strings.Join(t.lines, t.eol) + t.eol)
-}
-
-func writeFileAtomic(path string, data []byte) (err error) {
-	dir := filepath.Dir(path)
-	if err = os.MkdirAll(dir, rulesDirMode); err != nil {
-		return fmt.Errorf("buat direktori %s: %w", dir, err)
-	}
-	tmp, err := os.CreateTemp(dir, ".rules-*.tmp")
+func ruleRemove(cfg config.Config, domain string, stdout io.Writer) error {
+	entry, err := ruleedit.ParseDomain(domain)
 	if err != nil {
-		return fmt.Errorf("create temporary file in %s: %w", dir, err)
+		return err
 	}
-	defer func() {
-		if err != nil {
-			_ = os.Remove(tmp.Name())
-		}
-	}()
-	if _, err = tmp.Write(data); err == nil {
-		err = tmp.Sync()
-	}
-	if closeErr := tmp.Close(); err == nil {
-		err = closeErr
-	}
+	removed, err := ruleedit.Remove(cfg.Rules.File, entry)
 	if err != nil {
-		return fmt.Errorf("tulis %s: %w", tmp.Name(), err)
+		return err
 	}
-	return renameWithRetry(tmp.Name(), path)
+	if len(removed) == 0 {
+		return fmt.Errorf("no rule for %s in %s", entry, cfg.Rules.File)
+	}
+	fmt.Fprintf(stdout, "rule removed: %d lines for %s\n", len(removed), entry)
+	return nil
 }
 
-func renameWithRetry(from, to string) (err error) {
-	for attempt := 0; attempt < renameAttempts; attempt++ {
-		if err = os.Rename(from, to); err == nil {
-			return nil
-		}
-		time.Sleep(renameWait)
+func ruleList(cfg config.Config, stdout, stderr io.Writer) error {
+	listing, err := ruleedit.List(cfg.Rules.File)
+	if err != nil {
+		return err
 	}
-	return fmt.Errorf("ganti %s: %w", to, err)
+	for _, skipped := range listing.Skipped {
+		fmt.Fprintf(stderr, "line %d skipped by the server: %v\n", skipped.Line, skipped.Err)
+	}
+	for _, rule := range listing.Rules {
+		fmt.Fprintln(stdout, rule)
+	}
+	if len(listing.Rules) == 0 {
+		fmt.Fprintf(stderr, "no rules yet in %s\n", cfg.Rules.File)
+	}
+	return nil
 }
