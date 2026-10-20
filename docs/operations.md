@@ -163,7 +163,7 @@ Seen on 2026-10-20 (Ubuntu 24.04 on a VPS with its own public IPv4 address, an A
 
 Seen on 2026-10-21: the dashboard installed from a bundle, the wildcard certificate requested with only `*.<base>` (after Let's Encrypt refused the bare name together with its wildcard on the staging CA), the 443 firewall rules loaded with the safety timer and made permanent, the names file switched on with one restart of the DNS server, a rotation from the dashboard that worked once the DNS record was DNS only, and the Control screen used from the phone.
 
-Not proven yet: a real certificate renewal with the new domain list and the post-renew step (the certificate is valid until 2027-01-17 and renews at 30 days left), the seven-day stability run (restarted on 2026-10-21), and a full external port scan (only a connection test of a few ports was made). See [testing.md](testing.md).
+Not proven yet: a real certificate renewal with the new domain list and the post-renew step (the certificate is valid until 2027-01-18 and renews at 30 days left), the seven-day stability run (restarted on 2026-10-21), and a full external port scan (only a connection test of a few ports was made). See [testing.md](testing.md).
 
 ## Dashboard on the VPS
 
@@ -207,6 +207,12 @@ To change the name your phone uses, open the Connection screen:
 
 Rotate can answer `not_reachable`: the name resolves, but not to this server (see section 10). At most 4 names can exist in the file; remove one before adding another.
 
+### Status counts: 24h and Lifetime
+
+The Status screen has two tabs. **24h** counts the queries of the last 24 hours and moves with the clock, so it can fall. **Lifetime** adds every finished day since the oldest day in the log and never falls: an hour after a day ends, and then hourly, the dashboard settles it into `/var/lib/hecate/lifetime-counts.json`, before the 7-day purge deletes the raw log file. The counts file is part of the backup. Both tabs count every logged query, also the ones from the loopback address (the dashboard's own checks).
+
+**Partial count** means the number may be too low: a day was too large to read within the limits, the counts file could not be written (the numbers stay in memory and the write is retried), the log directory could not be read, or a damaged counts file was moved aside to `lifetime-counts.json.bad-<time>` with its content intact (restore its days by hand if they matter). The reason is in `journalctl -u hecate-dashboard`.
+
 ### Update the binary
 
 `install-dashboard.sh` cannot be run again. To ship a new release of the dashboard, build a new bundle, copy it, and swap the binary; only the dashboard restarts, the DNS server and its stability run are untouched:
@@ -216,7 +222,7 @@ scp data/bundle.tgz root@<ip>:/root/
 ssh root@<ip> 'rm -rf /root/hecate-install && mkdir /root/hecate-install && tar -xzf /root/bundle.tgz -C /root/hecate-install && cp -p /opt/hecate/hecate /opt/hecate/hecate.prev && install -m 0755 -o root -g root /root/hecate-install/hecate /opt/hecate/hecate.new && mv /opt/hecate/hecate.new /opt/hecate/hecate && systemctl restart hecate-dashboard && sleep 2 && systemctl is-active hecate-dashboard && sha256sum /opt/hecate/hecate | cut -c1-16'
 ```
 
-Run the two commands one at a time and wait for the copy to finish; if the copy fails, the second command would install the previous bundle. Compare the printed fingerprint with `tar -xzOf data/bundle.tgz ./hecate | sha256sum | cut -c1-16` on the PC. Roll back with `cp -p /opt/hecate/hecate.prev /opt/hecate/hecate.new && mv /opt/hecate/hecate.new /opt/hecate/hecate && systemctl restart hecate-dashboard`. The DNS server runs the new binary only after its own next restart. The phone needs no cache clearing: the dashboard files are revalidated on every load.
+When a release also changes a file under `deploy/`, install that file the same way on the same line, for example `install -m 0755 -o root -g root /root/hecate-install/deploy/backup.sh /opt/hecate/backup.sh` before `systemctl restart`. Run the two commands one at a time and wait for the copy to finish; if the copy fails, the second command would install the previous bundle. Compare the printed fingerprint with `tar -xzOf data/bundle.tgz ./hecate | sha256sum | cut -c1-16` on the PC. Roll back with `cp -p /opt/hecate/hecate.prev /opt/hecate/hecate.new && mv /opt/hecate/hecate.new /opt/hecate/hecate && systemctl restart hecate-dashboard`. The DNS server runs the new binary only after its own next restart. The phone needs no cache clearing: the dashboard files are revalidated on every load.
 
 ### 10. When something is wrong
 

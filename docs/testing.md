@@ -35,6 +35,8 @@ GOOS=linux GOARCH=amd64 go build ./...
 
 The race detector needs a C compiler (on Windows, w64devkit); enable cgo for that command only, never globally, because it breaks the Linux cross-build. Concurrent code relies on immutable snapshots and no global state, backed by load tests. Deliberate mutations were used to confirm that the tests catch behaviour changes; `go test -overlay` runs a mutated copy of one file without touching the working tree. One known flake on Windows is not ours: `TestServer_StopsWhenCancelledBeforeItHasStarted` in `core/native` sometimes fails in a multi-package run because Windows reserves ranges of TCP ports, and it passes alone and on a rerun.
 
+A test that starts a goroutine waits for it before it returns. The temporary directory is removed right after the test, and a write that is still running fails the cleanup (`directory not empty`); this passed on a fast machine and failed under the race detector on the CI runner. To look for such flakes, run the packages repeatedly under load, for example several of `CGO_ENABLED=1 go test -race -count=6 -cpu 2 ./backend/dashboard/` at the same time.
+
 ---
 
 ## DNS-over-TLS: attacker-style checks on loopback
@@ -185,7 +187,7 @@ Setup: the same VPS, the dashboard installed from a bundle, the names file switc
 - Behaviour on a real full disk (only a fake disk was tested).
 - Real DoH providers and IPv6 upstreams under long load; Windows UDP read errors other than `WSAEMSGSIZE`; accuracy of the cache memory estimate under real load.
 - The 7-day stability run (S4) on the VPS: started 2026-10-20 and restarted on 2026-10-21 by the one restart that switched the names file on; evaluate about a week after that restart.
-- A real certificate renewal (the certificate is valid until 2027-01-17 and renews at 30 days left), a full external port scan, a connection burst from a second host that is dropped while the phone keeps working, and real IPv6 `/64` sockets (the DNS records are IPv4 only so far).
+- A real certificate renewal (the certificate is valid until 2027-01-18 and renews at 30 days left), a full external port scan, a connection burst from a second host that is dropped while the phone keeps working, and real IPv6 `/64` sockets (the DNS records are IPv4 only so far).
 - Why mobile data scores 95% against 97% on Wi-Fi (see above).
 - The ad-test S2 (redirect) check on mobile data, and the phone with the browser's Secure DNS and any data saver switched off.
 - DoT as an upstream (deferred).
