@@ -6,7 +6,7 @@ The project is developed test first: a failing test, the minimum code to pass it
 
 | Layer | Content | Target |
 |---|---|---|
-| Unit | `engine` (matching, priority, block answers, CNAME, special names), `lists` (parser, fetcher, manager), `qlog`, `config`, `native` (cache, ACL, rate limiter with its overflow bucket, de-duplication, upstreams against fake servers, the DoT listener with generated certificates), `controller` (commands, the certificate check) | Coverage of 80% or more |
+| Unit | `engine` (matching, priority, block answers, CNAME, special names), `lists` (parser, fetcher, manager), `qlog`, `config`, `native` (cache, ACL, rate limiter with its overflow bucket, de-duplication, upstreams against fake servers, the DoT listener with generated certificates), `controller` (commands, the certificate check, and `hecate probe` against a local DoT server with a generated certificate and fake resolvers, including that the name is never printed) | Coverage of 80% or more |
 | Fuzz | List parser and rule parser (`go test -fuzz`) | No panic |
 | Benchmark | Lookup against about 250,000 entries; process memory | p99 under 50 microseconds; under 150 MB |
 | Conformance | `backend/test/conformance`: a fake upstream (`miekg/dns` on loopback) plus the backend under test on a random port. Cases: blocked A/AAAA/HTTPS, pass-through, `allow` beats `block`, blocked CNAME, ACL REFUSED (no RA bit), log written, oversized or malformed UDP datagrams do not stop the server, reverse lookups of private addresses answered locally, a TCP client outside `allowed_clients` is disconnected with no answer. Run for **both** backends from one constructor table (DoT is `native` only, so its cases are unit tests) | Identical results |

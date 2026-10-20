@@ -82,7 +82,7 @@ cmd/
   hecate/                 entry point (calls controller.Execute)
   hecate-compare/         dev tool: compares the decisions of two running servers
 backend/
-  controller/             CLI commands: run, check, log, rule, lists, dashboard
+  controller/             CLI commands: run, check, log, rule, lists, dashboard, probe
   core/                   backend contract: Backend, Bound, Deps, Factory, Registry
     dnsproxy/             adapter around AdGuard dnsproxy
     native/               own server, DoT listener, names file reader, upstreams, cache, rate limiter
@@ -344,6 +344,7 @@ A silent or slow connection can only fill the first pool, so connections that fi
 - **Logs:** a full disk, a full channel or the daily cap never block a query.
 - **Shutdown:** Ctrl+C cancels the context; listeners close cleanly, open DoT connections are closed, the log is flushed, and queries stuck on a silent plain upstream are cancelled by closing their connection.
 - **DoT certificate:** refused at start when expired, not yet valid, unreadable, not matching its key or not covering every name; at reload the old certificate stays in use and the error is logged (section 13.1).
+- **Diagnosis from the client side:** strict Private DNS has no fallback, so when the phone loses its internet the first question is which of three things failed: the resolver of the network (it cannot find the server name), the path (port 853 is blocked or the address is wrong) or the server (the handshake or the answer). `hecate probe` runs the same steps as the phone from any machine: the system resolver and each public resolver look the name up, a TLS 1.3 handshake with the name as the server name and ALPN `dot` is made (the days left on the certificate are shown), and a canary query is asked over that connection. The verdict names the likely cause, the exit code follows the system resolver, TLS and query path, and the name is printed only as `<name>`, also inside error texts. `-watch` repeats it and prints only changes and a heartbeat. See operations.md, section 11.
 - Every error is wrapped with context (`%w`) and logged once, by the layer that handles it.
 
 ---

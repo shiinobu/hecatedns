@@ -89,6 +89,7 @@ The files in `deploy/` (systemd units, certificate renewal, nftables rules, back
 | `hecate rule add allow ok.example.com` | Allow a domain (allow beats block). |
 | `hecate rule list` / `hecate rule remove example.com` | Show or remove rules. |
 | `hecate lists status` / `hecate lists update` | Show the list cache or re-download the lists. |
+| `hecate probe -name-file name.txt` | From any machine, check whether the DoT name resolves, the TLS handshake works and a query is answered, and name the likely cause. `-watch 30s` repeats it. |
 | `hecate dashboard` | Serve the web dashboard (needs a `dashboard:` section in the config). |
 | `hecate dashboard genkey` / `hecate dashboard hashkey` | Make a new access key and its hash, or hash a key read from stdin. |
 
