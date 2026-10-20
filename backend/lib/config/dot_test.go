@@ -108,6 +108,46 @@ func TestDoT_RejectsWhatCannotWork(t *testing.T) {
 	}
 }
 
+func TestDoT_NamesFileStandsInForConfigNames(t *testing.T) {
+	c := dotConfig()
+	c.DoT.Names = nil
+	c.DoT.NamesFile = "/var/lib/hecate/dot-names.txt"
+
+	if err := c.Validate(); err != nil {
+		t.Errorf("a DoT config whose names all come from names_file is invalid: %v", err)
+	}
+}
+
+func TestDoT_NamesFileDoesNotRelaxTheNameChecks(t *testing.T) {
+	c := dotConfig()
+	c.DoT.Names = []string{"Secret.Example.Org"}
+	c.DoT.NamesFile = "/var/lib/hecate/dot-names.txt"
+
+	err := c.Validate()
+
+	if err == nil || !strings.Contains(err.Error(), "dot.names[0]") {
+		t.Errorf("Validate = %v, want a dot.names[0] error", err)
+	}
+}
+
+func TestLoad_ResolvesTheNamesFileAgainstTheConfigDirectory(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hecate.yaml")
+	yaml := "backend: native\nlisten: []\ndot:\n  enabled: true\n  listen: [\"0.0.0.0:853\"]\n  cert_file: tls/cert.pem\n  key_file: tls/key.pem\n  names_file: state/dot-names.txt\n"
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := Load(path)
+
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if want := filepath.Join(dir, "state", "dot-names.txt"); c.DoT.NamesFile != want {
+		t.Errorf("names_file = %q, want %q", c.DoT.NamesFile, want)
+	}
+}
+
 func TestDoT_ValidationNeverRepeatsAName(t *testing.T) {
 	typo := "K7x9p2qm4t8v3w6z.example.org"
 	tests := []struct {

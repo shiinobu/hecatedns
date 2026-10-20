@@ -181,17 +181,13 @@ func serverNameKey(name string) string {
 	}, name)
 }
 
-func (h *handler) dotTLSConfig(store *certStore, names []string) *tls.Config {
-	served := make(map[string]struct{}, len(names))
-	for _, name := range names {
-		served[serverNameKey(name)] = struct{}{}
-	}
+func (h *handler) dotTLSConfig(store *certStore, serves func(string) bool) *tls.Config {
 	return &tls.Config{
 		MinVersion:     tls.VersionTLS12,
 		NextProtos:     []string{alpnDoT},
 		GetCertificate: store.get,
 		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
-			if _, ok := served[serverNameKey(hello.ServerName)]; ok {
+			if serves(hello.ServerName) {
 				return nil, nil
 			}
 			h.drop("unknown tls server name", remoteIP(hello.Conn))
@@ -200,16 +196,27 @@ func (h *handler) dotTLSConfig(store *certStore, names []string) *tls.Config {
 	}
 }
 
-func newDoT(cfg config.Config, now func() time.Time, log *slog.Logger) (*certStore, []netip.AddrPort, error) {
+type dotParts struct {
+	certs *certStore
+	names *namesWatch
+	addrs []netip.AddrPort
+}
+
+func newDoT(cfg config.Config, now func() time.Time, log *slog.Logger) (*dotParts, error) {
 	if !cfg.DoT.Enabled {
-		return nil, nil, nil
+		return nil, nil
 	}
 	addrs, listenErr := listenAddrs(cfg.DoT.Listen)
 	store, certErr := newCertStore(cfg.DoT, now, log)
-	if err := errors.Join(listenErr, certErr); err != nil {
-		return nil, nil, err
+	var names *namesWatch
+	var namesErr error
+	if certErr == nil {
+		names, namesErr = newNamesWatch(cfg.DoT, store, now, log)
 	}
-	return store, addrs, nil
+	if err := errors.Join(listenErr, certErr, namesErr); err != nil {
+		return nil, err
+	}
+	return &dotParts{certs: store, names: names, addrs: addrs}, nil
 }
 
 func closersOf(socks []socket, dots []*dotServer) []io.Closer {
@@ -224,9 +231,9 @@ func closersOf(socks []socket, dots []*dotServer) []io.Closer {
 }
 
 func CheckDoT(cfg config.Config) (time.Time, error) {
-	store, _, err := newDoT(cfg, time.Now, slog.New(slog.DiscardHandler))
-	if err != nil || store == nil {
+	parts, err := newDoT(cfg, time.Now, slog.New(slog.DiscardHandler))
+	if err != nil || parts == nil {
 		return time.Time{}, err
 	}
-	return store.cur.Load().leaf.NotAfter, nil
+	return parts.certs.cur.Load().leaf.NotAfter, nil
 }

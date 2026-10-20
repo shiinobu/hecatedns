@@ -31,7 +31,7 @@ func (c Config) validateDoT() []error {
 	if d.KeyFile == "" {
 		errs = append(errs, errors.New("dot.key_file: must not be empty"))
 	}
-	errs = append(errs, validateDoTNames(d.Names)...)
+	errs = append(errs, validateDoTNames(d.Names, d.NamesFile != "")...)
 	if d.ReloadEvery < minDoTReloadEvery {
 		errs = append(errs, fmt.Errorf("dot.reload_every: %v is below the minimum of %v", d.ReloadEvery, minDoTReloadEvery))
 	}
@@ -68,9 +68,9 @@ func (c Config) validateDoTListen() []error {
 	return errs
 }
 
-func validateDoTNames(names []string) []error {
-	if len(names) == 0 {
-		return []error{errors.New("dot.names: at least one server name is required, a DoT server without names would serve nobody")}
+func validateDoTNames(names []string, hasNamesFile bool) []error {
+	if len(names) == 0 && !hasNamesFile {
+		return []error{errors.New("dot.names: at least one server name is required (or set dot.names_file), a DoT server without names would serve nobody")}
 	}
 	var errs []error
 	seen := make(map[string]bool, len(names))
@@ -84,6 +84,10 @@ func validateDoTNames(names []string) []error {
 		seen[name] = true
 	}
 	return errs
+}
+
+func ValidHostName(name string) bool {
+	return validHostName(name)
 }
 
 func validHostName(name string) bool {

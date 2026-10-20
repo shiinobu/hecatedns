@@ -35,6 +35,7 @@ type server struct {
 	dotAddrs  []netip.AddrPort
 	dotTLS    *tls.Config
 	certs     *certStore
+	names     *namesWatch
 	dotEvery  time.Duration
 	dotLimits dotLimits
 
@@ -60,7 +61,7 @@ func newServer(cfg config.Config, f Filter, log *slog.Logger, timeout time.Durat
 	log = log.With("component", Name)
 	addrs, listenErr := plainAddrs(cfg)
 	acl, aclErr := engine.NewACL(cfg.AllowedClients)
-	store, dotAddrs, dotErr := newDoT(cfg, time.Now, log)
+	parts, dotErr := newDoT(cfg, time.Now, log)
 	up, poolErr := buildPool(cfg, timeout)
 	if err := errors.Join(listenErr, aclErr, dotErr, poolErr); err != nil {
 		if up != nil {
@@ -70,9 +71,9 @@ func newServer(cfg config.Config, f Filter, log *slog.Logger, timeout time.Durat
 	}
 	h := newHandler(f, newCache(cfg.Cache), up, newLimiter(), log)
 	s := &server{addrs: addrs, handler: h, up: up, admit: h.admitTCP(acl), dotLimits: defaultDoTLimits(), ready: make(chan struct{})}
-	if store != nil {
-		s.dotAddrs, s.certs, s.dotEvery = dotAddrs, store, cfg.DoT.ReloadEvery
-		s.dotTLS = h.dotTLSConfig(store, cfg.DoT.Names)
+	if parts != nil {
+		s.dotAddrs, s.certs, s.names, s.dotEvery = parts.addrs, parts.certs, parts.names, cfg.DoT.ReloadEvery
+		s.dotTLS = h.dotTLSConfig(parts.certs, parts.names.serves)
 	}
 	return s, nil
 }
@@ -107,10 +108,13 @@ func (s *server) Run(ctx context.Context) (err error) {
 	s.storeAddrs(socks, dots)
 
 	queries, stopQueries := context.WithCancel(context.Background())
+	var watchers sync.WaitGroup
+	defer watchers.Wait()
 	defer stopQueries()
 	s.handler.base = queries
 	if s.certs != nil {
-		go s.certs.watch(queries, s.dotEvery)
+		watchers.Go(func() { s.certs.watch(queries, s.dotEvery) })
+		watchers.Go(func() { s.names.watch(queries) })
 	}
 
 	var started sync.WaitGroup

@@ -104,6 +104,7 @@ type DoT struct {
 	CertFile    string        `yaml:"cert_file"`
 	KeyFile     string        `yaml:"key_file"`
 	Names       []string      `yaml:"names"`
+	NamesFile   string        `yaml:"names_file"`
 	ReloadEvery time.Duration `yaml:"reload_every"`
 }
 
@@ -234,6 +235,7 @@ func resolvePaths(cfg *Config, baseDir string) {
 	cfg.Log.Dir = absFrom(baseDir, cfg.Log.Dir)
 	cfg.DoT.CertFile = absFrom(baseDir, cfg.DoT.CertFile)
 	cfg.DoT.KeyFile = absFrom(baseDir, cfg.DoT.KeyFile)
+	cfg.DoT.NamesFile = absFrom(baseDir, cfg.DoT.NamesFile)
 	cfg.Dashboard.KeyHashFile = absFrom(baseDir, cfg.Dashboard.KeyHashFile)
 	cfg.Dashboard.SecretFile = absFrom(baseDir, cfg.Dashboard.SecretFile)
 	cfg.Dashboard.Ops.RequestDir = absFrom(baseDir, cfg.Dashboard.Ops.RequestDir)

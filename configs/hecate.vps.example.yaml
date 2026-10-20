@@ -13,6 +13,7 @@ dot:
   key_file: /var/lib/hecate/lego/certificates/example.org.key
   names:                         # a long random label under the wildcard certificate, 16 or more characters of a-z0-9
     - k7x9p2qm4t8v3w6z.example.org
+  names_file: /var/lib/hecate/dot-names.txt   # names the dashboard adds and removes with Rotate; the server re-reads it every 2 s
   reload_every: 10m
 
 dashboard:
