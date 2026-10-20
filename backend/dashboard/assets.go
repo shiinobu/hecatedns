@@ -15,7 +15,7 @@ const (
 	indexFile           = "index.html"
 	htmlContentType     = "text/html; charset=utf-8"
 	etagBytes           = 8
-	assetCacheControl   = "max-age=86400, must-revalidate"
+	assetCacheControl   = "no-cache"
 	faviconPath         = "/favicon.ico"
 	faviconCacheControl = "max-age=86400"
 	weakETagPrefix      = "W/"

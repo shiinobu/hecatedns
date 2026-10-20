@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 )
 
 func serve(s *Server, r *http.Request) *httptest.ResponseRecorder {
@@ -119,7 +120,7 @@ func TestHandler_StaticAssetsWithETag(t *testing.T) {
 	etag := rec.Header().Get("ETag")
 	if rec.Code != http.StatusOK || rec.Body.String() != "console.log(1)" || !strings.HasPrefix(etag, `"`) ||
 		rec.Header().Get("Content-Type") != "text/javascript; charset=utf-8" ||
-		rec.Header().Get("Cache-Control") != "max-age=86400, must-revalidate" {
+		rec.Header().Get("Cache-Control") != "no-cache" {
 		t.Fatalf("got %d %q %v", rec.Code, rec.Body, rec.Header())
 	}
 	req := httptest.NewRequest(http.MethodGet, "http://"+testHost+"/app.js", nil)
@@ -130,6 +131,30 @@ func TestHandler_StaticAssetsWithETag(t *testing.T) {
 	}
 	if rec := serve(s, httptest.NewRequest(http.MethodGet, "http://"+testHost+"/index.html", nil)); rec.Code != http.StatusNotFound {
 		t.Fatalf("only the three asset paths are served, got %d", rec.Code)
+	}
+}
+
+func TestHandler_EveryAssetIsRevalidatedSoANewReleaseNeverMixesWithCachedFiles(t *testing.T) {
+	s := newTestServer(t, func(o *Options) {
+		o.Assets = assetsWith(fstest.MapFS{
+			"theme.css":    {Data: []byte("a{}")},
+			"favicon.svg":  {Data: []byte("<svg/>")},
+			"icon-192.png": {Data: []byte("png")},
+		})
+	})
+	for _, path := range []string{"/", "/app.js", "/theme.css", "/favicon.svg", "/icon-192.png"} {
+		rec := serve(s, httptest.NewRequest(http.MethodGet, "http://"+testHost+path, nil))
+		etag := rec.Header().Get("ETag")
+		if rec.Code != http.StatusOK || rec.Header().Get("Cache-Control") != "no-cache" || etag == "" {
+			t.Errorf("%s = %d, cache-control %q, etag %q", path, rec.Code, rec.Header().Get("Cache-Control"), etag)
+			continue
+		}
+		req := httptest.NewRequest(http.MethodGet, "http://"+testHost+path, nil)
+		req.Header.Set("If-None-Match", etag)
+		rec = serve(s, req)
+		if rec.Code != http.StatusNotModified || rec.Header().Get("Cache-Control") != "no-cache" {
+			t.Errorf("%s with its etag = %d, cache-control %q, want 304 and no-cache", path, rec.Code, rec.Header().Get("Cache-Control"))
+		}
 	}
 }
 
