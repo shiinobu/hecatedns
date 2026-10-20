@@ -25,7 +25,11 @@ done
 grep -q '^dashboard:' "$cfg" && fail "the config already has a dashboard section"
 
 echo "1/6 the renewal user"
-sh "$here/users/acme.sh"
+if grep -q '^User=hecate-acme$' "$renew"; then
+	echo "already done"
+else
+	sh "$here/users/acme.sh"
+fi
 
 echo "2/6 the binary (the running hecate keeps its old file until it restarts)"
 test -e /opt/hecate/hecate.prev || cp -p /opt/hecate/hecate /opt/hecate/hecate.prev
@@ -33,19 +37,53 @@ install -m 0755 -o root -g root "$bundle/hecate" /opt/hecate/hecate.new
 mv /opt/hecate/hecate.new /opt/hecate/hecate
 
 echo "3/6 the renew unit and the operations wrapper"
-if ! grep -q -- "--domains \*\.$BASE_DOMAIN " "$renew"; then
-	test -e "$renew.before-wildcard" || cp -p "$renew" "$renew.before-wildcard"
-	sed -i "s|\(^ExecStart=.*\) renew --days 30\$|\1 --domains *.$BASE_DOMAIN renew --days 30|" "$renew"
-	grep -q -- "--domains \*\.$BASE_DOMAIN " "$renew" || fail "the renew unit could not be extended"
-fi
+. "$here/lib/renew-domains.sh"
+test -e "$renew.before-wildcard" || cp -p "$renew" "$renew.before-wildcard"
+normalize_renew_domains "$renew" "$BASE_DOMAIN"
+grep -q -- " --domains \*\.$BASE_DOMAIN --domains " "$renew" || fail "the renew unit could not be rewritten"
+grep -q ' renew --days 30$' "$renew" || fail "the renew unit lost its renew command"
 systemctl daemon-reload
 sh "$here/ops/install.sh"
 
 echo "4/6 a trial run on the Let's Encrypt staging CA, then the real certificate"
 systemctl start hecate-renew-test.service || fail "the staging run failed: $(journalctl -u hecate-renew-test.service -n 15 --no-pager | sed "$redact")"
-systemctl start hecate-renew-force.service || fail "the certificate run failed: $(journalctl -u hecate-renew-force.service -n 15 --no-pager | sed "$redact")"
-crt=$(find "$certs" -name '*.crt' ! -name '*.issuer.crt' | head -n 1)
-openssl x509 -in "$crt" -noout -ext subjectAltName | grep -q "DNS:\*\.$BASE_DOMAIN" || fail "the new certificate does not cover *.$BASE_DOMAIN"
+newcrt=$certs/_.$BASE_DOMAIN.crt
+newkey=$certs/_.$BASE_DOMAIN.key
+covers_wildcard() {
+	test -s "$newcrt" && openssl x509 -in "$newcrt" -noout -ext subjectAltName | grep -q "DNS:\*\.$BASE_DOMAIN"
+}
+if ! covers_wildcard; then
+	sed 's| renew --days 30$| run|' "$renew" >"$etc/hecate-renew-issue.service"
+	systemctl daemon-reload
+	if ! systemctl start hecate-renew-issue.service; then
+		journalctl -u hecate-renew-issue.service -n 15 --no-pager | sed "$redact"
+		rm -f "$etc/hecate-renew-issue.service"
+		systemctl daemon-reload
+		fail "the certificate run failed, nothing was switched"
+	fi
+	rm -f "$etc/hecate-renew-issue.service"
+	systemctl daemon-reload
+fi
+covers_wildcard || fail "the new certificate does not cover *.$BASE_DOMAIN"
+uncovered=$(awk -f "$here/lib/dot-names.awk" "$cfg" | while read -r name; do
+	openssl x509 -in "$newcrt" -noout -checkhost "$name" | grep -q 'does match' || echo x
+done | wc -l)
+[ "$uncovered" -eq 0 ] || fail "the new certificate does not cover $uncovered of the current DoT names, nothing was switched"
+echo "switching the configured certificate paths to the new files (the DNS server reloads them by itself)"
+for field in cert_file key_file; do
+	old=$(awk -v field="$field" -f "$here/lib/dot-field.awk" "$cfg")
+	[ -n "$old" ] || fail "the configuration has no dot.$field"
+	case $field in
+	cert_file) new=$newcrt ;;
+	*) new=$newkey ;;
+	esac
+	if [ "$old" != "$new" ] && [ ! -L "$old" ]; then
+		test -e "$old.before-wildcard" || cp -p "$old" "$old.before-wildcard"
+		ln -s "$new" "$old.link"
+		chown -h hecate-acme:hecate "$old.link"
+		mv -T "$old.link" "$old"
+	fi
+done
 
 echo "5/6 the key hash and the configuration"
 install -d -m 0750 -o hecate -g hecate /var/lib/hecate/dashboard

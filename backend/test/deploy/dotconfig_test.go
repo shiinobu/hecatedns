@@ -124,6 +124,21 @@ dashboard:
 	}
 }
 
+func TestDotField_ReadsTheCertificatePathsOfTheDoTSection(t *testing.T) {
+	const field = "cert_file"
+	config := blockStyle + "dashboard2:\n  cert_file: /somewhere/else.crt\n"
+
+	if got := awkRun(t, "../../../deploy/lib/dot-field.awk", config, "field="+field); got != "/var/lib/hecate/lego/certificates/c.crt\n" {
+		t.Errorf("cert_file = %q", got)
+	}
+	if got := awkRun(t, "../../../deploy/lib/dot-field.awk", config, "field=key_file"); got != "/var/lib/hecate/lego/certificates/c.key\n" {
+		t.Errorf("key_file = %q", got)
+	}
+	if got := awkRun(t, "../../../deploy/lib/dot-field.awk", config, "field=missing_file"); got != "" {
+		t.Errorf("an unknown field gave %q", got)
+	}
+}
+
 func TestDotRewrite_LeavesAConfigWithoutDoTNamesAlone(t *testing.T) {
 	config := "backend: native\ndot:\n  enabled: true\n  reload_every: 10m\n"
 
