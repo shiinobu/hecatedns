@@ -6,6 +6,7 @@ require (
 	github.com/AdguardTeam/dnsproxy v0.86.0
 	github.com/AdguardTeam/golibs v0.35.13
 	github.com/miekg/dns v1.1.73
+	golang.org/x/net v0.60.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -19,7 +20,6 @@ require (
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
-	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	gonum.org/v1/gonum v0.17.0 // indirect
