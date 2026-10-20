@@ -22,6 +22,17 @@ func TestFiles_TheIndexLinksAnIconOfEachKind(t *testing.T) {
 	}
 }
 
+func TestFiles_TheThemeTurnsOffTheBrowserTapHighlight(t *testing.T) {
+	theme, err := fs.ReadFile(Files, "theme.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := regexp.MustCompile(`(?s)\nbody\s*\{[^}]*\}`).FindString(string(theme))
+	if !strings.Contains(body, "-webkit-tap-highlight-color: transparent") {
+		t.Errorf("the body rule of theme.css does not turn off the tap highlight, so every tap draws the browser's coloured box:\n%s", body)
+	}
+}
+
 func TestFiles_HoldTheIndexAndEveryFileItLinks(t *testing.T) {
 	index, err := fs.ReadFile(Files, "index.html")
 	if err != nil {
