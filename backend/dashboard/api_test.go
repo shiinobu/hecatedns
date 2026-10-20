@@ -30,9 +30,17 @@ type apiFixture struct {
 	resolved atomic.Int64
 }
 
-type fakeCert struct{ notAfter time.Time }
+type fakeCert struct {
+	notAfter time.Time
+	byName   map[string]time.Time
+}
 
 func (c fakeCert) NotAfter() time.Time { return c.notAfter }
+
+func (c fakeCert) NotAfterFor(name string) (time.Time, bool) {
+	at, ok := c.byName[name]
+	return at, ok
+}
 
 func newAPIFixture(t *testing.T, mut func(*APIOptions)) *apiFixture {
 	t.Helper()
@@ -375,6 +383,8 @@ func TestQueries_RejectsBadParameters(t *testing.T) {
 		"/api/queries?limit=0",
 		"/api/queries?limit=abc",
 		"/api/queries?limit=-5",
+		"/api/queries?offset=-1",
+		"/api/queries?offset=abc",
 		"/api/queries?q=" + strings.Repeat("a", 101),
 	} {
 		rec := f.get(target)
@@ -394,6 +404,35 @@ func TestQueries_LimitAboveTheCapIsClamped(t *testing.T) {
 
 	if len(got) != maxQueryRows {
 		t.Fatalf("rows = %d, want the cap of %d", len(got), maxQueryRows)
+	}
+}
+
+func TestQueries_PagesWithOffsetAndReportsTheTotal(t *testing.T) {
+	f := newAPIFixture(t, nil)
+	for i, name := range []string{"a", "b", "c", "d", "e"} {
+		f.log(apiNow.Add(-time.Duration(i+1)*time.Minute), name+".example.com", "A", "pass", "", "")
+	}
+	tests := []struct {
+		name, target string
+		want         []string
+	}{
+		{"first page", "/api/queries?limit=2&offset=0", []string{"a.example.com", "b.example.com"}},
+		{"second page", "/api/queries?limit=2&offset=2", []string{"c.example.com", "d.example.com"}},
+		{"short last page", "/api/queries?limit=2&offset=4", []string{"e.example.com"}},
+		{"past the end", "/api/queries?limit=2&offset=10", []string{}},
+		{"offset defaults to zero", "/api/queries?limit=2", []string{"a.example.com", "b.example.com"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := decodeMap(t, f.get(tt.target))
+
+			if names := rowNames(t, got); strings.Join(names, ",") != strings.Join(tt.want, ",") {
+				t.Fatalf("rows = %v, want %v", names, tt.want)
+			}
+			if total := got["total"]; total != 5.0 {
+				t.Errorf("total = %v, want 5 whatever the page", total)
+			}
+		})
 	}
 }
 

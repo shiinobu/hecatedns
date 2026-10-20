@@ -30,7 +30,7 @@ var queryWindows = map[string]time.Duration{
 
 type queryKey struct {
 	window, decision, text string
-	limit                  int
+	limit, offset          int
 }
 
 type queryRow struct {
@@ -48,6 +48,7 @@ type queryResponse struct {
 	Window    string     `json:"window"`
 	Generated string     `json:"generated"`
 	Partial   bool       `json:"partial"`
+	Total     int        `json:"total"`
 	Rows      []queryRow `json:"rows"`
 }
 
@@ -99,6 +100,13 @@ func parseQueryKey(v url.Values) (queryKey, string) {
 		}
 		key.limit = min(limit, maxQueryRows)
 	}
+	if raw := v.Get("offset"); raw != "" {
+		offset, err := strconv.Atoi(raw)
+		if err != nil || offset < 0 {
+			return key, "offset must be zero or a positive number."
+		}
+		key.offset = offset
+	}
 	key.text = strings.ToLower(strings.TrimSpace(v.Get("q")))
 	if len(key.text) > maxQueryTextBytes {
 		return key, "q is too long."
@@ -126,11 +134,13 @@ func (a *API) buildQueries(key queryKey) queryResult {
 	if err != nil {
 		return queryResult{err: err}
 	}
+	rows, total := a.rows(groups, key.limit, key.offset)
 	return queryResult{resp: queryResponse{
 		Window:    key.window,
 		Generated: now.In(a.opts.Location).Format(time.RFC3339),
 		Partial:   stopped || capped,
-		Rows:      a.rows(groups, key.limit),
+		Total:     total,
+		Rows:      rows,
 	}}
 }
 
@@ -182,7 +192,7 @@ func attribution(rec qlog.Record) (by, list string) {
 	return "", ""
 }
 
-func (a *API) rows(groups map[groupKey]*group, limit int) []queryRow {
+func (a *API) rows(groups map[groupKey]*group, limit, offset int) ([]queryRow, int) {
 	ordered := make([]*group, 0, len(groups))
 	for _, g := range groups {
 		ordered = append(ordered, g)
@@ -196,6 +206,8 @@ func (a *API) rows(groups map[groupKey]*group, limit int) []queryRow {
 		}
 		return ordered[i].key.decision < ordered[j].key.decision
 	})
+	total := len(ordered)
+	ordered = ordered[min(offset, total):]
 	if len(ordered) > limit {
 		ordered = ordered[:limit]
 	}
@@ -203,7 +215,7 @@ func (a *API) rows(groups map[groupKey]*group, limit int) []queryRow {
 	for _, g := range ordered {
 		rows = append(rows, a.row(g))
 	}
-	return rows
+	return rows, total
 }
 
 func (a *API) row(g *group) queryRow {

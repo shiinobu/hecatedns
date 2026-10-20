@@ -116,6 +116,32 @@ func TestGetCertificate_PicksPairBySNI(t *testing.T) {
 	}
 }
 
+func TestNotAfterFor_ReportsTheCoveringPairOnly(t *testing.T) {
+	dir := t.TempDir()
+	stamp := time.Now().Add(-time.Hour)
+	first, second := pairIn(dir, "a"), pairIn(dir, "b")
+	soon := issue(t, []string{"dash.example.org"}, time.Now().Add(24*time.Hour))
+	later := issue(t, []string{"*.ghost.example.org"}, time.Now().Add(72*time.Hour))
+	writePair(t, first, soon, stamp)
+	writePair(t, second, later, stamp)
+	log, _ := newLogger()
+	s, err := New(Config{Pairs: []Pair{first, second}, Log: log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := s.NotAfterFor("dash.example.org"); !ok || !got.Equal(soon.notAfter.Truncate(time.Second)) {
+		t.Fatalf("exact: got %s, %v", got, ok)
+	}
+	if got, ok := s.NotAfterFor("A.Ghost.Example.ORG"); !ok || !got.Equal(later.notAfter.Truncate(time.Second)) {
+		t.Fatalf("wildcard: got %s, %v", got, ok)
+	}
+	for _, name := range []string{"", "other.example.org", "ghost.example.org"} {
+		if _, ok := s.NotAfterFor(name); ok {
+			t.Fatalf("name %q: expected no certificate", name)
+		}
+	}
+}
+
 func TestNew_RejectsMissingAndBadPairs(t *testing.T) {
 	dir := t.TempDir()
 	bad := pairIn(dir, "bad")

@@ -136,6 +136,14 @@ func (s *Store) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, er
 	return nil, errNameNotCovered
 }
 
+func (s *Store) NotAfterFor(name string) (time.Time, bool) {
+	cert, err := s.GetCertificate(&tls.ClientHelloInfo{ServerName: name})
+	if err != nil {
+		return time.Time{}, false
+	}
+	return cert.Leaf.NotAfter, true
+}
+
 func (s *Store) Covers(name string) bool {
 	_, err := s.GetCertificate(&tls.ClientHelloInfo{ServerName: name})
 	return err == nil

@@ -33,6 +33,7 @@ type connectionName struct {
 	Current   bool    `json:"current"`
 	Removable bool    `json:"removable"`
 	Added     *string `json:"added"`
+	Expired   bool    `json:"expired"`
 }
 
 type probeInfo struct {
@@ -58,7 +59,7 @@ func (a *API) buildConnection() connectionResponse {
 	bases := make([]string, 0, len(c.Names))
 	for i, host := range c.Names {
 		base := baseOf(host, c.ProbeDomains)
-		names[i] = connectionName{Host: host, Base: base, Source: sourceConfig}
+		names[i] = connectionName{Host: host, Base: base, Source: sourceConfig, Expired: a.certExpired(host)}
 		if _, seen := newest[base]; !seen {
 			bases = append(bases, base)
 		}
@@ -78,6 +79,14 @@ func (a *API) buildConnection() connectionResponse {
 		Probe:    probeInfo{Scheme: c.Scheme, Domains: probes, Port: c.Port, Samples: probeSamples},
 		Rotation: rotationInfo{MaxNames: rotationMaxNames},
 	}
+}
+
+func (a *API) certExpired(host string) bool {
+	if a.opts.Cert == nil {
+		return false
+	}
+	notAfter, covered := a.opts.Cert.NotAfterFor(host)
+	return covered && notAfter.Before(a.opts.Now())
 }
 
 func baseOf(host string, probeDomains []string) string {

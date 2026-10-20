@@ -38,6 +38,7 @@ type endpoint struct {
 
 type certExpiry interface {
 	NotAfter() time.Time
+	NotAfterFor(name string) (time.Time, bool)
 }
 
 type APIOptions struct {

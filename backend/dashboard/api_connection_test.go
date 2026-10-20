@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"testing"
+	"time"
 )
 
 const (
@@ -67,6 +68,7 @@ func TestAPI_ConnectionFollowsTheContract(t *testing.T) {
 	}
 	want := map[string]any{
 		"host": connNameA, "base": connMain, "source": "config", "current": true, "removable": false, "added": nil,
+		"expired": false,
 	}
 	if !reflect.DeepEqual(names[0], want) {
 		t.Errorf("name = %v, want %v", names[0], want)
@@ -108,6 +110,45 @@ func TestAPI_ConnectionMarksTheNewestNamePerBase(t *testing.T) {
 		if n["current"] != wantCurrent[i] || n["base"] != wantBase[i] {
 			t.Errorf("names[%d] = %v, want current %v base %s", i, n, wantCurrent[i], wantBase[i])
 		}
+	}
+}
+
+func TestAPI_ConnectionFlagsNamesWhoseCertificateExpired(t *testing.T) {
+	const uncovered = "dddddddddddddddd.ghost.example.com"
+	f := newAPIFixture(t, func(o *APIOptions) {
+		o.Connection = ConnectionOptions{
+			Names:        []string{connNameA, connNameC, uncovered},
+			ProbeDomains: []string{connMain, connBackup},
+			Scheme:       "https",
+			Port:         443,
+		}
+		o.Cert = fakeCert{byName: map[string]time.Time{
+			connNameA: apiNow.Add(-time.Hour),
+			connNameC: apiNow.Add(24 * time.Hour),
+		}}
+	})
+	names := connectionNames(t, decodeMap(t, f.get("/api/connection")))
+	if len(names) != 3 {
+		t.Fatalf("names = %v", names)
+	}
+	want := []bool{true, false, false}
+	for i, n := range names {
+		if n["expired"] != want[i] {
+			t.Errorf("names[%d] (%v) expired = %v, want %v", i, n["host"], n["expired"], want[i])
+		}
+	}
+}
+
+func TestAPI_ConnectionNeverFlagsExpiredWithoutCertificates(t *testing.T) {
+	f := connectionFixture(t, ConnectionOptions{
+		Names:        []string{connNameA},
+		ProbeDomains: []string{connMain},
+		Scheme:       "http",
+		Port:         8080,
+	})
+	names := connectionNames(t, decodeMap(t, f.get("/api/connection")))
+	if len(names) != 1 || names[0]["expired"] != false {
+		t.Fatalf("names = %v", names)
 	}
 }
 
