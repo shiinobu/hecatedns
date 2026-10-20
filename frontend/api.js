@@ -111,6 +111,8 @@ export function mapConnectionError(err) {
       return "The new name does not resolve yet. Try again in a minute.";
     case "not_served":
       return "The DNS server did not accept the new name. Nothing was changed. Try again.";
+    case "not_reachable":
+      return "The new name does not lead to this server. Check that its DNS record is not proxied. Nothing was changed.";
     default:
       return err.message || "Could not update connection.";
   }

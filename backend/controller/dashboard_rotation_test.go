@@ -116,6 +116,38 @@ func TestDashboardServes_NeedsDoTOnALoopbackTarget(t *testing.T) {
 	}
 }
 
+func TestDashboardReaches_NeedsDoTAndAListenAddress(t *testing.T) {
+	cases := []struct {
+		name string
+		dot  config.DoT
+		want bool
+	}{
+		{"DoT disabled", config.DoT{}, false},
+		{"no listen address", config.DoT{Enabled: true}, false},
+		{"unparsable listen address", config.DoT{Enabled: true, Listen: []string{"not an address"}}, false},
+		{"listening", config.DoT{Enabled: true, Listen: []string{"0.0.0.0:853"}}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := dashboardReaches(config.Config{DoT: tc.dot}) != nil; got != tc.want {
+				t.Errorf("check exists = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDashboardRotation_ReachesFollowsTheNamesFile(t *testing.T) {
+	cfg := config.Config{DoT: config.DoT{Enabled: true, Listen: []string{"0.0.0.0:853"}}}
+	if got := dashboardRotation(cfg); got.Reaches != nil || got.File != "" {
+		t.Errorf("rotation without a names file = %+v", got)
+	}
+
+	cfg.DoT.NamesFile = filepath.Join(t.TempDir(), "names.txt")
+	if got := dashboardRotation(cfg); got.Reaches == nil || got.Serves == nil || got.Resolves == nil {
+		t.Errorf("rotation with a names file = %+v, want every check wired", got)
+	}
+}
+
 func TestServedDoTNames_ConfigNamesFirstThenTheFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "names.txt")
 	if err := dotnames.Write(path, []dotnames.Entry{{Host: fileNameOne}, {Host: fileNameTwo}}); err != nil {

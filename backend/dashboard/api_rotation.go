@@ -14,16 +14,19 @@ const (
 	defaultResolveTimeout = 4 * time.Second
 	defaultServeWait      = 6 * time.Second
 	defaultServePoll      = time.Second
+	defaultReachWait      = 4 * time.Second
 )
 
 type RotationOptions struct {
 	File           string
 	Resolves       func(ctx context.Context, host string) error
 	Serves         func(ctx context.Context, host string) error
+	Reaches        func(ctx context.Context, host string) error
 	Random         io.Reader
 	ResolveTimeout time.Duration
 	ServeWait      time.Duration
 	ServePoll      time.Duration
+	ReachWait      time.Duration
 }
 
 type rotateRequest struct {
@@ -120,7 +123,7 @@ func (a *API) handleRotate(w http.ResponseWriter, r *http.Request) {
 		a.namesFileFailure(w, "writing the names file failed", err)
 		return
 	}
-	if !a.confirmServed(w, r.Context(), host, entries) {
+	if !a.confirmServed(w, r.Context(), host, entries) || !a.confirmReached(w, r.Context(), host, entries) {
 		return
 	}
 	a.opts.Log.Info("a connection name was added", "file_names", len(next))
@@ -170,15 +173,35 @@ func (a *API) confirmServed(w http.ResponseWriter, parent context.Context, host 
 		select {
 		case <-ctx.Done():
 			a.opts.Log.Warn("the DNS server did not accept a new connection name, rolling back", "err", err)
-			message := "The DNS server did not accept the new name. Nothing was changed."
-			if a.rollbackNames(before) != nil {
-				message = "The DNS server did not accept the new name, and the names file could not be restored. Check the server."
-			}
-			a.rotationRefused(w, http.StatusBadGateway, "not_served", message)
+			a.refuseAfterRollback(w, before, "not_served", "The DNS server did not accept the new name")
 			return false
 		case <-time.After(poll):
 		}
 	}
+}
+
+func (a *API) confirmReached(w http.ResponseWriter, parent context.Context, host string, before []dotnames.Entry) bool {
+	r := a.opts.Connection.Rotation
+	if r.Reaches == nil {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(parent, orDefault(r.ReachWait, defaultReachWait))
+	defer cancel()
+	err := r.Reaches(ctx, host)
+	if err == nil {
+		return true
+	}
+	a.opts.Log.Warn("a new connection name does not lead to this server, rolling back", "err", err)
+	a.refuseAfterRollback(w, before, "not_reachable", "The new name does not lead to this server. Check that its DNS record is not proxied")
+	return false
+}
+
+func (a *API) refuseAfterRollback(w http.ResponseWriter, before []dotnames.Entry, code, reason string) {
+	message := reason + ". Nothing was changed."
+	if a.rollbackNames(before) != nil {
+		message = reason + ", and the names file could not be restored. Check the server."
+	}
+	a.rotationRefused(w, http.StatusBadGateway, code, message)
 }
 
 func (a *API) rollbackNames(before []dotnames.Entry) error {

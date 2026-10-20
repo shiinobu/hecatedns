@@ -3,7 +3,9 @@ package controller
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -24,7 +26,23 @@ func dashboardRotation(cfg config.Config) dashboard.RotationOptions {
 		File:     cfg.DoT.NamesFile,
 		Resolves: dashboard.NewPublicResolveCheck(publicResolvers, publicResolveTimeout),
 		Serves:   dashboardServes(cfg),
+		Reaches:  dashboardReaches(cfg),
 	}
+}
+
+func dashboardReaches(cfg config.Config) func(context.Context, string) error {
+	if !cfg.DoT.Enabled || len(cfg.DoT.Listen) == 0 {
+		return nil
+	}
+	listen, err := netip.ParseAddrPort(cfg.DoT.Listen[0])
+	if err != nil {
+		return nil
+	}
+	return dashboard.NewPublicReachCheck(dashboard.PublicReachOptions{
+		Resolvers: publicResolvers,
+		Port:      strconv.Itoa(int(listen.Port())),
+		Timeout:   publicResolveTimeout,
+	})
 }
 
 func dashboardServes(cfg config.Config) func(context.Context, string) error {
