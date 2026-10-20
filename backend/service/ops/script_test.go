@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -52,6 +53,9 @@ func (f *scriptFixture) exec(args []string, env ...string) (int, string) {
 		"HECATE_BACKUP_DIR="+filepath.ToSlash(f.backups),
 	)
 	cmd.Env = append(cmd.Env, env...)
+	if !slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, "HECATE_OPS_TEST=") }) {
+		cmd.Env = append(cmd.Env, "HECATE_OPS_TEST=1")
+	}
 	out, err := cmd.CombinedOutput()
 	code := 0
 	if ee, ok := err.(*exec.ExitError); ok {

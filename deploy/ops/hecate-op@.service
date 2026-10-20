@@ -5,6 +5,7 @@ After=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/opt/hecate/ops/run.sh %i
+ExecStartPost=/bin/sleep 3
 TimeoutStartSec=1000
 NoNewPrivileges=true
 ProtectHome=true

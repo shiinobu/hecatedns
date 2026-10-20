@@ -11,6 +11,7 @@ ExecStart=/opt/hecate/hecate dashboard -config /etc/hecate/hecate.yaml
 Restart=on-failure
 RestartSec=10
 StateDirectory=hecate
+Environment=GOMEMLIMIT=80MiB
 MemoryMax=96M
 TasksMax=64
 CPUQuota=50%

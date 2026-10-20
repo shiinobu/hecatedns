@@ -2,12 +2,21 @@
 set -u
 umask 022
 
-REQ_DIR=${HECATE_OPS_REQ:-/run/hecate-ops/req}
-RES_DIR=${HECATE_OPS_RESULT:-/var/lib/hecate-ops/result}
-OPS_HOME=${HECATE_OPS_HOME:-/opt/hecate/ops}
-BACKUP_DIR=${HECATE_BACKUP_DIR:-/var/backups/hecate}
-BACKUP_CMD=${HECATE_BACKUP_CMD:-/opt/hecate/backup.sh}
+if [ "${HECATE_OPS_TEST:-}" = 1 ]; then
+	REQ_DIR=${HECATE_OPS_REQ:-/run/hecate-ops/req}
+	RES_DIR=${HECATE_OPS_RESULT:-/var/lib/hecate-ops/result}
+	OPS_HOME=${HECATE_OPS_HOME:-/opt/hecate/ops}
+	BACKUP_DIR=${HECATE_BACKUP_DIR:-/var/backups/hecate}
+	BACKUP_CMD=${HECATE_BACKUP_CMD:-/opt/hecate/backup.sh}
+else
+	REQ_DIR=/run/hecate-ops/req
+	RES_DIR=/var/lib/hecate-ops/result
+	OPS_HOME=/opt/hecate/ops
+	BACKUP_DIR=/var/backups/hecate
+	BACKUP_CMD=/opt/hecate/backup.sh
+fi
 MAX_OUTPUT=65536
+MAX_LINE=400
 KEEP_BACKUPS=14
 
 action=${1:-}
@@ -36,7 +45,7 @@ stamp() {
 }
 
 red() {
-	sed -E 's/[a-z0-9]{16,}\.[a-z0-9.-]+/<name>/g'
+	timeout 30 sed -E 's/[a-z0-9]{16,}\.[a-z0-9.-]+/<name>/g'
 }
 
 publish() {
@@ -62,11 +71,13 @@ unit_run() {
 }
 
 run_command() {
-	key=$(echo "$action" | tr 'a-z-' 'A-Z_')
-	override=$(printenv "HECATE_OPS_CMD_$key" 2>/dev/null) || override=
-	if [ -n "$override" ]; then
-		sh -c "$override"
-		return $?
+	if [ "${HECATE_OPS_TEST:-}" = 1 ]; then
+		key=$(echo "$action" | tr 'a-z-' 'A-Z_')
+		override=$(printenv "HECATE_OPS_CMD_$key" 2>/dev/null) || override=
+		if [ -n "$override" ]; then
+			sh -c "$override"
+			return $?
+		fi
 	fi
 	case "$action" in
 	health) sh "$OPS_HOME/health.sh" ;;
@@ -94,7 +105,7 @@ if [ "$action" = backup ] && [ "${2:-}" = "--list" ]; then
 	exit 0
 fi
 
-rm -f -- "$REQ_DIR/$action"
+rm -rf --one-file-system -- "${REQ_DIR:?}/$action"
 if too_soon; then
 	log "skipped, it ran too recently"
 	exit 0
@@ -105,7 +116,8 @@ printf 'status=running\nstarted=%s\n---\n' "$started" | publish "$action.result"
 log "started"
 out=$(mktemp "$RES_DIR/.out.XXXXXX") || exit 1
 trap 'rm -f -- "$out"' EXIT
-timeout "$limit" sh "$0" "$action" --exec > "$out" 2>&1
+trap 'exit 1' HUP INT TERM
+timeout -k 10 "$limit" sh "$0" "$action" --exec > "$out" 2>&1
 code=$?
 if [ "$action" = backup ]; then
 	write_backup_list
@@ -114,7 +126,7 @@ status=ok
 [ "$code" -eq 0 ] || status=failed
 {
 	printf 'status=%s\nstarted=%s\nfinished=%s\nexit=%s\n---\n' "$status" "$started" "$(stamp)" "$code"
-	tr -d '\000' < "$out" | red | head -c "$MAX_OUTPUT"
+	tr -d '\000' < "$out" | head -c 262144 | cut -c1-"$MAX_LINE" | red | head -c "$MAX_OUTPUT"
 } | publish "$action.result"
 log "finished status=$status exit=$code"
 exit 0

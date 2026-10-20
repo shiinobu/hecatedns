@@ -64,7 +64,7 @@ client_table() {
 			if ($i == "ts") ts = $(i + 2)
 			if ($i == "client") client = $(i + 2)
 		}
-		if (ts == "" || client == "") next
+		if (ts == "" || client == "" || length(client) > 45 || client !~ /^[0-9A-Fa-f:.]+$/) next
 		at = seconds(ts)
 		count[client]++
 		if (!(client in first)) first[client] = substr(ts, 12, 8)

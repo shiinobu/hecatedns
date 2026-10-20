@@ -29,6 +29,7 @@ const (
 	maxOutputBytes = 64 << 10
 	maxHeaderBytes = 4 << 10
 	staleRunning   = 30 * time.Minute
+	staleRequest   = 2 * time.Minute
 	maxBackups     = 14
 	maxBackupLines = 200
 	backupsFile    = "backups.list"
@@ -138,7 +139,7 @@ func (s *Service) Output(action string) (string, bool) {
 		return "", true
 	}
 	defer f.Close()
-	r := bufio.NewReader(f)
+	r := bufio.NewReader(io.LimitReader(f, maxHeaderBytes+maxOutputBytes+1))
 	if _, ok := readHeader(r); !ok {
 		return "", true
 	}
@@ -199,7 +200,7 @@ func (s *Service) resultPath(action string) string {
 func (s *Service) status(action string) Status {
 	st := Status{Action: action, State: StateIdle}
 	now := s.opts.Now()
-	if info, err := os.Lstat(filepath.Join(s.opts.RequestDir, action)); err == nil && info.Mode().IsRegular() {
+	if s.requestPending(action, now) {
 		st.State = StateQueued
 	}
 	h, ok := s.header(action)
@@ -230,6 +231,19 @@ func (s *Service) status(action string) Status {
 		}
 	}
 	return st
+}
+
+func (s *Service) requestPending(action string, now time.Time) bool {
+	path := filepath.Join(s.opts.RequestDir, action)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	if info.Mode().IsRegular() && now.Sub(info.ModTime()) <= staleRequest {
+		return true
+	}
+	_ = os.RemoveAll(path)
+	return false
 }
 
 func (s *Service) header(action string) (map[string]string, bool) {
