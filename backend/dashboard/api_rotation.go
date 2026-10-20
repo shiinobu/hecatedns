@@ -70,6 +70,14 @@ func (a *API) namesFileFailure(w http.ResponseWriter, what string, err error) {
 	a.rotationRefused(w, http.StatusInternalServerError, "internal", "Could not use the names file.")
 }
 
+func (a *API) lockRotation(w http.ResponseWriter) bool {
+	if a.rotationMu.TryLock() {
+		return true
+	}
+	a.rotationRefused(w, http.StatusConflict, "busy", "Another change is still running. Try again in a few seconds.")
+	return false
+}
+
 func (a *API) allowedDomain(domain string) bool {
 	return domain != "" && slices.ContainsFunc(a.opts.Connection.ProbeDomains, func(d string) bool {
 		return canonicalName(d) == domain
@@ -90,7 +98,9 @@ func (a *API) handleRotate(w http.ResponseWriter, r *http.Request) {
 		a.rotationRefused(w, http.StatusBadRequest, "bad_domain", "That domain is not one of the configured domains.")
 		return
 	}
-	a.rotationMu.Lock()
+	if !a.lockRotation(w) {
+		return
+	}
 	defer a.rotationMu.Unlock()
 	entries, err := a.namesFileEntries()
 	if err != nil {
@@ -160,18 +170,23 @@ func (a *API) confirmServed(w http.ResponseWriter, parent context.Context, host 
 		select {
 		case <-ctx.Done():
 			a.opts.Log.Warn("the DNS server did not accept a new connection name, rolling back", "err", err)
-			a.rollbackNames(before)
-			a.rotationRefused(w, http.StatusBadGateway, "not_served", "The DNS server did not accept the new name. Nothing was changed.")
+			message := "The DNS server did not accept the new name. Nothing was changed."
+			if a.rollbackNames(before) != nil {
+				message = "The DNS server did not accept the new name, and the names file could not be restored. Check the server."
+			}
+			a.rotationRefused(w, http.StatusBadGateway, "not_served", message)
 			return false
 		case <-time.After(poll):
 		}
 	}
 }
 
-func (a *API) rollbackNames(before []dotnames.Entry) {
-	if err := dotnames.Write(a.opts.Connection.Rotation.File, before); err != nil {
+func (a *API) rollbackNames(before []dotnames.Entry) error {
+	err := dotnames.Write(a.opts.Connection.Rotation.File, before)
+	if err != nil {
 		a.opts.Log.Error("rolling back the names file failed", "err", err)
 	}
+	return err
 }
 
 func (a *API) handleConnectionRemove(w http.ResponseWriter, r *http.Request) {
@@ -188,7 +203,9 @@ func (a *API) handleConnectionRemove(w http.ResponseWriter, r *http.Request) {
 		a.rotationRefused(w, http.StatusBadRequest, "not_removable", "That name comes from the config file and cannot be removed here.")
 		return
 	}
-	a.rotationMu.Lock()
+	if !a.lockRotation(w) {
+		return
+	}
 	defer a.rotationMu.Unlock()
 	entries, err := a.namesFileEntries()
 	if err != nil {

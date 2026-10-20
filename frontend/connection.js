@@ -89,7 +89,7 @@ function buildHostBlock(entry, onRemoveOld, extraNote, isBackup) {
   main.appendChild(hostLine);
 
   const meta = el("div", "row-meta");
-  meta.appendChild(isCurrent ? el("span", "verdict verdict-pass", "Current") : el("span", "meta-tag meta-muted", "Not used"));
+  meta.appendChild(isCurrent ? el("span", "verdict verdict-pass", "Current") : el("span", "meta-tag meta-muted", "Older"));
   if (expired) meta.appendChild(el("span", "verdict verdict-block", "Expired"));
   if (isBackup) meta.appendChild(el("span", "meta-tag meta-rule", "Backup"));
   if (entry && entry.source === "config") meta.appendChild(el("span", "meta-tag meta-muted", "Read-only"));
@@ -138,7 +138,7 @@ function buildHostBlock(entry, onRemoveOld, extraNote, isBackup) {
     remBtn.type = "button";
     remBtn.disabled = isBusy;
     remBtn.addEventListener("click", () => {
-      if (window.confirm("Remove this old hostname?")) onRemoveOld(secretHost);
+      if (window.confirm("Remove this older hostname? A phone that still uses it loses internet until you type the current name in Private DNS.")) onRemoveOld(secretHost);
     });
     side.appendChild(remBtn);
   }

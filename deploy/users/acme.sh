@@ -1,7 +1,8 @@
 #!/bin/sh
 # One-time migration, run as root from the install bundle: the certificate renewal gets its own user, hecate-acme, so a
 # compromised DNS server or dashboard cannot read the Cloudflare token or the ACME account.
-# Rollback: restore hecate-renew.service.before-acme-user, then chown -R hecate:hecate /var/lib/hecate/lego and daemon-reload.
+# Rollback: stop hecate-renew.timer, restore hecate-renew.service.before-acme-user, chown -R hecate:hecate
+# /var/lib/hecate/lego, daemon-reload, start hecate-renew.timer. The timer is started again on exit in every case.
 set -eu
 src=$(cd "$(dirname "$0")/.." && pwd)
 etc=/etc/systemd/system
@@ -12,6 +13,7 @@ certs=$lego/certificates
 getent group hecate >/dev/null || { echo "no group hecate"; exit 1; }
 test -d "$certs" || { echo "no certificate directory $certs"; exit 1; }
 test -r "$unit" || { echo "missing $unit"; exit 1; }
+trap 'systemctl start hecate-renew.timer 2>/dev/null || true' EXIT
 getent passwd hecate-acme >/dev/null || useradd --system --gid hecate --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin hecate-acme
 systemctl stop hecate-renew.timer 2>/dev/null || true
 install -m 0755 -o root -g root "$src/post-renew.sh" /opt/hecate/post-renew.sh
@@ -19,12 +21,13 @@ test -e "$unit.before-acme-user" || cp -p "$unit" "$unit.before-acme-user"
 sed -i -e 's/^User=hecate$/User=hecate-acme/' -e '/^StateDirectory=hecate$/d' -e 's/^UMask=0077$/UMask=0027/' "$unit"
 for line in 'ExecStartPost=/opt/hecate/post-renew.sh' 'ReadWritePaths=/var/lib/hecate/lego' 'ProtectProc=invisible' 'ProcSubset=pid'; do
 	grep -qxF "$line" "$unit" || sed -i "s|^NoNewPrivileges=true\$|&\n$line|" "$unit"
+	grep -qxF "$line" "$unit" || { echo "the renew unit has no NoNewPrivileges=true line to anchor: $line"; exit 1; }
 done
 grep -q '^User=hecate-acme$' "$unit" || { echo "the renew unit does not run as hecate-acme"; exit 1; }
 chown -R hecate-acme:hecate "$lego"
-find "$lego" -type d -exec chmod 0750 {} +
-find "$lego" -type f -exec chmod 0640 {} +
 chmod -R go-rwx "$lego/accounts"
+find "$lego" -path "$lego/accounts" -prune -o -type d -exec chmod 0750 {} +
+find "$lego" -path "$lego/accounts" -prune -o -type f -exec chmod 0640 {} +
 systemd-analyze verify "$unit"
 systemctl daemon-reload
 if ! systemctl start hecate-renew.service; then
@@ -39,7 +42,7 @@ for f in "$certs"/*.crt "$certs"/*.key; do
 done
 runuser -u hecate -- sh -c "ls '$lego/accounts'" >/dev/null 2>&1 && { echo "hecate can read the ACME accounts"; bad=1; }
 runuser -u hecate -- sh -c "test -w '$lego'" && { echo "hecate can write to the lego directory"; bad=1; }
-runuser -u hecate-acme -- sh -c "test -w '$lego' && test -r /etc/hecate/cloudflare.env" && { echo "hecate-acme can read cloudflare.env itself"; bad=1; }
+runuser -u hecate-acme -- sh -c "test -r /etc/hecate/cloudflare.env" && { echo "hecate-acme can read cloudflare.env itself"; bad=1; }
 ls -ld "$lego" "$certs" "$lego/accounts"
 [ "$bad" -eq 0 ] || { echo "RESULT: FAILED, see above"; exit 1; }
 echo "RESULT: OK, the renewal runs as hecate-acme and hecate can still read the certificate"

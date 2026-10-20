@@ -51,17 +51,19 @@ echo "5/6 the key hash and the configuration"
 install -d -m 0750 -o hecate -g hecate /var/lib/hecate/dashboard
 install -m 0640 -o hecate -g hecate "$bundle/key.sha256" /var/lib/hecate/dashboard/key.sha256
 test -e "$cfg.before-dashboard" || cp -p "$cfg" "$cfg.before-dashboard"
+trap 'echo "If this stopped before RESULT: OK, the old configuration is in $cfg.before-dashboard (cp -p it back)"' EXIT
 {
 	echo
 	cat "$bundle/dashboard.block"
 } >>"$cfg"
-if ! /opt/hecate/hecate check -config "$cfg" >/dev/null 2>/tmp/hecate-check.err; then
+checkerr=$(mktemp)
+if ! /opt/hecate/hecate check -config "$cfg" >/dev/null 2>"$checkerr"; then
 	cp -p "$cfg.before-dashboard" "$cfg"
-	sed "$redact" /tmp/hecate-check.err
-	rm -f /tmp/hecate-check.err
+	sed "$redact" "$checkerr"
+	rm -f "$checkerr"
 	fail "the configuration check failed, the old configuration is back"
 fi
-rm -f /tmp/hecate-check.err
+rm -f "$checkerr"
 
 echo "6/6 the dashboard service"
 install -m 0644 "$here/hecate-dashboard.service" "$etc/hecate-dashboard.service"
@@ -74,4 +76,5 @@ if ! systemctl is-active --quiet hecate-dashboard.service; then
 	fail "the dashboard did not start"
 fi
 ss -ltn | grep -c ':443 ' | sed 's/^/listeners on port 443: /'
+trap - EXIT
 echo "RESULT: OK, the dashboard runs. Next: load the firewall with the safety net, then open it from the phone."

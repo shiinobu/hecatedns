@@ -351,7 +351,10 @@ func TestRotate_ConcurrentRequestsRespectTheCap(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			code, _ := rig.rotate(connMain)
+			code, body := rig.rotate(connMain)
+			for body["error"] == "busy" {
+				code, body = rig.rotate(connMain)
+			}
 			mu.Lock()
 			codes[code]++
 			mu.Unlock()
@@ -364,6 +367,83 @@ func TestRotate_ConcurrentRequestsRespectTheCap(t *testing.T) {
 	}
 	if len(rig.fileHosts()) != rotationMaxNames {
 		t.Errorf("file = %v", rig.fileHosts())
+	}
+}
+
+func TestRotate_AnOverlappingRequestIsToldTheServerIsBusy(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	rig := newRotationRig(t, func(c *ConnectionOptions) {
+		c.Rotation.Resolves = func(ctx context.Context, _ string) error {
+			close(entered)
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+			return nil
+		}
+	})
+	first := make(chan int, 1)
+	go func() {
+		code, _ := rig.rotate(connMain)
+		first <- code
+	}()
+	<-entered
+
+	code, body := rig.rotate(connMain)
+	close(release)
+
+	if code != http.StatusConflict || body["error"] != "busy" {
+		t.Errorf("second request: status %d, body %v", code, body)
+	}
+	if got := <-first; got != http.StatusOK {
+		t.Errorf("first request: status %d", got)
+	}
+	if len(rig.fileHosts()) != 1 {
+		t.Errorf("file = %v", rig.fileHosts())
+	}
+}
+
+func TestRemove_AnOverlappingRequestIsToldTheServerIsBusy(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	rig := newRotationRig(t, func(c *ConnectionOptions) {
+		c.Rotation.Resolves = func(context.Context, string) error {
+			close(entered)
+			<-release
+			return nil
+		}
+	})
+	rig.seed(dotnames.Entry{Host: rotNameB}, dotnames.Entry{Host: rotNameC})
+	go rig.rotate(connMain)
+	<-entered
+
+	code, body := rig.remove(rotNameB)
+	close(release)
+
+	if code != http.StatusConflict || body["error"] != "busy" {
+		t.Errorf("status %d, body %v", code, body)
+	}
+}
+
+func TestRotate_SaysSoWhenTheRollbackItselfFails(t *testing.T) {
+	var rig *rotationRig
+	rig = newRotationRig(t, func(c *ConnectionOptions) {
+		c.Rotation.ServeWait = 30 * time.Millisecond
+		c.Rotation.Serves = func(context.Context, string) error {
+			_ = os.Remove(rig.file)
+			_ = os.Mkdir(rig.file, 0o700)
+			return errors.New("not served")
+		}
+	})
+
+	code, body := rig.rotate(connMain)
+
+	if code != http.StatusBadGateway || body["error"] != "not_served" {
+		t.Fatalf("status %d, body %v", code, body)
+	}
+	if message, _ := body["message"].(string); !strings.Contains(message, "could not be restored") {
+		t.Errorf("message = %q, want it to say the names file could not be restored", message)
 	}
 }
 
