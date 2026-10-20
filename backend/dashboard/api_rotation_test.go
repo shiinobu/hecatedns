@@ -415,11 +415,16 @@ func TestRemove_AnOverlappingRequestIsToldTheServerIsBusy(t *testing.T) {
 		}
 	})
 	rig.seed(dotnames.Entry{Host: rotNameB}, dotnames.Entry{Host: rotNameC})
-	go rig.rotate(connMain)
+	rotated := make(chan struct{})
+	go func() {
+		defer close(rotated)
+		rig.rotate(connMain)
+	}()
 	<-entered
 
 	code, body := rig.remove(rotNameB)
 	close(release)
+	<-rotated
 
 	if code != http.StatusConflict || body["error"] != "busy" {
 		t.Errorf("status %d, body %v", code, body)
