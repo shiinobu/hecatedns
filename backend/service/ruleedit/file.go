@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	rulesDirMode = 0o700
+	rulesDirMode  = 0o700
+	rulesFileMode = 0o640
 
 	renameAttempts = 5
 	renameWait     = 40 * time.Millisecond
@@ -115,6 +116,9 @@ func writeFileAtomic(path string, data []byte) (err error) {
 		}
 	}()
 	if _, err = tmp.Write(data); err == nil {
+		err = tmp.Chmod(rulesFileMode)
+	}
+	if err == nil {
 		err = tmp.Sync()
 	}
 	if closeErr := tmp.Close(); err == nil {

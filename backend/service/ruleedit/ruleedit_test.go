@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -197,5 +198,24 @@ func TestParseRule(t *testing.T) {
 				t.Fatalf("got %+v, err %v, want %+v", got, err, tt.want)
 			}
 		})
+	}
+}
+
+func TestAdd_LeavesTheFileReadableByItsGroup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are not enforced on Windows")
+	}
+	path := filepath.Join(t.TempDir(), "rules.txt")
+
+	if _, err := Add(path, engine.Rule{Action: engine.RuleBlock, Domain: "ads.example.com"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := info.Mode().Perm(); got != 0o640 {
+		t.Errorf("mode = %o, want 640: the DNS server runs as another user of the same group and must read what the dashboard writes", got)
 	}
 }
