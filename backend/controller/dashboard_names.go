@@ -30,19 +30,27 @@ func dashboardRotation(cfg config.Config) dashboard.RotationOptions {
 	}
 }
 
-func dashboardReaches(cfg config.Config) func(context.Context, string) error {
+func reachOptions(cfg config.Config) (dashboard.PublicReachOptions, bool) {
 	if !cfg.DoT.Enabled || len(cfg.DoT.Listen) == 0 {
-		return nil
+		return dashboard.PublicReachOptions{}, false
 	}
 	listen, err := netip.ParseAddrPort(cfg.DoT.Listen[0])
-	if err != nil {
-		return nil
+	if err != nil || listen.Port() == 0 {
+		return dashboard.PublicReachOptions{}, false
 	}
-	return dashboard.NewPublicReachCheck(dashboard.PublicReachOptions{
-		Resolvers: publicResolvers,
+	return dashboard.PublicReachOptions{
+		Resolvers: slices.Clone(publicResolvers),
 		Port:      strconv.Itoa(int(listen.Port())),
 		Timeout:   publicResolveTimeout,
-	})
+	}, true
+}
+
+func dashboardReaches(cfg config.Config) func(context.Context, string) error {
+	options, ok := reachOptions(cfg)
+	if !ok {
+		return nil
+	}
+	return dashboard.NewPublicReachCheck(options)
 }
 
 func dashboardServes(cfg config.Config) func(context.Context, string) error {

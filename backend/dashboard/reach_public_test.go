@@ -63,7 +63,7 @@ func closedPort(t *testing.T) string {
 }
 
 func reachCheck(resolvers []string, port string, pool *x509.CertPool) func(context.Context, string) error {
-	return NewPublicReachCheck(PublicReachOptions{Resolvers: resolvers, Port: port, RootCAs: pool, Timeout: time.Second})
+	return NewPublicReachCheck(PublicReachOptions{Resolvers: resolvers, Port: port, RootCAs: pool, Timeout: time.Second, AllowNonPublic: true})
 }
 
 func TestPublicReachCheck_PassesWhenTheAnsweredAddressServesTheName(t *testing.T) {
@@ -149,7 +149,7 @@ func TestPublicReachCheck_AServerThatNeverAnswersFailsWithinTheTimeout(t *testin
 		}
 	}()
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
-	check := NewPublicReachCheck(PublicReachOptions{Resolvers: []string{startAddressDNS(t, "127.0.0.1")}, Port: port, Timeout: 300 * time.Millisecond})
+	check := NewPublicReachCheck(PublicReachOptions{Resolvers: []string{startAddressDNS(t, "127.0.0.1")}, Port: port, Timeout: 300 * time.Millisecond, AllowNonPublic: true})
 
 	started := time.Now()
 	err = check(context.Background(), publicProbeHost)
@@ -187,7 +187,7 @@ func TestPublicReachCheck_NoResolversIsAnError(t *testing.T) {
 
 func TestPublicReachCheck_StopsWhenTheContextIsCancelled(t *testing.T) {
 	hang := func(dns.ResponseWriter, *dns.Msg) { time.Sleep(2 * time.Second) }
-	check := NewPublicReachCheck(PublicReachOptions{Resolvers: []string{startCustomDNS(t, hang)}, Port: "853", Timeout: 5 * time.Second})
+	check := NewPublicReachCheck(PublicReachOptions{Resolvers: []string{startCustomDNS(t, hang)}, Port: "853", Timeout: 5 * time.Second, AllowNonPublic: true})
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
@@ -196,5 +196,64 @@ func TestPublicReachCheck_StopsWhenTheContextIsCancelled(t *testing.T) {
 
 	if err == nil || time.Since(started) > time.Second {
 		t.Errorf("err = %v after %v", err, time.Since(started))
+	}
+}
+
+func startCNAMEOnlyDNS(t *testing.T) string {
+	t.Helper()
+	return startCustomDNS(t, func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.CNAME{
+			Hdr:    dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: 60},
+			Target: "elsewhere.example.net.",
+		})
+		_ = w.WriteMsg(m)
+	})
+}
+
+func TestPublicReachCheck_RefusesAddressesThatAreNotPublic(t *testing.T) {
+	port, pool := startReachDoT(t)
+	for _, address := range []string{"127.0.0.1", "0.0.0.0", "10.1.2.3", "172.16.0.9", "192.168.1.5", "169.254.1.1", "100.64.0.1", "224.0.0.1"} {
+		t.Run(address, func(t *testing.T) {
+			check := NewPublicReachCheck(PublicReachOptions{Resolvers: []string{startAddressDNS(t, address)}, Port: port, RootCAs: pool, Timeout: time.Second})
+
+			err := check(context.Background(), publicProbeHost)
+
+			if err == nil || !strings.Contains(err.Error(), "not a public address") || !strings.Contains(err.Error(), address) {
+				t.Errorf("err = %v, want a refusal naming %s", err, address)
+			}
+			if err != nil && strings.Contains(err.Error(), "abcdefghij0123456789") {
+				t.Errorf("the error leaks the host name: %v", err)
+			}
+		})
+	}
+}
+
+func TestPublicReachCheck_APublicAddressIsDialedNotRefused(t *testing.T) {
+	check := NewPublicReachCheck(PublicReachOptions{Resolvers: []string{startAddressDNS(t, "203.0.113.7")}, Port: closedPort(t), Timeout: 200 * time.Millisecond})
+
+	err := check(context.Background(), publicProbeHost)
+
+	if err == nil || strings.Contains(err.Error(), "not a public address") || !strings.Contains(err.Error(), "203.0.113.7") {
+		t.Errorf("err = %v, want a connection failure naming the address", err)
+	}
+}
+
+func TestPublicReachCheck_AnAnswerWithOnlyACNAMEFails(t *testing.T) {
+	check := reachCheck([]string{startCNAMEOnlyDNS(t)}, "853", nil)
+
+	err := check(context.Background(), publicProbeHost)
+
+	if err == nil || !strings.Contains(err.Error(), "no address") {
+		t.Errorf("err = %v, want a no address failure", err)
+	}
+}
+
+func TestReachAddresses_NothingToCheckIsAnError(t *testing.T) {
+	err := reachAddresses(context.Background(), PublicReachOptions{Port: "853", AllowNonPublic: true}, publicProbeHost, nil)
+
+	if err == nil || !strings.Contains(err.Error(), "no address") {
+		t.Errorf("err = %v, want a no address failure", err)
 	}
 }

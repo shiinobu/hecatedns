@@ -271,3 +271,51 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+func TestRun_ShutdownWaitsForARunningHandler(t *testing.T) {
+	store, pool := testStore(t)
+	started := make(chan struct{})
+	s := newTestServer(t, func(o *Options) {
+		o.Certs = store
+		o.ShutdownTimeout = 3 * time.Second
+		o.API = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			close(started)
+			time.Sleep(300 * time.Millisecond)
+			if _, err := io.WriteString(w, `{"ok":true}`); err != nil {
+				t.Error(err)
+			}
+		})
+	})
+	cancel, done := runServer(t, s)
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 3 * time.Second}, "tcp", s.Addrs()[0].String(), &tls.Config{ServerName: testHost, RootCAs: pool})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	statuses := make(chan int, 1)
+	go func() {
+		resp, err := rawGet(t, conn, testHost, "/api/slow")
+		if err != nil {
+			statuses <- -1
+			return
+		}
+		statuses <- resp.StatusCode
+	}()
+	<-started
+
+	cancel()
+
+	if status := <-statuses; status != http.StatusOK {
+		t.Errorf("the running request ended with %d, want 200", status)
+	}
+	if err := <-done; err != nil {
+		t.Errorf("Run: %v", err)
+	}
+}
+
+func TestOptions_TheDefaultShutdownTimeoutOutlastsARotation(t *testing.T) {
+	worstRotation := defaultResolveTimeout + defaultServeWait + defaultReachWait
+	if defaultShutdownTimeout <= worstRotation {
+		t.Errorf("the shutdown timeout %v does not outlast a rotation of up to %v, so a restart can cut one between its write and its rollback", defaultShutdownTimeout, worstRotation)
+	}
+}

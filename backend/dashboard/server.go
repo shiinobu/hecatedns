@@ -23,7 +23,8 @@ const (
 	defaultReadTimeout       = 10 * time.Second
 	defaultWriteTimeout      = 15 * time.Second
 	defaultIdleTimeout       = 30 * time.Second
-	defaultShutdownTimeout   = 5 * time.Second
+	shutdownMargin           = 6 * time.Second
+	defaultShutdownTimeout   = defaultResolveTimeout + defaultServeWait + defaultReachWait + shutdownMargin
 	defaultMaxHeaderBytes    = 8 << 10
 	defaultMaxBodyBytes      = 4 << 10
 	defaultMaxConns          = 32

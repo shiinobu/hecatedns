@@ -65,3 +65,39 @@ func TestFiles_HoldOnlyThePageStylesScriptsAndIcons(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+var (
+	fontSizeValue   = regexp.MustCompile(`font-size:\s*([^;]+);`)
+	textTokenUse    = regexp.MustCompile(`^var\((--text-[a-z0-9]+)\)$`)
+	textTokenDefine = regexp.MustCompile(`(--text-[a-z0-9]+):`)
+)
+
+func TestFiles_EveryFontSizeOutsideTheThemeIsADefinedTextToken(t *testing.T) {
+	theme, err := fs.ReadFile(Files, "theme.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defined := map[string]bool{}
+	for _, m := range textTokenDefine.FindAllStringSubmatch(string(theme), -1) {
+		defined[m[1]] = true
+	}
+	err = fs.WalkDir(Files, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || path.Ext(name) != ".css" || name == "theme.css" {
+			return err
+		}
+		data, err := fs.ReadFile(Files, name)
+		if err != nil {
+			return err
+		}
+		for _, m := range fontSizeValue.FindAllStringSubmatch(string(data), -1) {
+			use := textTokenUse.FindStringSubmatch(strings.TrimSpace(m[1]))
+			if use == nil || !defined[use[1]] {
+				t.Errorf("%s: font-size %q is not a text token defined in theme.css", name, strings.TrimSpace(m[1]))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

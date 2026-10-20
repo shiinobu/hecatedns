@@ -216,3 +216,25 @@ func TestFileNames_KeepsTheLastGoodListWhenTheFileBreaks(t *testing.T) {
 		t.Errorf("after the file broke: %v", got)
 	}
 }
+
+func TestReachOptions_FollowTheDoTListenPortAndThePublicResolvers(t *testing.T) {
+	withPublicResolvers(t, "9.9.9.9:53", "1.0.0.1:53")
+	cfg := config.Config{DoT: config.DoT{Enabled: true, Listen: []string{"0.0.0.0:8853", "[::]:853"}}}
+
+	got, ok := reachOptions(cfg)
+
+	if !ok || got.Port != "8853" || !reflect.DeepEqual(got.Resolvers, []string{"9.9.9.9:53", "1.0.0.1:53"}) || got.Timeout != publicResolveTimeout || got.AllowNonPublic {
+		t.Errorf("options = %+v, ok = %v", got, ok)
+	}
+	for name, dot := range map[string]config.DoT{
+		"disabled":    {},
+		"no listen":   {Enabled: true},
+		"bad listen":  {Enabled: true, Listen: []string{"not an address"}},
+		"zero port":   {Enabled: true, Listen: []string{"0.0.0.0:0"}},
+		"host listen": {Enabled: true, Listen: []string{"example.org:853"}},
+	} {
+		if _, ok := reachOptions(config.Config{DoT: dot}); ok {
+			t.Errorf("%s: options were built", name)
+		}
+	}
+}

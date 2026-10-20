@@ -86,8 +86,10 @@ func TestScanners_FindCommentsAndIgnoreLookalikes(t *testing.T) {
 	}
 }
 
+var frontendScanners = map[string]func(string) int{".js": jsCommentLine, ".css": cssCommentLine, ".html": htmlCommentLine, ".svg": htmlCommentLine}
+
 func TestFrontendHasNoComments(t *testing.T) {
-	scanners := map[string]func(string) int{".js": jsCommentLine, ".css": cssCommentLine, ".html": htmlCommentLine}
+	scanners := frontendScanners
 	root := filepath.Join("..", "..", "..", "frontend")
 	checked := 0
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -176,4 +178,22 @@ func TestPowerShellHasNoComments(t *testing.T) {
 			t.Errorf("%s: %v", path, err)
 		}
 	})
+}
+
+func TestFrontendFolderHasNoFileTypeThatIsLeftUnscanned(t *testing.T) {
+	notText := map[string]bool{".go": true, ".png": true}
+	root := filepath.Join("..", "..", "..", "frontend")
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		ext := filepath.Ext(path)
+		if _, scanned := frontendScanners[ext]; !scanned && !notText[ext] {
+			t.Errorf("%s: no comment scanner for %s files", path, ext)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }

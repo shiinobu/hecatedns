@@ -469,9 +469,9 @@ The names the DNS server serves are `dot.names` (from the config file, read-only
 1. the certificate covers it;
 2. both public resolvers (1.1.1.1 and 8.8.8.8) answer for it;
 3. it is written to the names file and the live DoT server accepts it, checked with a handshake to the loopback listener for up to 6 seconds (`not_served` otherwise);
-4. **it reaches this server** (`not_reachable` otherwise): the A records from the public resolvers are collected, and every address answers a real DoT query with the new name as the server name and a valid certificate, within 4 seconds.
+4. **it reaches this server** (`not_reachable` otherwise): the A records from the public resolvers are collected, and every address must be a public one (loopback, unspecified, private, link-local, multicast and carrier-grade NAT addresses fail the check, because the server would reach them through itself) and must answer a real DoT query with the new name as the server name and a valid certificate, within 4 seconds.
 
-A failure in 3 or 4 restores the previous names file, and the answer says so, or says that the file could not be restored. The messages never contain the name or an address. The reach check exists because a proxied wildcard DNS record once produced a name that resolved to proxy addresses; resolving was not enough. It dials the server's own public address from the server, and it checks A records only.
+A failure in 3 or 4 restores the previous names file, and the answer says so, or says that the file could not be restored. The messages never contain the name or an address. A restart of the dashboard waits up to 20 seconds (longer than the checks of a Rotate can take) for a running Rotate to finish or roll back, so a restart cannot leave an unchecked name in the file. The reach check exists because a proxied wildcard DNS record once produced a name that resolved to proxy addresses; resolving was not enough. It dials the server's own public address from the server, and it checks A records only.
 
 **Remove old** refuses names that come from the config file and the last remaining name; a phone that still uses a removed name loses internet until its Private DNS field is changed, which is why the order is Rotate, type the new name on the phone, check that internet works, then Remove old.
 
