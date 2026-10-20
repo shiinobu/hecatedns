@@ -245,3 +245,31 @@ func TestRecordLine(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+func TestReadWhile_StopsWhenTheCallbackSaysSoAndReportsIt(t *testing.T) {
+	dir := fixtureDir(t)
+	var seen []string
+
+	stats, err := ReadWhile(dir, Filter{Location: testZone}, func(r Record) bool {
+		seen = append(seen, r.QName)
+		return len(seen) < 2
+	})
+
+	if err != nil {
+		t.Fatalf("ReadWhile: %v", err)
+	}
+	if len(seen) != 2 {
+		t.Fatalf("callback ran %d times, want 2: %v", len(seen), seen)
+	}
+	if !stats.Stopped || stats.Matched != 2 {
+		t.Fatalf("stats = %+v, want Stopped and 2 matched", stats)
+	}
+}
+
+func TestReadWhile_ReadingToTheEndIsNotStopped(t *testing.T) {
+	stats, err := ReadWhile(fixtureDir(t), Filter{Location: testZone}, func(Record) bool { return true })
+
+	if err != nil || stats.Stopped {
+		t.Fatalf("stats = %+v, err = %v, want a complete read", stats, err)
+	}
+}

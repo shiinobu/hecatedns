@@ -30,9 +30,20 @@ type ReadStats struct {
 	Matched int
 
 	Malformed int
+
+	Stopped bool
 }
 
+var errStopped = errors.New("read stopped by the caller")
+
 func Read(dir string, f Filter, emit func(Record)) (ReadStats, error) {
+	return ReadWhile(dir, f, func(r Record) bool {
+		emit(r)
+		return true
+	})
+}
+
+func ReadWhile(dir string, f Filter, emit func(Record) bool) (ReadStats, error) {
 	loc := cmpLocation(f.Location)
 	files, err := dayFiles(dir, f, loc)
 	if err != nil {
@@ -40,7 +51,12 @@ func Read(dir string, f Filter, emit func(Record)) (ReadStats, error) {
 	}
 	var stats ReadStats
 	for _, name := range files {
-		if err := readFile(filepath.Join(dir, name), f, emit, &stats); err != nil {
+		err := readFile(filepath.Join(dir, name), f, emit, &stats)
+		if errors.Is(err, errStopped) {
+			stats.Stopped = true
+			return stats, nil
+		}
+		if err != nil {
 			return stats, err
 		}
 	}
@@ -90,7 +106,7 @@ func dayBounds(f Filter, loc *time.Location) (first, last time.Time) {
 	return first, last
 }
 
-func readFile(path string, f Filter, emit func(Record), stats *ReadStats) error {
+func readFile(path string, f Filter, emit func(Record) bool, stats *ReadStats) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("open query log: %w", err)
@@ -121,7 +137,9 @@ func readFile(path string, f Filter, emit func(Record), stats *ReadStats) error 
 		}
 		if matches(rec, f, want) {
 			stats.Matched++
-			emit(rec)
+			if !emit(rec) {
+				return errStopped
+			}
 		}
 	}
 }
