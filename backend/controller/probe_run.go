@@ -1,31 +1,43 @@
 package controller
 
 import (
-	"bufio"
+	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
+	"net"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/shiinobu/hecatedns/backend/lib/config"
+	"github.com/shiinobu/hecatedns/backend/lib/dotnames"
 )
 
-const probeHeartbeat = 10 * time.Minute
+const (
+	probeHeartbeat = 10 * time.Minute
+	minProbeWatch  = 5 * time.Second
+	defaultDNSPort = "53"
+)
+
+var utf8BOM = []byte{0xef, 0xbb, 0xbf}
 
 func runProbe(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("probe", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	configPath := flags.String("config", "", "read the newest served DoT name from this configuration file")
 	nameFile := flags.String("name-file", "", "read the name from this file (the last entry of a names file or a single line)")
-	addr := flags.String("addr", "", "host:port to connect to (default: the first address found, port "+probePort+")")
+	addr := flags.String("addr", "", "host:port to connect to (default: the addresses found, on -port)")
+	port := flags.String("port", probePort, "DoT port to connect to on the addresses found")
 	resolvers := flags.String("resolvers", strings.Join(defaultProbeResolvers, ","), "public resolvers to compare with the system resolver, comma separated")
 	canary := flags.String("canary", defaultProbeCanary, "name to ask over the DoT connection")
 	timeout := flags.Duration("timeout", defaultProbeTimeout, "time allowed for each stage")
-	watch := flags.Duration("watch", 0, "repeat every interval until Ctrl+C and print only changes and a heartbeat")
+	watch := flags.Duration("watch", 0, "repeat every interval (at least "+minProbeWatch.String()+") until Ctrl+C and print only changes and a heartbeat")
 	if err := flags.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -33,12 +45,16 @@ func runProbe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "hecate probe: give exactly one of -config <file> and -name-file <file>")
 		return exitUsage
 	}
+	if *watch < 0 || (*watch > 0 && *watch < minProbeWatch) {
+		fmt.Fprintf(stderr, "hecate probe: -watch must be at least %s (or 0 to run once)\n", minProbeWatch)
+		return exitUsage
+	}
 	name, err := probeNameFrom(*configPath, *nameFile)
 	if err != nil {
 		fmt.Fprintf(stderr, "hecate probe: %v\n", err)
 		return exitError
 	}
-	opts := probeOptions{Name: name, Addr: *addr, Resolvers: splitList(*resolvers), Canary: *canary, Timeout: *timeout}
+	opts := probeOptions{Name: name, Addr: *addr, Port: *port, Resolvers: normalizeResolvers(*resolvers), Canary: *canary, Timeout: *timeout}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	if *watch > 0 {
@@ -61,11 +77,29 @@ func probeNameFrom(configPath, nameFile string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	names := servedDoTNames(cfg)
+	names, err := configuredDoTNames(cfg)
+	if err != nil {
+		return "", err
+	}
 	if len(names) == 0 {
 		return "", fmt.Errorf("%s serves no DoT name", configPath)
 	}
 	return names[len(names)-1], nil
+}
+
+func configuredDoTNames(cfg config.Config) ([]string, error) {
+	names := slices.Clone(cfg.DoT.Names)
+	if cfg.DoT.NamesFile == "" {
+		return names, nil
+	}
+	entries, _, _, err := dotnames.ReadLenient(cfg.DoT.NamesFile)
+	if errors.Is(err, fs.ErrNotExist) {
+		return names, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read the names file: %w", err)
+	}
+	return append(names, dotnames.Hosts(entries)...), nil
 }
 
 func readProbeName(path string) (string, error) {
@@ -74,31 +108,40 @@ func readProbeName(path string) (string, error) {
 		return "", err
 	}
 	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, dotnames.MaxBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > dotnames.MaxBytes {
+		return "", fmt.Errorf("%s is larger than %d bytes", path, dotnames.MaxBytes)
+	}
 	name := ""
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		fields := strings.Fields(scanner.Text())
-		if len(fields) > 0 && !strings.HasPrefix(fields[0], "#") {
+	for line := range strings.Lines(string(bytes.TrimPrefix(data, utf8BOM))) {
+		if fields := strings.Fields(line); len(fields) > 0 && !strings.HasPrefix(fields[0], "#") {
 			name = fields[0]
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return "", err
-	}
 	if !config.ValidHostName(name) {
-		return "", fmt.Errorf("%s holds no valid host name", path)
+		return "", fmt.Errorf("%s holds no valid host name (save it as plain UTF-8 or ASCII text)", path)
 	}
 	return name, nil
 }
 
-func splitList(text string) []string {
+func normalizeResolvers(text string) []string {
 	var out []string
 	for part := range strings.SplitSeq(text, ",") {
 		if part = strings.TrimSpace(part); part != "" {
-			out = append(out, part)
+			out = append(out, withPort(part, defaultDNSPort))
 		}
 	}
 	return out
+}
+
+func withPort(address, port string) string {
+	if _, _, err := net.SplitHostPort(address); err == nil {
+		return address
+	}
+	return net.JoinHostPort(strings.Trim(address, "[]"), port)
 }
 
 func writeProbe(w io.Writer, stages []probeStage) {

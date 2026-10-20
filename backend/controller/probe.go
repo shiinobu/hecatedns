@@ -24,6 +24,7 @@ const (
 	stageTLS            = "tls"
 	stageQuery          = "query"
 	maxShownAddresses   = 4
+	maxProbeAddresses   = 4
 	hoursPerDay         = 24
 )
 
@@ -36,6 +37,7 @@ var systemLookup = func(ctx context.Context, name string) ([]string, error) {
 type probeOptions struct {
 	Name      string
 	Addr      string
+	Port      string
 	Resolvers []string
 	Canary    string
 	Timeout   time.Duration
@@ -64,6 +66,9 @@ func probe(ctx context.Context, opts probeOptions) []probeStage {
 	if opts.Canary == "" {
 		opts.Canary = defaultProbeCanary
 	}
+	if opts.Port == "" {
+		opts.Port = probePort
+	}
 	if opts.Timeout <= 0 {
 		opts.Timeout = defaultProbeTimeout
 	}
@@ -73,7 +78,7 @@ func probe(ctx context.Context, opts probeOptions) []probeStage {
 		p.stage(stageResolvePrefix+resolver, func() (string, error) { return p.resolver(ctx, resolver) })
 	}
 	p.stage(stageTLS, func() (string, error) { return p.handshake(ctx) })
-	p.stage(stageQuery, func() (string, error) { return p.query() })
+	p.stage(stageQuery, func() (string, error) { return p.query(ctx) })
 	if p.conn != nil {
 		_ = p.conn.Close()
 	}
@@ -95,6 +100,8 @@ func (p *prober) stage(name string, run func() (string, error)) {
 }
 
 func (p *prober) system(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.opts.Timeout)
+	defer cancel()
 	addresses, err := p.opts.Lookup(ctx, p.opts.Name)
 	if err != nil {
 		return "", err
@@ -129,21 +136,47 @@ func (p *prober) resolver(ctx context.Context, resolver string) (string, error) 
 	return describeAddresses(addresses), nil
 }
 
-func (p *prober) target() (string, error) {
+func (p *prober) targets() []string {
 	if p.opts.Addr != "" {
-		return p.opts.Addr, nil
+		return []string{p.opts.Addr}
 	}
-	if len(p.found) == 0 {
-		return "", errors.New("no address to connect to")
+	var targets []string
+	seen := map[string]bool{}
+	for _, address := range p.found {
+		if seen[address] {
+			continue
+		}
+		seen[address] = true
+		targets = append(targets, net.JoinHostPort(address, p.opts.Port))
+		if len(targets) == maxProbeAddresses {
+			break
+		}
 	}
-	return net.JoinHostPort(p.found[0], probePort), nil
+	return targets
 }
 
 func (p *prober) handshake(ctx context.Context) (string, error) {
-	target, err := p.target()
-	if err != nil {
-		return "", err
+	targets := p.targets()
+	if len(targets) == 0 {
+		return "", errors.New("no address to connect to")
 	}
+	var lastErr error
+	for _, target := range targets {
+		detail, err := p.dial(ctx, target)
+		if err == nil {
+			return detail, nil
+		}
+		if lastErr = err; ctx.Err() != nil {
+			break
+		}
+	}
+	if len(targets) > 1 {
+		return "", fmt.Errorf("%w (%d addresses tried)", lastErr, len(targets))
+	}
+	return "", lastErr
+}
+
+func (p *prober) dial(ctx context.Context, target string) (string, error) {
 	dialer := &tls.Dialer{
 		NetDialer: &net.Dialer{Timeout: p.opts.Timeout},
 		Config: &tls.Config{
@@ -155,33 +188,51 @@ func (p *prober) handshake(ctx context.Context) (string, error) {
 	}
 	conn, err := dialer.DialContext(ctx, "tcp", target)
 	if err != nil {
-		return "", err
+		return "", hideCertificateNames(err)
 	}
-	tlsConn := conn.(*tls.Conn)
+	tlsConn, ok := conn.(*tls.Conn)
+	if !ok {
+		_ = conn.Close()
+		return "", errors.New("the connection is not a TLS connection")
+	}
 	state := tlsConn.ConnectionState()
-	if state.NegotiatedProtocol != probeALPN {
+	if state.NegotiatedProtocol != probeALPN || len(state.PeerCertificates) == 0 {
 		_ = tlsConn.Close()
-		return "", fmt.Errorf("the server did not offer ALPN %s", probeALPN)
+		return "", fmt.Errorf("the server did not offer ALPN %s and a certificate", probeALPN)
 	}
 	p.conn = tlsConn
 	left := time.Until(state.PeerCertificates[0].NotAfter)
 	return fmt.Sprintf("%s, ALPN %s, %d days left on the certificate (%s)", tls.VersionName(state.Version), state.NegotiatedProtocol, int(left/(hoursPerDay*time.Hour)), target), nil
 }
 
-func (p *prober) query() (string, error) {
+func hideCertificateNames(err error) error {
+	var hostErr x509.HostnameError
+	if errors.As(err, &hostErr) {
+		return errors.New("the certificate does not cover " + probeRedacted)
+	}
+	return err
+}
+
+func (p *prober) query(ctx context.Context) (string, error) {
 	if p.conn == nil {
 		return "", errors.New("skipped: no tls connection")
 	}
 	if err := p.conn.SetDeadline(time.Now().Add(p.opts.Timeout)); err != nil {
 		return "", err
 	}
+	stop := context.AfterFunc(ctx, func() { _ = p.conn.SetDeadline(time.Now()) })
+	defer stop()
 	conn := &dns.Conn{Conn: p.conn}
-	if err := conn.WriteMsg(new(dns.Msg).SetQuestion(dns.Fqdn(p.opts.Canary), dns.TypeA)); err != nil {
+	question := new(dns.Msg).SetQuestion(dns.Fqdn(p.opts.Canary), dns.TypeA)
+	if err := conn.WriteMsg(question); err != nil {
 		return "", err
 	}
 	resp, err := conn.ReadMsg()
 	if err != nil {
 		return "", err
+	}
+	if resp.Id != question.Id {
+		return "", errors.New("the answer has the wrong id")
 	}
 	detail := fmt.Sprintf("%s, %s", dns.RcodeToString[resp.Rcode], countAnswers(len(resp.Answer)))
 	if resp.Rcode != dns.RcodeSuccess || len(resp.Answer) == 0 {
@@ -217,24 +268,31 @@ func probePassed(stages []probeStage) bool {
 	return findStage(stages, stageSystem).OK && findStage(stages, stageTLS).OK && findStage(stages, stageQuery).OK
 }
 
-func anyResolverOK(stages []probeStage) bool {
+func resolverStages(stages []probeStage) (asked, ok int) {
 	for _, s := range stages {
-		if strings.HasPrefix(s.Stage, stageResolvePrefix) && s.OK {
-			return true
+		if s.Stage != stageSystem && strings.HasPrefix(s.Stage, stageResolvePrefix) {
+			asked++
+			if s.OK {
+				ok++
+			}
 		}
 	}
-	return false
+	return asked, ok
 }
 
 func probeVerdict(stages []probeStage) string {
+	system, handshake := findStage(stages, stageSystem), findStage(stages, stageTLS)
+	asked, found := resolverStages(stages)
 	switch {
 	case probePassed(stages):
 		return "PASS: the system resolver finds the server, the TLS handshake works and a query is answered"
-	case !findStage(stages, stageSystem).OK && anyResolverOK(stages):
-		return "FAIL: this network's own resolver cannot find the server while a public resolver can (a resolver problem: try another network, or set Private DNS to Automatic until it clears)"
-	case !findStage(stages, stageSystem).OK:
+	case !system.OK && asked == 0:
+		return "FAIL: the system resolver cannot find the name and no public resolver was asked (check the DNS record and that this is the name in use, or give -resolvers)"
+	case !system.OK && found == 0:
 		return "FAIL: no resolver finds the name (check that the DNS record exists and is DNS only, and that this is the name in use)"
-	case !findStage(stages, stageTLS).OK:
+	case !system.OK && handshake.OK:
+		return "FAIL: this network's own resolver cannot find the server while a public resolver can (a resolver problem: try another network, or set Private DNS to Automatic until it clears)"
+	case !handshake.OK:
 		return "FAIL: the name resolves but the TLS handshake failed (port 853 is blocked on this path, the server is down, or the name or the certificate is wrong)"
 	}
 	return "FAIL: the handshake works but the server did not answer a query"

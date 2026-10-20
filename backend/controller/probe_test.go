@@ -24,8 +24,16 @@ const (
 
 type probeEnv struct {
 	addr string
+	port string
 	pool *x509.CertPool
 	stop func()
+}
+
+type doTSpec struct {
+	names      []string
+	notAfter   time.Time
+	handler    dns.HandlerFunc
+	maxVersion uint16
 }
 
 func probeAnswer(ips ...string) dns.HandlerFunc {
@@ -43,7 +51,18 @@ func probeAnswer(ips ...string) dns.HandlerFunc {
 
 func startProbeDoT(t *testing.T, names []string, notAfter time.Time) probeEnv {
 	t.Helper()
-	certPath, keyPath := writeSelfSignedPair(t, t.TempDir(), names, notAfter)
+	return startProbeDoTSpec(t, doTSpec{names: names, notAfter: notAfter})
+}
+
+func startProbeDoTSpec(t *testing.T, spec doTSpec) probeEnv {
+	t.Helper()
+	if spec.handler == nil {
+		spec.handler = probeAnswer("93.184.216.34")
+	}
+	if spec.maxVersion == 0 {
+		spec.maxVersion = tls.VersionTLS13
+	}
+	certPath, keyPath := writeSelfSignedPair(t, t.TempDir(), spec.names, spec.notAfter)
 	pair, err := tls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
 		t.Fatal(err)
@@ -54,11 +73,19 @@ func startProbeDoT(t *testing.T, names []string, notAfter time.Time) probeEnv {
 	}
 	pool := x509.NewCertPool()
 	pool.AppendCertsFromPEM(pem)
-	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS13, NextProtos: []string{"dot"}})
+	minVersion := uint16(tls.VersionTLS12)
+	if spec.maxVersion == tls.VersionTLS13 {
+		minVersion = tls.VersionTLS13
+	}
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: minVersion, MaxVersion: spec.maxVersion, NextProtos: []string{"dot"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &dns.Server{Listener: ln, Handler: probeAnswer("93.184.216.34")}
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &dns.Server{Listener: ln, Handler: spec.handler}
 	started := make(chan struct{})
 	srv.NotifyStartedFunc = func() { close(started) }
 	go func() { _ = srv.ActivateAndServe() }()
@@ -66,7 +93,7 @@ func startProbeDoT(t *testing.T, names []string, notAfter time.Time) probeEnv {
 	var once sync.Once
 	stop := func() { once.Do(func() { _ = srv.Shutdown() }) }
 	t.Cleanup(stop)
-	return probeEnv{addr: ln.Addr().String(), pool: pool, stop: stop}
+	return probeEnv{addr: ln.Addr().String(), port: port, pool: pool, stop: stop}
 }
 
 func startProbeResolver(t *testing.T, rcode int, ips ...string) string {
@@ -254,13 +281,17 @@ func TestProbe_NothingListeningFailsTheTLSStage(t *testing.T) {
 	}
 }
 
-func TestProbe_WithoutAnAddressTheTLSStageUsesTheSystemAnswerAndTheDoTPort(t *testing.T) {
-	opts := probeOptions{Name: probeName, Canary: probeCanary, Timeout: 300 * time.Millisecond, Lookup: lookupReturning("127.0.0.1")}
+func TestProbe_WithoutAnAddressTheTLSStageUsesTheSystemAnswerAndTheConfiguredPort(t *testing.T) {
+	_, port, err := net.SplitHostPort(closedTCPAddr(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := probeOptions{Name: probeName, Port: port, Canary: probeCanary, Timeout: 300 * time.Millisecond, Lookup: lookupReturning("127.0.0.1")}
 
 	stages := probe(context.Background(), opts)
 
-	if s := stageOf(t, stages, "tls"); s.OK || !strings.Contains(s.Detail, "127.0.0.1:853") {
-		t.Errorf("tls stage = %+v, want an attempt on 127.0.0.1:853", s)
+	if s := stageOf(t, stages, "tls"); s.OK || !strings.Contains(s.Detail, "127.0.0.1:"+port) {
+		t.Errorf("tls stage = %+v, want an attempt on 127.0.0.1:%s", s, port)
 	}
 }
 
@@ -276,6 +307,7 @@ func TestProbeVerdict_NamesTheLikelyCause(t *testing.T) {
 		{"own resolver only", []probeStage{fail("resolve system"), pass("resolve 1.1.1.1:53"), pass("tls"), pass("query")}, "own resolver"},
 		{"no resolver", []probeStage{fail("resolve system"), fail("resolve 1.1.1.1:53"), fail("tls"), fail("query")}, "no resolver"},
 		{"tls", []probeStage{pass("resolve system"), fail("tls"), fail("query")}, "handshake"},
+		{"resolver ok but tls fails", []probeStage{fail("resolve system"), pass("resolve 1.1.1.1:53"), fail("tls"), fail("query")}, "handshake"},
 		{"query", []probeStage{pass("resolve system"), pass("tls"), fail("query")}, "did not answer"},
 	}
 	for _, tc := range cases {
