@@ -127,17 +127,25 @@ warn_table() {
 		if (s ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$/) sub(/:[0-9]+$/, "", s)
 		return s
 	}
-	function reason(line,   s) {
-		if (match(line, /msg="[^"]*"/)) return substr(line, RSTART + 5, RLENGTH - 6)
-		if (match(line, /msg=[^ ]+/)) return substr(line, RSTART + 4, RLENGTH - 4)
-		return "other"
+	function field(line, key) {
+		if (match(line, key "=\"[^\"]*\"")) return substr(line, RSTART + length(key) + 2, RLENGTH - length(key) - 3)
+		if (match(line, key "=[^ ]+")) return substr(line, RSTART + length(key) + 1, RLENGTH - length(key) - 1)
+		return ""
+	}
+	function reason(line,   msg, why) {
+		msg = field(line, "msg")
+		why = field(line, "reason")
+		if (msg == "") msg = "other"
+		return why == "" ? msg : msg " (" why ")"
 	}
 	{
 		who = (address($0) in phone) ? "known phone" : "others"
-		total[reason($0) " | " who]++
+		key = reason($0) " | " who
+		total[key]++
+		when[key] = substr($1, 17, 8)
 	}
 	END {
-		for (k in total) printf "%d %s\n", total[k], k
+		for (k in total) printf "%d %s | last %s\n", total[k], k, when[k]
 	}' | sort -rn | head -n 20
 }
 
