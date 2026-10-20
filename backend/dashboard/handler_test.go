@@ -133,6 +133,22 @@ func TestHandler_StaticAssetsWithETag(t *testing.T) {
 	}
 }
 
+func TestHandler_FaviconIsAnEmptyCacheableAnswer(t *testing.T) {
+	s := newTestServer(t, nil)
+	rec := serve(s, httptest.NewRequest(http.MethodGet, "http://"+testHost+"/favicon.ico", nil))
+	if rec.Code != http.StatusNoContent || rec.Body.Len() != 0 || rec.Header().Get("Cache-Control") != "max-age=86400" {
+		t.Fatalf("got %d %q %v", rec.Code, rec.Body, rec.Header())
+	}
+	rec = serve(s, httptest.NewRequest(http.MethodHead, "http://"+testHost+"/favicon.ico", nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("HEAD got %d", rec.Code)
+	}
+	rec = serve(s, httptest.NewRequest(http.MethodPut, "http://"+testHost+"/favicon.ico", nil))
+	if rec.Code < 400 {
+		t.Fatalf("PUT got %d", rec.Code)
+	}
+}
+
 func TestHandler_RequestLogLeaksNothing(t *testing.T) {
 	var buf bytes.Buffer
 	s := newTestServer(t, func(o *Options) { o.Log = slog.New(slog.NewTextHandler(&buf, nil)) })

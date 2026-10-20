@@ -73,6 +73,8 @@ type Server struct {
 	opts      Options
 	tls       bool
 	names     map[string]struct{}
+	probes    map[string]struct{}
+	portText  map[string]struct{}
 	hosts     map[string]struct{}
 	csp       string
 	assets    map[string]asset
@@ -96,12 +98,20 @@ func New(opts Options) (*Server, error) {
 		assets:   assets,
 		inFlight: make(chan struct{}, opts.MaxInFlight),
 		names:    make(map[string]struct{}, len(opts.Names)),
+		probes:   make(map[string]struct{}, len(opts.ProbeDomains)),
+		portText: make(map[string]struct{}),
 	}
 	for _, name := range opts.Names {
 		s.names[name] = struct{}{}
 	}
+	for _, domain := range opts.ProbeDomains {
+		s.probes[domain] = struct{}{}
+	}
 	if err := s.bind(); err != nil {
 		return nil, err
+	}
+	for _, port := range s.ports() {
+		s.portText[strconv.Itoa(int(port))] = struct{}{}
 	}
 	s.hosts = s.allowedHosts()
 	s.csp = buildCSP(opts.ProbeDomains, s.ports())
@@ -159,8 +169,11 @@ func validate(o Options) error {
 		}
 	}
 	for i, domain := range o.ProbeDomains {
-		if !validHostName(domain) {
+		switch {
+		case !validHostName(domain):
 			errs = append(errs, fmt.Errorf("dashboard: probe_domains[%d] is not a valid lowercase host name", i))
+		case o.Certs != nil && !o.Certs.Covers(probeSampleLabel+"."+domain):
+			errs = append(errs, fmt.Errorf("dashboard: probe_domains[%d] is not covered by any certificate", i))
 		}
 	}
 	return errors.Join(errs...)
@@ -302,7 +315,8 @@ func (s *Server) wrapTLS(ln net.Listener) net.Listener {
 }
 
 func (s *Server) getCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	if _, ok := s.names[strings.ToLower(hello.ServerName)]; !ok {
+	name := strings.ToLower(hello.ServerName)
+	if _, ok := s.names[name]; !ok && !s.isProbeName(name) {
 		s.stats.unknownSNI.Add(1)
 		return nil, errUnknownServerName
 	}

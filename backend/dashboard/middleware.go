@@ -37,10 +37,18 @@ func (s *Server) routes() http.Handler {
 	h = s.limitInFlight(h)
 	h = s.securityHeaders(h)
 	h = s.logRequests(h)
-	return s.guardHost(h)
+	var probe http.Handler = http.HandlerFunc(s.serveProbe)
+	probe = s.limitInFlight(probe)
+	probe = s.securityHeaders(probe)
+	probe = s.logRequests(probe)
+	return s.guardHost(h, probe)
 }
 
 func (s *Server) route(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == faviconPath {
+		s.serveFavicon(w, r)
+		return
+	}
 	if !strings.HasPrefix(r.URL.Path, apiPrefix) {
 		s.serveAsset(w, r)
 		return
@@ -55,13 +63,19 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	s.opts.API.ServeHTTP(w, r)
 }
 
-func (s *Server) guardHost(next http.Handler) http.Handler {
+func (s *Server) guardHost(next, probe http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := s.hosts[strings.ToLower(r.Host)]; !ok {
-			s.stats.unknownHost.Add(1)
-			panic(http.ErrAbortHandler)
+		host := strings.ToLower(r.Host)
+		if _, ok := s.hosts[host]; ok {
+			next.ServeHTTP(w, r)
+			return
 		}
-		next.ServeHTTP(w, r)
+		if s.isProbeRequest(r, host) {
+			probe.ServeHTTP(w, r)
+			return
+		}
+		s.stats.unknownHost.Add(1)
+		panic(http.ErrAbortHandler)
 	})
 }
 

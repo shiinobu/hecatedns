@@ -26,6 +26,7 @@ const (
 	pathQueries     = "/api/queries"
 	pathRules       = "/api/rules"
 	pathRulesRemove = "/api/rules/remove"
+	pathConnection  = "/api/connection"
 )
 
 var readMethods = []string{http.MethodGet, http.MethodHead}
@@ -49,6 +50,7 @@ type APIOptions struct {
 	Resolver   func(context.Context) ResolverResult
 	Cert       certExpiry
 	Guard      *Guard
+	Connection ConnectionOptions
 	Now        func() time.Time
 	Log        *slog.Logger
 
@@ -100,6 +102,7 @@ func (a *API) endpoints() map[string]endpoint {
 		pathQueries:     {methods: readMethods, handle: a.handleQueries},
 		pathRules:       {methods: append(slices.Clone(readMethods), http.MethodPost), handle: a.handleRules},
 		pathRulesRemove: {methods: []string{http.MethodPost}, handle: a.handleRemoveRule},
+		pathConnection:  {methods: readMethods, handle: a.handleConnection},
 	}
 }
 

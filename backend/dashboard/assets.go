@@ -12,13 +12,15 @@ import (
 )
 
 const (
-	indexFile         = "index.html"
-	htmlContentType   = "text/html; charset=utf-8"
-	etagBytes         = 8
-	assetCacheControl = "max-age=86400, must-revalidate"
-	weakETagPrefix    = "W/"
-	maxAssetFiles     = 16
-	maxAssetBytes     = 1 << 20
+	indexFile           = "index.html"
+	htmlContentType     = "text/html; charset=utf-8"
+	etagBytes           = 8
+	assetCacheControl   = "max-age=86400, must-revalidate"
+	faviconPath         = "/favicon.ico"
+	faviconCacheControl = "max-age=86400"
+	weakETagPrefix      = "W/"
+	maxAssetFiles       = 16
+	maxAssetBytes       = 1 << 20
 )
 
 var assetContentTypes = map[string]string{
@@ -93,6 +95,16 @@ func readAsset(fsys fs.FS, rt assetRoute) (asset, error) {
 	}
 	sum := sha256.Sum256(body)
 	return asset{body: body, etag: `"` + hex.EncodeToString(sum[:etagBytes]) + `"`, contentType: rt.contentType}, nil
+}
+
+func (s *Server) serveFavicon(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	w.Header().Set("Cache-Control", faviconCacheControl)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request) {

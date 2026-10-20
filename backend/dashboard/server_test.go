@@ -30,7 +30,7 @@ import (
 
 const (
 	testHost  = "zq8w4kd7lm2nx5vc.ghost.example.org"
-	otherHost = "aaaabbbbccccdddd.ghost.example.org"
+	otherHost = "aaaabbbbccccdddd.ghost.example.net"
 	testProbe = "ghost.example.org"
 )
 
@@ -135,10 +135,15 @@ func runServer(t *testing.T, s *Server) (context.CancelFunc, <-chan error) {
 
 func rawRequest(t *testing.T, conn net.Conn, host string) (*http.Response, error) {
 	t.Helper()
+	return rawGet(t, conn, host, "/")
+}
+
+func rawGet(t *testing.T, conn net.Conn, host, path string) (*http.Response, error) {
+	t.Helper()
 	if err := conn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := io.WriteString(conn, "GET / HTTP/1.1\r\nHost: "+host+"\r\nConnection: close\r\n\r\n"); err != nil {
+	if _, err := io.WriteString(conn, "GET "+path+" HTTP/1.1\r\nHost: "+host+"\r\nConnection: close\r\n\r\n"); err != nil {
 		t.Fatal(err)
 	}
 	return http.ReadResponse(bufio.NewReader(conn), nil)
