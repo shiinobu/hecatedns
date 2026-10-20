@@ -53,6 +53,7 @@ type APIOptions struct {
 	Location   *time.Location
 	RulesFile  string
 	ListsDir   string
+	DataDir    string
 	Lists      []config.Source
 	Resolver   func(context.Context) ResolverResult
 	Cert       certExpiry
@@ -62,11 +63,12 @@ type APIOptions struct {
 	Now        func() time.Time
 	Log        *slog.Logger
 
-	ScanBudget  time.Duration
-	ScanRecords int
-	MaxGroups   int
-	StatusTTL   time.Duration
-	QueriesTTL  time.Duration
+	ScanBudget    time.Duration
+	ScanRecords   int
+	MaxGroups     int
+	StatusTTL     time.Duration
+	QueriesTTL    time.Duration
+	LifetimeEvery time.Duration
 }
 
 type API struct {
@@ -76,6 +78,8 @@ type API struct {
 	queries    *ttlCache[queryKey, queryResult]
 	rulesMu    sync.Mutex
 	rotationMu sync.Mutex
+	lifetimeMu sync.Mutex
+	lifetime   lifetimeState
 }
 
 func NewAPI(o APIOptions) *API {
@@ -96,6 +100,7 @@ func NewAPI(o APIOptions) *API {
 	o.MaxGroups = orDefault(o.MaxGroups, defaultMaxGroups)
 	o.StatusTTL = orDefault(o.StatusTTL, defaultStatusTTL)
 	o.QueriesTTL = orDefault(o.QueriesTTL, defaultQueriesTTL)
+	o.LifetimeEvery = orDefault(o.LifetimeEvery, defaultLifetimeEvery)
 	a := &API{
 		opts:    o,
 		status:  newTTLCache[struct{}, statusResponse](o.StatusTTL, o.Now),

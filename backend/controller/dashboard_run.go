@@ -100,13 +100,15 @@ func newDashboardServer(ctx context.Context, cfg config.Config, log *slog.Logger
 	if store != nil {
 		apiOpts.Cert = store
 	}
+	api := dashboard.NewAPI(apiOpts)
+	go api.RunLifetime(ctx)
 	return dashboard.New(dashboard.Options{
 		Listen:       listen,
 		Names:        cfg.Dashboard.Names,
 		ProbeDomains: cfg.Dashboard.ProbeDomains,
 		Certs:        store,
 		Assets:       frontend.Files,
-		API:          auth.Wrap(dashboard.NewAPI(apiOpts)),
+		API:          auth.Wrap(api),
 		Log:          log,
 	})
 }
@@ -135,6 +137,7 @@ func dashboardAPIOptions(cfg config.Config, log *slog.Logger) dashboard.APIOptio
 		Location:   time.Local,
 		RulesFile:  cfg.Rules.File,
 		ListsDir:   lists.Dir(cfg.DataDir),
+		DataDir:    cfg.DataDir,
 		Lists:      cfg.Lists.Sources,
 		Resolver:   dashboardResolver(cfg),
 		Guard:      dashboardGuard(cfg),

@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -339,5 +340,32 @@ func TestDashboardRun_IsReachableThroughExecute(t *testing.T) {
 
 	if code != exitError || !strings.Contains(stderr.String(), "hecate dashboard") {
 		t.Fatalf("exit %d, stderr %q", code, stderr.String())
+	}
+}
+
+func TestDashboardRun_SettlesFinishedDaysWithoutAnyRequest(t *testing.T) {
+	f := newDashboardRunFixture(t, true)
+	for _, sub := range []string{"data", "logs"} {
+		if err := os.MkdirAll(filepath.Join(f.dir, sub), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	line := `{"ts":"2020-01-01T12:00:00.000Z","client":"10.0.0.2","proto":"tls","qname":"a.example.com","qtype":"A","action":"pass","reason":"","source":"","ms":3}` + "\n"
+	writeFile(t, filepath.Join(f.dir, "logs"), "queries-20200101.jsonl", line+line)
+	run := f.start(t)
+
+	var stored string
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if raw, err := os.ReadFile(filepath.Join(f.dir, "data", "lifetime-counts.json")); err == nil {
+			stored = string(raw)
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	run.stop()
+
+	if !strings.Contains(stored, `"2020-01-01"`) || !strings.Contains(stored, `"total": 2`) {
+		t.Errorf("counts file = %q, want the day 2020-01-01 with total 2", stored)
 	}
 }

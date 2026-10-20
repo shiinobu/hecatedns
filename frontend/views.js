@@ -9,6 +9,10 @@ import {
 
 let gaugeHasAnimated = false;
 
+const SCOPE_DAY = "day";
+const SCOPE_LIFETIME = "lifetime";
+let statsScope = SCOPE_DAY;
+
 const CERT_WARN_DAYS = 14;
 const LIST_STALE_HOURS = 72;
 
@@ -108,25 +112,73 @@ function rowTone(tone) {
   return "row row-flush row-" + tone;
 }
 
-function sectionHead(title, tag) {
-  const head = el("div", "section-head");
-  head.appendChild(el("h3", "section-label", title));
-  if (tag) head.appendChild(tag);
-  return head;
+function lifetimeCounts(data) {
+  const life = data.lifetime;
+  return life && Number(life.total) > 0 && formatDateShort(life.since) ? life : null;
 }
 
-function appendCountsSection(container, data) {
-  const partial = data.counts && data.counts.partial;
-  container.appendChild(
-    sectionHead("Last 24 hours", partial ? el("span", "meta-tag meta-warn", "Partial count") : null)
-  );
+function buildScopeFooter(scope, counts) {
+  const footer = el("p", "card-footer-meta");
+  const text = scope === SCOPE_LIFETIME ? "Since " + formatDateShort(counts.since) : "Last 24 hours";
+  footer.appendChild(document.createTextNode(text));
+  if (counts.partial) {
+    footer.appendChild(document.createTextNode(" "));
+    footer.appendChild(el("span", "meta-tag meta-warn", "Partial count"));
+  }
+  return footer;
+}
+
+function buildScopeTabs(scope, onPick) {
+  const group = el("div", "seg-group");
+  group.dataset.count = "2";
+  group.dataset.active = scope === SCOPE_LIFETIME ? "1" : "0";
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-label", "Statistics range");
+  const buttons = [];
+  [
+    [SCOPE_DAY, "24h"],
+    [SCOPE_LIFETIME, "Lifetime"]
+  ].forEach(([value, label], index) => {
+    const btn = el("button", "seg-btn", label);
+    btn.type = "button";
+    btn.setAttribute("aria-pressed", value === scope ? "true" : "false");
+    btn.addEventListener("click", () => {
+      if (statsScope === value) return;
+      statsScope = value;
+      group.dataset.active = String(index);
+      buttons.forEach((b) => b.setAttribute("aria-pressed", b === btn ? "true" : "false"));
+      onPick(value);
+    });
+    buttons.push(btn);
+    group.appendChild(btn);
+  });
+  const toolbar = el("div", "seg-toolbar");
+  toolbar.appendChild(group);
+  return toolbar;
+}
+
+function appendStatisticsSection(container, data) {
+  container.appendChild(el("h3", "section-label", "Statistics"));
   const card = el("div", "card panel-glass");
+  container.appendChild(card);
   if (!data.counts || !data.log_enabled) {
     card.appendChild(el("p", "card-text", "Query log is off"));
-  } else {
-    card.appendChild(buildGaugeStage(data.counts));
+    return;
   }
-  container.appendChild(card);
+  const life = lifetimeCounts(data);
+  const countsOf = { [SCOPE_DAY]: data.counts, [SCOPE_LIFETIME]: life };
+  const content = el("div");
+  content.setAttribute("aria-live", "polite");
+  const show = (scope) => {
+    const counts = countsOf[scope];
+    clearNode(content);
+    content.appendChild(buildGaugeStage(counts));
+    content.appendChild(buildScopeFooter(scope, counts));
+  };
+  const scope = life ? statsScope : SCOPE_DAY;
+  if (life) card.appendChild(buildScopeTabs(scope, show));
+  card.appendChild(content);
+  show(scope);
 }
 
 function buildResolverRow(resolver) {
@@ -305,7 +357,7 @@ export function renderStatusView(container, data) {
   if (!data) return;
 
   container.appendChild(buildSummary(data));
-  appendCountsSection(container, data);
+  appendStatisticsSection(container, data);
   container.appendChild(el("h3", "section-label", "System"));
   container.appendChild(buildSystemCard(data));
   container.appendChild(el("h3", "section-label", "Block lists"));

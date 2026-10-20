@@ -8,7 +8,7 @@ keep=14
 mkdir -p "$dest"
 stamp=$(date +%Y%m%d-%H%M%S)
 files="etc/hecate/hecate.yaml var/lib/hecate/rules.txt"
-for optional in var/lib/hecate/dot-names.txt var/lib/hecate/dashboard/key.sha256; do
+for optional in var/lib/hecate/dot-names.txt var/lib/hecate/dashboard/key.sha256 var/lib/hecate/lifetime-counts.json; do
   if [ -f "/$optional" ]; then
     files="$files $optional"
   fi

@@ -25,6 +25,7 @@ type statusResponse struct {
 	Lists       []listInfo       `json:"lists"`
 	LogEnabled  bool             `json:"log_enabled"`
 	Counts      *countsInfo      `json:"counts"`
+	Lifetime    *lifetimeInfo    `json:"lifetime"`
 	Rules       rulesInfo        `json:"rules"`
 }
 
@@ -76,6 +77,7 @@ func (a *API) buildStatus() statusResponse {
 	}
 	if a.opts.LogEnabled {
 		resp.Counts = a.countLastDay()
+		resp.Lifetime = a.countLifetime()
 	}
 	return resp
 }
@@ -118,23 +120,12 @@ func (a *API) rulesSummary() rulesInfo {
 }
 
 func (a *API) countLastDay() *countsInfo {
-	counts := &countsInfo{}
+	var tally dayCounts
 	since := a.opts.Now().Add(-statusWindow)
-	partial, err := a.scanLog(qlog.Filter{Since: since}, func(rec qlog.Record) {
-		counts.Total++
-		switch rec.Action {
-		case engine.ActionBlock:
-			counts.Blocked++
-		case engine.ActionPass:
-			counts.Passed++
-		case engine.ActionError:
-			counts.Errors++
-		}
-	})
+	partial, err := a.scanLog(qlog.Filter{Since: since}, func(rec qlog.Record) { tally.add(rec.Action) })
 	if err != nil {
 		a.opts.Log.Warn("counting the query log failed", "err", err)
 		partial = true
 	}
-	counts.Partial = partial
-	return counts
+	return &countsInfo{Total: tally.Total, Blocked: tally.Blocked, Passed: tally.Passed, Errors: tally.Errors, Partial: partial}
 }
