@@ -69,14 +69,18 @@ func newNamesWatch(d config.DoT, certs *certStore, now func() time.Time, log *sl
 }
 
 func (w *namesWatch) loadFirst() error {
-	entries, stamp, err := w.read()
-	if err != nil {
+	entries, rejected, stamp, err := w.readLenient()
+	switch {
+	case err != nil:
 		if len(w.config) == 0 {
 			return fmt.Errorf("dot: no server name to serve, dot.names is empty and the names file cannot be used: %w", err)
 		}
 		w.rejected = &stamp
 		w.log.Error("the DoT names file cannot be used, only dot.names are served", "err", err)
 		entries = nil
+	case len(rejected) > 0:
+		w.rejected = &stamp
+		w.log.Error("the DoT names file has unusable lines, the valid ones are served", "lines", rejected, "valid", len(entries))
 	}
 	set, err := w.build(entries)
 	if err != nil {
@@ -141,6 +145,15 @@ func (w *namesWatch) reload() {
 
 func (w *namesWatch) read() ([]dotnames.Entry, dotnames.Stamp, error) {
 	entries, stamp, err := dotnames.Read(w.path)
+	return entries, w.settle(stamp, err), err
+}
+
+func (w *namesWatch) readLenient() ([]dotnames.Entry, []int, dotnames.Stamp, error) {
+	entries, rejected, stamp, err := dotnames.ReadLenient(w.path)
+	return entries, rejected, w.settle(stamp, err), err
+}
+
+func (w *namesWatch) settle(stamp dotnames.Stamp, err error) dotnames.Stamp {
 	if err != nil && sameStamp(stamp, dotnames.Stamp{}) {
 		if statStamp, statErr := dotnames.StatFile(w.path); statErr == nil {
 			stamp = statStamp
@@ -148,7 +161,7 @@ func (w *namesWatch) read() ([]dotnames.Entry, dotnames.Stamp, error) {
 	}
 	w.seen = stamp
 	w.recheck = w.now().Sub(stamp.Time).Abs() < namesSettleAfter
-	return entries, stamp, err
+	return stamp
 }
 
 func (w *namesWatch) refuse(stamp dotnames.Stamp, err error) {
@@ -170,18 +183,38 @@ func (w *namesWatch) build(entries []dotnames.Entry) (*nameSet, error) {
 	if len(keys) == 0 {
 		return nil, errNoServedNames
 	}
-	return &nameSet{keys: keys, fromFile: len(entries), uncovered: w.uncovered(entries)}, nil
+	set := &nameSet{keys: keys, fromFile: len(entries)}
+	set.uncovered = w.uncoveredIn(set.hosts())
+	return set, nil
 }
 
-func (w *namesWatch) uncovered(entries []dotnames.Entry) int {
+func (n *nameSet) hosts() []string {
+	hosts := make([]string, 0, len(n.keys))
+	for key := range n.keys {
+		hosts = append(hosts, key)
+	}
+	return hosts
+}
+
+func (w *namesWatch) hosts() []string {
+	return w.cur.Load().hosts()
+}
+
+func (w *namesWatch) uncoveredIn(hosts []string) int {
 	leaf := w.certs.cur.Load().leaf
 	n := 0
-	for _, e := range entries {
-		if leaf.VerifyHostname(e.Host) != nil {
+	for _, host := range hosts {
+		if leaf.VerifyHostname(host) != nil {
 			n++
 		}
 	}
 	return n
+}
+
+func (w *namesWatch) warnUncovered() {
+	if n := w.uncoveredIn(w.hosts()); n > 0 {
+		w.log.Warn("the DoT certificate does not cover some served names, clients that use them cannot connect", "uncovered", n)
+	}
 }
 
 func (w *namesWatch) publish(set *nameSet) {

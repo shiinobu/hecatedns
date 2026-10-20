@@ -44,6 +44,8 @@ type loadedCert struct {
 type certStore struct {
 	certFile, keyFile string
 	names             []string
+	served            func() []string
+	onReload          func()
 	now               func() time.Time
 	log               *slog.Logger
 
@@ -100,8 +102,25 @@ func (s *certStore) load() (*loadedCert, error) {
 			return nil, fmt.Errorf("dot: the certificate does not cover dot.names[%d]", i)
 		}
 	}
+	if lost := s.lostCoverage(leaf); lost > 0 {
+		return nil, fmt.Errorf("dot: the certificate no longer covers %d served names that the current one covers", lost)
+	}
 	pair.Leaf = leaf
 	return &loadedCert{pair: &pair, leaf: leaf, stamp: stamp}, nil
+}
+
+func (s *certStore) lostCoverage(next *x509.Certificate) int {
+	cur := s.cur.Load()
+	if cur == nil || s.served == nil {
+		return 0
+	}
+	lost := 0
+	for _, name := range s.served() {
+		if cur.leaf.VerifyHostname(name) == nil && next.VerifyHostname(name) != nil {
+			lost++
+		}
+	}
+	return lost
 }
 
 func (s *certStore) get(*tls.ClientHelloInfo) (*tls.Certificate, error) {
@@ -154,6 +173,9 @@ func (s *certStore) reload(stamp certStamp, cur *loadedCert) *loadedCert {
 	s.cur.Store(next)
 	s.lastExpiryAt = time.Time{}
 	s.log.Info("the DoT certificate was reloaded", "expires", next.leaf.NotAfter.UTC().Format(time.RFC3339))
+	if s.onReload != nil {
+		s.onReload()
+	}
 	return next
 }
 
@@ -216,6 +238,7 @@ func newDoT(cfg config.Config, now func() time.Time, log *slog.Logger) (*dotPart
 	if err := errors.Join(listenErr, certErr, namesErr); err != nil {
 		return nil, err
 	}
+	store.served, store.onReload = names.hosts, names.warnUncovered
 	return &dotParts{certs: store, names: names, addrs: addrs}, nil
 }
 
@@ -234,6 +257,9 @@ func CheckDoT(cfg config.Config) (time.Time, error) {
 	parts, err := newDoT(cfg, time.Now, slog.New(slog.DiscardHandler))
 	if err != nil || parts == nil {
 		return time.Time{}, err
+	}
+	if n := parts.names.cur.Load().uncovered; n > 0 {
+		return time.Time{}, fmt.Errorf("dot: the certificate does not cover %d served names", n)
 	}
 	return parts.certs.cur.Load().leaf.NotAfter, nil
 }

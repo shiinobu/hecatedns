@@ -42,27 +42,45 @@ type Stamp struct {
 }
 
 func Parse(data []byte) ([]Entry, error) {
+	entries, _, err := parse(data, true)
+	if err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func ParseLenient(data []byte) ([]Entry, []int) {
+	entries, rejected, _ := parse(data, false)
+	return entries, rejected
+}
+
+func parse(data []byte, strict bool) ([]Entry, []int, error) {
 	var entries []Entry
+	var rejected []int
 	seen := make(map[string]bool)
 	for i, raw := range strings.Split(string(data), "\n") {
 		line := strings.TrimSpace(raw)
-		if line == "" {
+		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		entry, err := parseLine(i+1, line)
-		if err != nil {
-			return nil, err
+		if err == nil && seen[entry.Host] {
+			err = fmt.Errorf("dotnames: line %d repeats an earlier host name", i+1)
 		}
-		if seen[entry.Host] {
-			return nil, fmt.Errorf("dotnames: line %d repeats an earlier host name", i+1)
+		if err == nil && len(entries) >= MaxEntries {
+			err = fmt.Errorf("%w (at most %d)", ErrTooMany, MaxEntries)
+		}
+		if err != nil {
+			if strict {
+				return nil, nil, err
+			}
+			rejected = append(rejected, i+1)
+			continue
 		}
 		seen[entry.Host] = true
 		entries = append(entries, entry)
-		if len(entries) > MaxEntries {
-			return nil, fmt.Errorf("%w (at most %d)", ErrTooMany, MaxEntries)
-		}
 	}
-	return entries, nil
+	return entries, rejected, nil
 }
 
 func parseLine(number int, line string) (Entry, error) {
@@ -85,6 +103,24 @@ func parseLine(number int, line string) (Entry, error) {
 }
 
 func Read(path string) ([]Entry, Stamp, error) {
+	data, stamp, err := readBytes(path)
+	if err != nil {
+		return nil, stamp, err
+	}
+	entries, err := Parse(data)
+	return entries, stamp, err
+}
+
+func ReadLenient(path string) ([]Entry, []int, Stamp, error) {
+	data, stamp, err := readBytes(path)
+	if err != nil {
+		return nil, nil, stamp, err
+	}
+	entries, rejected := ParseLenient(data)
+	return entries, rejected, stamp, nil
+}
+
+func readBytes(path string) ([]byte, Stamp, error) {
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, Stamp{}, nil
@@ -105,8 +141,7 @@ func Read(path string) ([]Entry, Stamp, error) {
 	if len(data) > MaxBytes {
 		return nil, stamp, ErrTooLarge
 	}
-	entries, err := Parse(data)
-	return entries, stamp, err
+	return data, stamp, nil
 }
 
 func StatFile(path string) (Stamp, error) {
