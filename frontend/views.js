@@ -30,7 +30,7 @@ function buildGaugeStage(counts) {
   svg.setAttribute("viewBox", "0 0 200 200");
   svg.setAttribute("aria-hidden", "true");
 
-  const r = 74;
+  const r = 77;
   const c = 2 * Math.PI * r;
   const track = document.createElementNS(ns, "circle");
   track.setAttribute("class", "gauge-track");
@@ -41,9 +41,6 @@ function buildGaugeStage(counts) {
 
   const blockLen = total > 0 ? (blocked / total) * c : 0;
   const passLen = total > 0 ? (passed / total) * c : 0;
-  const seamGap = blocked > 0 && passed > 0 ? 3.5 : 0;
-  const blockDraw = Math.max(0, blockLen - seamGap);
-  const passDraw = Math.max(0, passLen - seamGap);
 
   const passArc = document.createElementNS(ns, "circle");
   passArc.setAttribute("class", "gauge-arc");
@@ -52,7 +49,7 @@ function buildGaugeStage(counts) {
   passArc.setAttribute("r", String(r));
   passArc.setAttribute("stroke", "url(#grad-cyan)");
   passArc.setAttribute("transform", "rotate(-90 100 100)");
-  passArc.setAttribute("stroke-dashoffset", String(-(blockLen + seamGap / 2)));
+  passArc.setAttribute("stroke-dashoffset", String(-blockLen));
 
   const blockArc = document.createElementNS(ns, "circle");
   blockArc.setAttribute("class", "gauge-arc");
@@ -61,10 +58,9 @@ function buildGaugeStage(counts) {
   blockArc.setAttribute("r", String(r));
   blockArc.setAttribute("stroke", "url(#grad-block-arc)");
   blockArc.setAttribute("transform", "rotate(-90 100 100)");
-  blockArc.setAttribute("stroke-dashoffset", String(-(seamGap / 2)));
 
-  const targetBlockDash = blockDraw.toFixed(2) + " " + c.toFixed(2);
-  const targetPassDash = passDraw.toFixed(2) + " " + c.toFixed(2);
+  const targetBlockDash = blockLen.toFixed(2) + " " + c.toFixed(2);
+  const targetPassDash = passLen.toFixed(2) + " " + c.toFixed(2);
 
   if (!gaugeHasAnimated) {
     blockArc.setAttribute("stroke-dasharray", "0 " + c.toFixed(2));
